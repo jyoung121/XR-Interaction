@@ -115,6 +115,19 @@ jobs:
           echo "앱: $APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
+
+          # Unity 가 UnityRuntime.framework 등에 넣어 둔 서명이 그대로 들어 있다.
+          # CODE_SIGNING_ALLOWED=NO 로 빌드하면 이게 덮이지 않고 남아, Sideloadly 설치가
+          # ApplicationVerificationFailed ... 0xe8008001 로 실패한다.
+          # 어차피 Sideloadly 가 다시 서명하므로 통째로 지운다.
+          find Payload -type d -name "_CodeSignature" -prune -print > stale_sigs.txt || true
+          echo "남아 있던 서명 $(wc -l < stale_sigs.txt) 개:"
+          cat stale_sigs.txt
+          while IFS= read -r d; do [ -n "$d" ] && rm -rf "$d"; done < stale_sigs.txt
+          find Payload -name "embedded.mobileprovision" -delete || true
+          REMAIN=$(find Payload -type d -name "_CodeSignature" | wc -l)
+          test "$REMAIN" -eq 0 || { echo "서명 제거 실패 ($REMAIN 개 남음)"; exit 1; }
+
           zip -qry CardboardHapticSearch-unsigned.ipa Payload
           ls -lh CardboardHapticSearch-unsigned.ipa
 
