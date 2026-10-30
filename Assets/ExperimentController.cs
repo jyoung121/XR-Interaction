@@ -103,7 +103,7 @@ public class ExperimentController : MonoBehaviour
     public bool runHapticSelfTest = true;
     [Tooltip("켜면 시작할 때 진동 프리셋을 비교하는 화면을 띄운다. 값을 정하는 용도이므로 " +
              "본 실험에서는 반드시 꺼야 한다")]
-    public bool runHapticTuning = true;
+    public bool runHapticTuning = false;
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
 
