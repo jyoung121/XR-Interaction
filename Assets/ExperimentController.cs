@@ -87,8 +87,10 @@ public class ExperimentController : MonoBehaviour
 
     [Header("진단 / 테스트")]
     [Tooltip("켜면 시행 수를 줄여 빠르게 한 바퀴 돌린다. 본 실험에서는 꺼야 한다")]
-    public bool testMode = true;
-    [Tooltip("앱 시작 시 약-중-강 펄스와 연속 진동으로 햅틱을 자가진단한다")]
+    public bool testMode = false;
+    [Tooltip("앱 시작 시 참가자 번호를 화면에서 고른다. 끄면 위 participantId 값을 그대로 쓴다")]
+    public bool askParticipantId = true;
+    [Tooltip("앱 시작 시 햅틱을 점검한다. 시스템 햅틱이 꺼진 폰을 걸러내므로 켜 두는 것을 권한다")]
     public bool runHapticSelfTest = true;
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
@@ -102,6 +104,9 @@ public class ExperimentController : MonoBehaviour
     // ───────────────────────── 내부 상태 ─────────────────────────
 
     private enum Phase { Ready, Trial, InterTrial, BlockRest, Finished }
+
+    /// <summary>시행이 어떻게 끝났는지. 확정 수단이 섞이면 total_time 의 의미가 달라지므로 기록한다.</summary>
+    private enum EndReason { Trigger, Dwell, Timeout }
 
     private struct TrialSpec
     {
@@ -162,12 +167,77 @@ public class ExperimentController : MonoBehaviour
         if (showHud && headCamera != null) DebugHud.Create(headCamera);
 
         BuildPool();
+        blockIndex = 0;
+
+        // 참가자 번호를 앱 안에서 고른 뒤라야 블록 순서와 CSV 파일명이 정해진다.
+        StartCoroutine(Startup());
+    }
+
+    /// <summary>참가자 번호 선택 → 햅틱 점검 → 첫 블록.</summary>
+    private IEnumerator Startup()
+    {
+        if (askParticipantId) yield return StartCoroutine(SelectParticipant());
+
         BuildBlockOrder();
         OpenCsv();
 
-        blockIndex = 0;
-        if (runHapticSelfTest) StartCoroutine(HapticSelfTest());
-        else StartBlock();
+        if (runHapticSelfTest) yield return StartCoroutine(HapticSelfTest());
+
+        StartBlock();
+    }
+
+    /// <summary>
+    /// 참가자 번호를 앱 안에서 고른다.
+    ///
+    /// 라틴방격은 참가자마다 다른 블록 순서를 요구하는데, 번호가 Inspector 값이면
+    /// 참가자 6명에 6번 다시 빌드·사이드로드해야 한다. 입력 수단이 트리거 하나뿐이라
+    /// 탭으로 번호를 올리고 잠시 두면 확정되는 방식으로 했다.
+    /// </summary>
+    private IEnumerator SelectParticipant()
+    {
+        phase = Phase.Ready;
+        HideAll();
+
+        int id = Mathf.Abs(participantId) % LatinSquare.Length;
+        float idle = 0f;
+        const float confirmAfter = 3f;
+
+        while (idle < confirmAfter)
+        {
+            if (Api.IsTriggerPressed)
+            {
+                id = (id + 1) % LatinSquare.Length;
+                idle = 0f;
+            }
+            else
+            {
+                idle += Time.deltaTime;
+            }
+
+            DebugHud.Set("PARTICIPANT\n\n"
+                       + "      P" + id + "\n\n"
+                       + "tap to change\n"
+                       + "hold still " + Mathf.CeilToInt(confirmAfter - idle) + "s to confirm\n\n"
+                       + "order: " + BlockOrderText(id));
+            yield return null;
+        }
+
+        participantId = id;
+        DebugHud.Set("PARTICIPANT P" + id + " confirmed\n\norder: " + BlockOrderText(id));
+        yield return new WaitForSeconds(1.2f);
+    }
+
+    private static string BlockOrderText(int id)
+    {
+        int[] o = LatinSquare[Mathf.Abs(id) % LatinSquare.Length];
+        return CaseShort(o[0]) + " > " + CaseShort(o[1]) + " > " + CaseShort(o[2]);
+    }
+
+    private static string CaseShort(int i)
+    {
+        if (i == 0) return "C1 visual";
+        if (i == 1) return "C2 pulse";
+        return "C3 intensity";
     }
 
     /// <summary>
@@ -184,13 +254,15 @@ public class ExperimentController : MonoBehaviour
     {
         phase = Phase.Ready;
 
-        string head = "진동 자가진단  (" + Application.platform + ")\n\n";
+        // 내장 글꼴(LegacyRuntime.ttf)에 한글 글리프가 없어 한글은 빈 칸으로 보인다.
+        // HUD 문자열은 전부 ASCII 로 쓴다.
+        string head = "HAPTIC CHECK  (" + Application.platform + ")\n\n";
 
-        DebugHud.Set(head + "2초 뒤 1단계부터 시작합니다.\n손에 들고 계세요.");
+        DebugHud.Set(head + "hold the phone in your hand\nstarting in 2s");
         yield return new WaitForSeconds(2f);
 
         // ── 1단계 : 기기 기본 진동 ─────────────────────────────
-        DebugHud.Set(head + "[1/4] 기기 기본 진동\n길게 3번 울립니다.");
+        DebugHud.Set(head + "[1/4] system vibrate\n3 long buzzes");
         for (int k = 0; k < 3; k++)
         {
             HapticManager.SystemVibrate();
@@ -200,13 +272,13 @@ public class ExperimentController : MonoBehaviour
 
         // ── 2단계 : UIImpactFeedback (세기 3단계) ───────────────
         int[] amps = { 70, 150, 255 };
-        string[] names = { "약", "중", "강" };
+        string[] names = { "weak", "medium", "strong" };
 
-        DebugHud.Set(head + "[2/4] 3단계 진동\n약 - 중 - 강 순서로 울립니다.");
+        DebugHud.Set(head + "[2/4] 3-step taps\nweak - medium - strong");
         yield return new WaitForSeconds(1.0f);
         for (int i = 0; i < amps.Length; i++)
         {
-            DebugHud.Set(head + "[2/4] 3단계 진동 — " + names[i]);
+            DebugHud.Set(head + "[2/4] 3-step taps - " + names[i]);
             for (int k = 0; k < 4; k++)
             {
                 HapticManager.ImpactOnly(amps[i]);
@@ -217,11 +289,11 @@ public class ExperimentController : MonoBehaviour
 
         // ── 3단계 : CoreHaptics 펄스 (Case 2 가 쓰는 경로) ──────
         HapticManager.Refresh();
-        DebugHud.Set(head + "[3/4] Case 2 펄스\n약 - 중 - 강 순서로 울립니다.");
+        DebugHud.Set(head + "[3/4] Case 2 pulses\nweak - medium - strong");
         yield return new WaitForSeconds(1.0f);
         for (int i = 0; i < amps.Length; i++)
         {
-            DebugHud.Set(head + "[3/4] Case 2 펄스 — " + names[i]);
+            DebugHud.Set(head + "[3/4] Case 2 pulses - " + names[i]);
             for (int k = 0; k < 5; k++)
             {
                 HapticManager.Pulse(60, amps[i]);
@@ -231,7 +303,7 @@ public class ExperimentController : MonoBehaviour
         }
 
         // ── 4단계 : CoreHaptics 연속 진동 (Case 3 가 쓰는 경로) ──
-        DebugHud.Set(head + "[4/4] Case 3 연속 진동\n세기가 서서히 올라갑니다.");
+        DebugHud.Set(head + "[4/4] Case 3 continuous\nintensity ramps up");
         yield return new WaitForSeconds(1.0f);
         for (int i = 0; i <= 20; i++)
         {
@@ -244,13 +316,11 @@ public class ExperimentController : MonoBehaviour
 
         HapticManager.Refresh();
         DebugHud.Set(head
-            + "자가진단 끝.\n\n"
-            + "CoreHaptics : " + (HapticManager.HasAmplitudeControl ? "동작함" : "실패") + "\n"
+            + "check done\n\n"
+            + "CoreHaptics : " + (HapticManager.HasAmplitudeControl ? "OK" : "FAILED") + "\n"
             + HapticManager.Diagnostics + "\n\n"
-            + "탭하면 실험이 시작됩니다.");
-        yield return new WaitForSeconds(6f);
-
-        StartBlock();
+            + "if you felt nothing, turn on\nSettings > Sounds & Haptics\n> System Haptics");
+        yield return new WaitForSeconds(5f);
     }
 
     private void BuildPool()
@@ -288,7 +358,7 @@ public class ExperimentController : MonoBehaviour
             File.WriteAllText(csvPath,
                 "participant,block_index,case,trial_index,is_practice,eccentricity_deg,side," +
                 "search_time_s,total_time_s,first_turn_correct,reversals,path_efficiency," +
-                "error_clicks,timeout\n", Encoding.UTF8);
+                "error_clicks,timeout,end_by,dwell_setting_s\n", Encoding.UTF8);
             Debug.Log("[Experiment] CSV: " + csvPath);
         }
         catch (System.Exception e)
@@ -306,7 +376,8 @@ public class ExperimentController : MonoBehaviour
             phase = Phase.Finished;
             HideAll();
             HapticManager.Cancel();
-            SetStatus("실험 종료. 수고하셨습니다.\n" + csvPath);
+            DebugHud.Show(true);
+            SetStatus("ALL BLOCKS DONE\nthank you\n\nP" + participantId + "\n" + csvPath);
             Debug.Log("[Experiment] all blocks done. csv=" + csvPath);
             return;
         }
@@ -320,8 +391,9 @@ public class ExperimentController : MonoBehaviour
         HideAll();
         HapticManager.Cancel();
         HapticManager.Refresh();
-        SetStatus(string.Format("블록 {0}/{1} — {2}\n시행 {3}개 (연습 {4})\n\n{5}\n\n탭하면 시작",
-            blockIndex + 1, blockOrder.Count, currentCase,
+        DebugHud.Show(true);
+        SetStatus(string.Format("P{0}    BLOCK {1}/{2}\n{3}\n\n{4} trials ({5} practice)\n\n{6}\n\nTAP TO START",
+            participantId, blockIndex + 1, blockOrder.Count, CaseShort((int)currentCase),
             trials.Count, practiceTrials, HapticManager.Diagnostics));
         Debug.Log(string.Format("[Experiment] block {0}/{1} = {2}", blockIndex + 1, blockOrder.Count, currentCase));
     }
@@ -385,8 +457,12 @@ public class ExperimentController : MonoBehaviour
         trialStartTime = Time.time;
         phase = Phase.Trial;
 
-        SetStatus(string.Format("{0}  {1}/{2}{3}",
-            currentCase, trialIndex + 1, trials.Count, currentTrial.isPractice ? "  (연습)" : ""));
+        // 시행 중에는 HUD 를 숨긴다. 화살표 말고 다른 글자가 시야에 떠 있을 이유가 없다.
+        DebugHud.Show(false);
+        if (statusText != null)
+            statusText.text = string.Format("{0}  {1}/{2}{3}",
+                CaseShort((int)currentCase), trialIndex + 1, trials.Count,
+                currentTrial.isPractice ? "  PRACTICE" : "");
     }
 
     /// <summary>시행 시작 시점의 머리 방향을 기준으로, 지정한 이심각·좌우에 정답을 둔다.</summary>
@@ -510,16 +586,16 @@ public class ExperimentController : MonoBehaviour
         bool aimed = angle <= selectAngleDeg;
         if (Api.IsTriggerPressed)
         {
-            if (aimed) { EndTrial(false); return; }
+            if (aimed) { EndTrial(EndReason.Trigger); return; }
             errorClicks++;
         }
         if (dwellSeconds > 0f)
         {
             dwellTimer = aimed ? dwellTimer + Time.deltaTime : 0f;
-            if (dwellTimer >= dwellSeconds) { EndTrial(false); return; }
+            if (dwellTimer >= dwellSeconds) { EndTrial(EndReason.Dwell); return; }
         }
 
-        if (Time.time - trialStartTime >= trialTimeoutSeconds) EndTrial(true);
+        if (Time.time - trialStartTime >= trialTimeoutSeconds) EndTrial(EndReason.Timeout);
     }
 
     private void TrackHeadMotion()
@@ -595,8 +671,9 @@ public class ExperimentController : MonoBehaviour
 
     // ───────────────────────── 시행 종료 / 기록 ─────────────────────────
 
-    private void EndTrial(bool timedOut)
+    private void EndTrial(EndReason reason)
     {
+        bool timedOut = reason == EndReason.Timeout;
         float total = Time.time - trialStartTime;
         if (searchTime < 0f) searchTime = total;
 
@@ -610,7 +687,7 @@ public class ExperimentController : MonoBehaviour
         float shortestAbs = Mathf.Abs(signedYawAtOnset);
         float efficiency = accumulatedYaw > 0.01f ? Mathf.Clamp01(shortestAbs / accumulatedYaw) : 0f;
 
-        if (!currentTrial.isPractice) WriteRow(total, firstTurnCorrect, efficiency, timedOut);
+        if (!currentTrial.isPractice) WriteRow(total, firstTurnCorrect, efficiency, timedOut, reason);
 
         Debug.Log(string.Format(
             "[Experiment] case={0} ecc={1} side={2} search={3:F2}s total={4:F2}s firstTurn={5} rev={6} eff={7:F2} err={8}{9}",
@@ -625,7 +702,7 @@ public class ExperimentController : MonoBehaviour
         phaseTimer = 0f;
     }
 
-    private void WriteRow(float total, int firstTurnCorrect, float efficiency, bool timedOut)
+    private void WriteRow(float total, int firstTurnCorrect, float efficiency, bool timedOut, EndReason reason)
     {
         var ci = CultureInfo.InvariantCulture;
         line.Length = 0;
@@ -642,7 +719,9 @@ public class ExperimentController : MonoBehaviour
             .Append(reversals).Append(',')
             .Append(efficiency.ToString("F4", ci)).Append(',')
             .Append(errorClicks).Append(',')
-            .Append(timedOut ? 1 : 0).Append('\n');
+            .Append(timedOut ? 1 : 0).Append(',')
+            .Append(reason).Append(',')
+            .Append(dwellSeconds.ToString("F2", ci)).Append('\n');
 
         try { File.AppendAllText(csvPath, line.ToString(), Encoding.UTF8); }
         catch (System.Exception e) { Debug.LogWarning("[Experiment] CSV 기록 실패: " + e.Message); }

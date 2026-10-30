@@ -38,7 +38,8 @@ public class DebugHud : MonoBehaviour
         t.alignment = TextAnchor.UpperLeft;
         t.horizontalOverflow = HorizontalWrapMode.Wrap;
         t.verticalOverflow = VerticalWrapMode.Overflow;
-        t.text = "HUD 시작";
+        // 내장 글꼴에 한글 글리프가 없다. 여기 들어가는 문자열은 전부 ASCII 여야 한다.
+        t.text = "HUD";
 
         RectTransform trt = t.GetComponent<RectTransform>();
         trt.anchorMin = Vector2.zero;
