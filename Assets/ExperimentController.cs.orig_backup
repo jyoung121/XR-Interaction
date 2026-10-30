@@ -1,0 +1,200 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using Google.XR.Cardboard;
+
+public enum ExperimentCase
+{
+    Case1_VisualOnly,            // Case 1: 시각 화살표만
+    Case2_Visual_PulseInterval,  // Case 2: 시각 + 진동 주기 변조 (가이거 방식)
+    Case3_Visual_Intensity       // Case 3: 시각 + 진동 세기(크기) 변조
+}
+
+public class ExperimentController : MonoBehaviour
+{
+    [Header("실험 모드 설정")]
+    public ExperimentCase currentCase = ExperimentCase.Case1_VisualOnly;
+
+    [Header("참조 컴포넌트")]
+    public Transform headCamera;          // Main Camera (TrackedPoseDriver 가 붙어 있어야 함)
+    public RectTransform visualArrowUI;   // 월드스페이스 캔버스(카메라 자식) 위의 화살표 Image
+    public GameObject targetPrefab;       // 360도에 배치할 타겟 프리팹
+
+    [Header("타겟 생성 옵션")]
+    public int totalDistractorCount = 11;
+    public float sphereRadius = 5.0f;
+    [Tooltip("정답으로 인정할 시선-타겟 각도(도)")]
+    public float selectAngleDeg = 8f;
+    [Tooltip("응시 유지(dwell) 시간(초). 0이면 Cardboard 트리거 버튼으로만 선택")]
+    public float dwellSeconds = 1.0f;
+
+    [Header("햅틱 파라미터")]
+    public float minIntervalMs = 80f;
+    public float maxIntervalMs = 900f;
+    public long pulseDurationMs = 45;
+
+    // 내부 상태
+    private Transform correctTarget;
+    private readonly List<GameObject> spawnedTargets = new List<GameObject>();
+    private float hapticTimer = 0f;
+    private float dwellTimer = 0f;
+    private float trialStartTime = 0f;
+    private bool isTaskActive = false;
+
+    private void Start()
+    {
+        if (headCamera == null) headCamera = Camera.main.transform;
+
+        // 실험 중 화면 꺼짐 방지 + Cardboard 기기 파라미터(QR) 확보
+        Screen.sleepTimeout = SleepTimeout.NeverSleep;
+        Screen.brightness = 1.0f;
+        if (!Api.HasDeviceParams()) Api.ScanDeviceParams();
+
+        SetupExperimentEnvironment();
+    }
+
+    public void SetupExperimentEnvironment()
+    {
+        foreach (var obj in spawnedTargets) Destroy(obj);
+        spawnedTargets.Clear();
+
+        int totalObjects = totalDistractorCount + 1;
+        int correctIndex = Random.Range(0, totalObjects);
+        Vector3 center = headCamera.position; // ★ 카메라(머리) 기준으로 구면 배치 — 월드 원점 기준이면 360도가 안 됨
+
+        for (int i = 0; i < totalObjects; i++)
+        {
+            float phi = Mathf.Acos(1f - 2f * (i + 0.5f) / totalObjects);
+            float theta = Mathf.PI * (1f + Mathf.Sqrt(5f)) * (i + 0.5f);
+
+            Vector3 offset = new Vector3(
+                sphereRadius * Mathf.Sin(phi) * Mathf.Cos(theta),
+                sphereRadius * Mathf.Sin(phi) * Mathf.Sin(theta),
+                sphereRadius * Mathf.Cos(phi)
+            );
+
+            GameObject target = Instantiate(targetPrefab, center + offset, Quaternion.identity);
+            target.name = (i == correctIndex) ? "Target_Correct" : $"Target_Distractor_{i}";
+
+            Renderer rend = target.GetComponent<Renderer>();
+            if (i == correctIndex)
+            {
+                correctTarget = target.transform;
+                if (rend != null) rend.material.color = Color.red;
+            }
+            else if (rend != null)
+            {
+                rend.material.color = Color.white;
+            }
+
+            target.transform.LookAt(center);
+            spawnedTargets.Add(target);
+        }
+
+        hapticTimer = 0f;
+        dwellTimer = 0f;
+        trialStartTime = Time.time;
+        isTaskActive = true;
+    }
+
+    private void Update()
+    {
+        // Cardboard 공통 처리 (기어 버튼=QR 재스캔, 트리거 길게=리센터, 화면 파라미터 갱신)
+        if (Api.IsGearButtonPressed) Api.ScanDeviceParams();
+        if (Api.IsTriggerHeldPressed) Api.Recenter();
+        if (Api.HasNewDeviceParams()) Api.ReloadDeviceParams();
+        Api.UpdateScreenParams();
+
+        if (!isTaskActive || correctTarget == null) return;
+
+        Vector3 dirToTarget = (correctTarget.position - headCamera.position).normalized;
+        float angleToTarget = Vector3.Angle(headCamera.forward, dirToTarget);
+
+        UpdateVisualArrow(dirToTarget);
+        UpdateHaptics(angleToTarget);
+        UpdateSelection(angleToTarget);
+    }
+
+    private void UpdateVisualArrow(Vector3 dirToTarget)
+    {
+        if (visualArrowUI == null) return;
+
+        Vector3 localDir = headCamera.InverseTransformDirection(dirToTarget);
+
+        if (localDir.z > 0.8f) // 전방 약 37도 이내 → 화살표 숨김
+        {
+            visualArrowUI.gameObject.SetActive(false);
+        }
+        else
+        {
+            visualArrowUI.gameObject.SetActive(true);
+            float screenAngle = Mathf.Atan2(localDir.y, localDir.x) * Mathf.Rad2Deg;
+            visualArrowUI.localEulerAngles = new Vector3(0, 0, screenAngle - 90f);
+        }
+    }
+
+    private void UpdateHaptics(float angle)
+    {
+        float normalizedAngle = Mathf.Clamp01(angle / 180f);
+
+        switch (currentCase)
+        {
+            case ExperimentCase.Case1_VisualOnly:
+                // 매 프레임 JNI cancel 호출할 필요 없음 (OnDisable/트라이얼 종료 시 Cancel)
+                break;
+
+            case ExperimentCase.Case2_Visual_PulseInterval:
+                float currentIntervalMs = Mathf.Lerp(minIntervalMs, maxIntervalMs, normalizedAngle);
+                hapticTimer += Time.deltaTime * 1000f;
+                if (hapticTimer >= currentIntervalMs)
+                {
+                    AndroidVibrationManager.Vibrate(pulseDurationMs, 255);
+                    hapticTimer = 0f;
+                }
+                break;
+
+            case ExperimentCase.Case3_Visual_Intensity:
+                int amplitude = Mathf.RoundToInt(Mathf.Lerp(255f, 30f, normalizedAngle));
+                hapticTimer += Time.deltaTime * 1000f;
+                if (hapticTimer >= 100f)
+                {
+                    AndroidVibrationManager.Vibrate(90, amplitude);
+                    hapticTimer = 0f;
+                }
+                break;
+        }
+    }
+
+    /// <summary>타겟을 응시(dwell)하거나 Cardboard 트리거를 누르면 '찾음' 처리.</summary>
+    private void UpdateSelection(float angle)
+    {
+        bool aimed = angle <= selectAngleDeg;
+
+        if (aimed && Api.IsTriggerPressed)
+        {
+            OnTargetFound();
+            return;
+        }
+
+        if (dwellSeconds > 0f)
+        {
+            dwellTimer = aimed ? dwellTimer + Time.deltaTime : 0f;
+            if (dwellTimer >= dwellSeconds) OnTargetFound();
+        }
+    }
+
+    private void OnTargetFound()
+    {
+        float elapsed = Time.time - trialStartTime;
+        Debug.Log($"[Experiment] case={currentCase} found in {elapsed:F2}s");
+        isTaskActive = false;
+        AndroidVibrationManager.Cancel();
+        if (visualArrowUI != null) visualArrowUI.gameObject.SetActive(false);
+        // TODO: 결과 기록(CSV) 및 다음 트라이얼/케이스로 전환
+    }
+
+    private void OnDisable()
+    {
+        AndroidVibrationManager.Cancel();
+    }
+}
