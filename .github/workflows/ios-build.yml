@@ -1,14 +1,9 @@
 name: Build unsigned iOS .ipa
 
 # Unity 가 만들어 둔 Xcode 프로젝트(iOSBuild.zip)를 macOS 러너에서 컴파일만 한다.
-#
 #  - Unity 를 CI 에서 돌리지 않으므로 Unity 라이선스가 필요 없다.
-#  - 서명하지 않는다. 서명은 나중에 윈도우에서 Sideloadly 가 무료 Apple ID 로 한다.
-#  - 큰 파일은 저장소가 아니라 Release 첨부파일로 받는다 (Git LFS 할당량을 쓰지 않음).
-#
-# 준비
-#   1) 이 저장소에 Release 를 하나 만들고 iOSBuild.zip 을 첨부한다.
-#   2) Actions 탭 -> 이 워크플로 -> Run workflow -> 그 Release 의 태그를 입력한다.
+#  - 서명하지 않는다. 서명은 윈도우에서 Sideloadly 가 무료 Apple ID 로 한다.
+#  - 큰 파일은 저장소가 아니라 Release 첨부파일로 받는다.
 
 on:
   workflow_dispatch:
@@ -31,8 +26,11 @@ jobs:
       - name: 저장소 가져오기
         uses: actions/checkout@v4
 
-      - name: Xcode 버전
-        run: xcodebuild -version
+      - name: 환경 확인
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          sw_vers
 
       - name: Xcode 프로젝트 내려받기
         env:
@@ -40,39 +38,73 @@ jobs:
         run: |
           gh release download "${{ github.event.inputs.release_tag }}" \
             --repo "${{ github.repository }}" \
-            --pattern "${{ github.event.inputs.asset_name }}" \
-            --dir .
+            --pattern "${{ github.event.inputs.asset_name }}" --dir .
           ls -lh "${{ github.event.inputs.asset_name }}"
 
       - name: 압축 풀기
         run: |
           mkdir -p xcode
           unzip -q "${{ github.event.inputs.asset_name }}" -d xcode
-          cd xcode
-          ls -la
-          test -d Unity-iPhone.xcodeproj || { echo "Unity-iPhone.xcodeproj 가 없습니다"; exit 1; }
+          cd xcode && ls -la
+          test -d Unity-iPhone.xcodeproj || { echo "Unity-iPhone.xcodeproj 없음"; exit 1; }
+
+      # 실패 원인을 좁히기 위해 타깃/스킴 목록을 먼저 찍는다
+      - name: 타깃·스킴 목록
+        working-directory: xcode
+        run: |
+          echo "===== xcodebuild -list ====="
+          xcodebuild -list -project Unity-iPhone.xcodeproj || true
+          echo "===== 공유 스킴 파일 ====="
+          ls -la Unity-iPhone.xcodeproj/xcshareddata/xcschemes/ 2>/dev/null || echo "(공유 스킴 없음)"
 
       - name: 빌드 (서명 없음)
         working-directory: xcode
         run: |
           set -o pipefail
-          xcodebuild \
-            -project Unity-iPhone.xcodeproj \
-            -scheme Unity-iPhone \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath ./DerivedData \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            ENABLE_BITCODE=NO \
-            build
+          COMMON=(
+            -project Unity-iPhone.xcodeproj
+            -configuration Release
+            -sdk iphoneos
+            -derivedDataPath ./DerivedData
+            CODE_SIGN_IDENTITY=
+            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGN_ENTITLEMENTS=
+            ENABLE_BITCODE=NO
+            DEVELOPMENT_TEAM=
+            IPHONEOS_DEPLOYMENT_TARGET=15.0
+          )
+
+          # 공유 스킴이 있으면 scheme 으로, 없으면 target 으로 빌드한다.
+          if xcodebuild -list -project Unity-iPhone.xcodeproj 2>/dev/null | awk '/Schemes:/,0' | grep -qw "Unity-iPhone"; then
+            echo ">>> scheme 으로 빌드"
+            BUILD_ARGS=(-scheme Unity-iPhone)
+          else
+            echo ">>> 공유 스킴이 없어 target 으로 빌드"
+            BUILD_ARGS=(-target Unity-iPhone)
+          fi
+
+          set +e
+          xcodebuild "${BUILD_ARGS[@]}" "${COMMON[@]}" build 2>&1 | tee build.log
+          RC=${PIPESTATUS[0]}
+          set -e
+
+          if [ $RC -ne 0 ]; then
+            echo "===================== 오류 요약 ====================="
+            grep -nE "error:|fatal error:|\*\* BUILD FAILED|The following build commands failed" build.log | tail -40 || true
+            echo "===================== 로그 끝부분 ====================="
+            tail -80 build.log
+            exit $RC
+          fi
 
       - name: .ipa 로 포장
         working-directory: xcode
         run: |
-          APP=$(find ./DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
-          test -n "$APP" || { echo ".app 을 찾지 못했습니다"; exit 1; }
+          APP=$(find ./DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then
+            APP=$(find . -maxdepth 4 -name "*.app" -path "*Release-iphoneos*" | head -1)
+          fi
+          test -n "$APP" || { echo ".app 을 찾지 못했습니다"; find . -name "*.app" | head; exit 1; }
           echo "앱: $APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
@@ -86,9 +118,12 @@ jobs:
           path: xcode/CardboardHapticSearch-unsigned.ipa
           retention-days: 30
 
-      - name: 실패하면 로그 일부
-        if: failure()
-        working-directory: xcode
-        run: |
-          echo "=== 최근 오류 ==="
-          find ./DerivedData -name "*.log" 2>/dev/null | head -3
+      # 실패해도 로그 전문을 받을 수 있게 올려 둔다
+      - name: 빌드 로그 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: xcode/build.log
+          retention-days: 14
+          if-no-files-found: ignore
