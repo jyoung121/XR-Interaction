@@ -32,3 +32,9 @@ Thumbs.db
 
 # IL2CPP 빌드 부산물
 /iOSBuild_BackUpThisFolder_ButDontShipItWithYourGame/
+
+# 빌드 산출물 / 도구 로그
+build_ios.log
+sideloadlydaemon.log
+iOSBuild/
+iOSBuild.zip

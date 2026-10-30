@@ -108,22 +108,31 @@ static BOOL EnsureRunning(void)
 /// UIImpactFeedbackGenerator — CoreHaptics 보다 단순하고 잘 깨지지 않는다.
 /// iOS 13 부터는 세기를 연속으로 줄 수 있어 Case 2 에는 충분하다.
 /// 다만 한 번 울리고 끝이라 Case 3(연속 변조)에는 쓸 수 없다.
+static id g_impact[3] = { nil, nil, nil };   // light / medium / heavy
+
 static void ImpactFallback(float intensity)
 {
     void (^fire)(void) = ^{
+        // Case 2 는 최대 초당 12번까지 부른다. 매번 생성자를 새로 만들면
+        // 할당이 쌓이고 prepare 가 더워지기 전에 호출돼 빠지는 펄스가 생긴다.
+        // 세 단계를 한 번만 만들어 두고 재사용한다.
+        int slot;
         UIImpactFeedbackStyle style;
-        if      (intensity < 0.34f) style = UIImpactFeedbackStyleLight;
-        else if (intensity < 0.67f) style = UIImpactFeedbackStyleMedium;
-        else                        style = UIImpactFeedbackStyleHeavy;
+        if      (intensity < 0.34f) { slot = 0; style = UIImpactFeedbackStyleLight;  }
+        else if (intensity < 0.67f) { slot = 1; style = UIImpactFeedbackStyleMedium; }
+        else                        { slot = 2; style = UIImpactFeedbackStyleHeavy;  }
 
-        UIImpactFeedbackGenerator *gen =
-            [[UIImpactFeedbackGenerator alloc] initWithStyle:style];
-        [gen prepare];
+        if (g_impact[slot] == nil) {
+            g_impact[slot] = [[UIImpactFeedbackGenerator alloc] initWithStyle:style];
+        }
+        UIImpactFeedbackGenerator *gen = (UIImpactFeedbackGenerator *)g_impact[slot];
+
         if (@available(iOS 13.0, *)) {
             [gen impactOccurredWithIntensity:intensity];
         } else {
             [gen impactOccurred];
         }
+        [gen prepare];          // 다음 호출을 위해 미리 더워지게 둔다
         g_impactOk++;
     };
 
