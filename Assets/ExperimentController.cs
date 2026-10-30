@@ -53,6 +53,15 @@ public class ExperimentController : MonoBehaviour
     public float minIntervalMs = 80f;
     public float maxIntervalMs = 900f;
     public long pulseDurationMs = 45;
+    [Tooltip("Case 3 에서 정면(0도)일 때 세기. 0~255, 안드로이드 스케일과 같다")]
+    public float intensityNear = 255f;
+    [Tooltip("Case 3 에서 정반대(180도)일 때 세기. 가이드 기본값 30 은 CoreHaptics 0.118 에 해당하며, " +
+             "폰을 Cardboard 상자에 넣으면 느껴지지 않을 수 있다")]
+    public float intensityFar = 30f;
+    [Tooltip("켜면 각도 비율을 제곱해, 가까워질 때 더 급격하게 변한다 (가이드 2-3(A))")]
+    public bool squareCurve = false;
+    [Tooltip("Case 3 세기를 몇 단계로 끊을지. 0 = 연속 (가이드 2-3(B))")]
+    public int intensitySteps = 0;
 
     // ───────────────────────── 새로 추가된 필드 ─────────────────────────
 
@@ -92,6 +101,9 @@ public class ExperimentController : MonoBehaviour
     public bool askParticipantId = true;
     [Tooltip("앱 시작 시 햅틱을 점검한다. 시스템 햅틱이 꺼진 폰을 걸러내므로 켜 두는 것을 권한다")]
     public bool runHapticSelfTest = true;
+    [Tooltip("켜면 시작할 때 진동 프리셋을 비교하는 화면을 띄운다. 값을 정하는 용도이므로 " +
+             "본 실험에서는 반드시 꺼야 한다")]
+    public bool runHapticTuning = true;
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
 
@@ -176,12 +188,20 @@ public class ExperimentController : MonoBehaviour
     /// <summary>참가자 번호 선택 → 햅틱 점검 → 첫 블록.</summary>
     private IEnumerator Startup()
     {
+        // 튜닝 모드에서는 자가진단을 먼저 돌린다. 아무것도 안 느껴질 때
+        // 프리셋 탓인지 폰의 시스템 햅틱 설정 탓인지 헷갈리지 않게 하려고.
+        if (runHapticTuning)
+        {
+            if (runHapticSelfTest) yield return StartCoroutine(HapticSelfTest());
+            yield return StartCoroutine(HapticTuning());
+        }
+
         if (askParticipantId) yield return StartCoroutine(SelectParticipant());
 
         BuildBlockOrder();
         OpenCsv();
 
-        if (runHapticSelfTest) yield return StartCoroutine(HapticSelfTest());
+        if (!runHapticTuning && runHapticSelfTest) yield return StartCoroutine(HapticSelfTest());
 
         StartBlock();
     }
@@ -225,6 +245,149 @@ public class ExperimentController : MonoBehaviour
         participantId = id;
         DebugHud.Set("PARTICIPANT P" + id + " confirmed\n\norder: " + BlockOrderText(id));
         yield return new WaitForSeconds(1.2f);
+    }
+
+    // ───────────────────────── 햅틱 튜닝 ─────────────────────────
+
+    /// <summary>
+    /// 가이드 2-3절이 제안하는 변형들을 프리셋으로 담아 둔 것.
+    ///
+    /// 아이폰은 빌드 한 번에 30~40분이 걸려(안드로이드는 Build And Run 2분) 값을 하나씩
+    /// 바꿔 가며 느껴 볼 수가 없다. 그래서 후보를 미리 넣어 두고 앱 안에서 비교한다.
+    /// </summary>
+    private struct HapticPreset
+    {
+        public string label;
+        public float minMs, maxMs;
+        public long pulseMs;
+        public float near, far;
+        public bool square;
+        public int steps;
+    }
+
+    private static readonly HapticPreset[] Presets =
+    {
+        // 가이드 기본값. 비교 기준이므로 반드시 첫 번째에 둔다.
+        new HapticPreset { label = "guide default",   minMs =  80f, maxMs =  900f, pulseMs = 45, near = 255f, far = 30f, square = false, steps = 0 },
+        // 간격을 좁혀 더 촘촘하게
+        new HapticPreset { label = "narrow interval", minMs =  60f, maxMs =  700f, pulseMs = 30, near = 255f, far = 30f, square = false, steps = 0 },
+        // 간격을 넓혀, 가까운 쪽에서도 펄스가 개별로 구분되게
+        new HapticPreset { label = "wide interval",   minMs = 120f, maxMs = 1200f, pulseMs = 55, near = 255f, far = 30f, square = false, steps = 0 },
+        // 가이드 2-3(A) 의 제곱 곡선
+        new HapticPreset { label = "square curve",    minMs =  80f, maxMs =  900f, pulseMs = 45, near = 255f, far = 30f, square = true,  steps = 0 },
+        // Case 3 의 먼 쪽 세기를 0.118 -> 0.25 로 올린 것. 상자 안에서 안 느껴질 때의 대안
+        new HapticPreset { label = "strong far",      minMs =  80f, maxMs =  900f, pulseMs = 45, near = 255f, far = 64f, square = false, steps = 0 },
+        // 가이드 2-3(B) 의 3단계 양자화
+        new HapticPreset { label = "3 steps",         minMs =  80f, maxMs =  900f, pulseMs = 45, near = 255f, far = 50f, square = false, steps = 3 }
+    };
+
+    /// <summary>
+    /// 프리셋을 넘겨 가며 진동을 직접 느껴 본다.
+    ///
+    /// 타겟을 찾게 하는 대신 각도를 180도 → 0도 → 180도로 쓸어 준다. 어디를 보고 있든
+    /// 같은 범위를 느끼므로 프리셋끼리 비교가 된다. Case 2 구간과 Case 3 구간을 번갈아 보여 주므로
+    /// 한 프리셋에서 두 조건을 다 판단할 수 있다.
+    ///
+    /// 가장 중요한 확인 항목은 Case 3 의 먼 쪽 세기다. 그게 안 느껴지면 큰 각도에서
+    /// Case 3 이 아무 안내를 못 하게 되고, 안내가 가장 필요한 구간이 바로 거기다.
+    /// </summary>
+    private IEnumerator HapticTuning()
+    {
+        phase = Phase.Ready;
+        HideAll();
+        DebugHud.Show(true);
+
+        ExperimentCase savedCase = currentCase;
+
+        int idx = 0;
+        float idle = 0f;
+        bool prevCase2 = true;
+        const float confirmAfter = 3f;
+        const float sweepSeconds = 3f;      // 한 방향을 쓸는 데 걸리는 시간
+
+        while (idle < confirmAfter)
+        {
+            if (Api.IsTriggerPressed)
+            {
+                idx = (idx + 1) % Presets.Length;
+                idle = 0f;
+                HapticManager.StopContinuous();
+                HapticManager.Cancel();
+                hapticTimer = 0f;
+            }
+            else
+            {
+                idle += Time.deltaTime;
+            }
+
+            ApplyPreset(Presets[idx]);
+
+            // 네 구간을 돈다: Case2 로 한 번 왕복, Case3 으로 한 번 왕복.
+            float u = (Time.time / sweepSeconds) % 4f;
+            bool demoCase2 = u < 2f;
+            float leg = u % 2f;                                   // 0 ~ 2
+            float angle = (leg < 1f ? 1f - leg : leg - 1f) * 180f; // 180 → 0 → 180
+
+            if (demoCase2 != prevCase2)
+            {
+                HapticManager.StopContinuous();
+                hapticTimer = 0f;
+                prevCase2 = demoCase2;
+            }
+
+            currentCase = demoCase2 ? ExperimentCase.Case2_Visual_PulseInterval
+                                    : ExperimentCase.Case3_Visual_Intensity;
+            UpdateHaptics(angle, true);
+
+            HapticPreset p = Presets[idx];
+            DebugHud.Set("HAPTIC TUNING   [" + (idx + 1) + "/" + Presets.Length + "]\n\n"
+                       + "  " + p.label + "\n\n"
+                       + "Case2  interval " + (int)p.minMs + " - " + (int)p.maxMs + " ms\n"
+                       + "       pulse    " + p.pulseMs + " ms"
+                       + (p.square ? "   (square)" : "") + "\n"
+                       + "Case3  strength " + (int)p.near + " - " + (int)p.far
+                       + (p.steps >= 2 ? "   (" + p.steps + " steps)" : "") + "\n\n"
+                       + "now  " + (demoCase2 ? "CASE 2 pulse  " : "CASE 3 strength")
+                       + "   angle " + Mathf.RoundToInt(angle) + "\n\n"
+                       + "tap to change preset\n"
+                       + "hold still " + Mathf.CeilToInt(confirmAfter - idle) + "s to go on");
+            yield return null;
+        }
+
+        HapticManager.StopContinuous();
+        HapticManager.Cancel();
+        hapticTimer = 0f;
+        currentCase = savedCase;
+        ApplyPreset(Presets[idx]);
+
+        DebugHud.Set("HAPTIC SET\n\n  " + Presets[idx].label + "\n\n" + HapticProfileText());
+        Debug.Log("[Experiment] haptic preset = " + Presets[idx].label + " / " + HapticProfileText());
+        yield return new WaitForSeconds(1.8f);
+    }
+
+    private void ApplyPreset(HapticPreset p)
+    {
+        minIntervalMs   = p.minMs;
+        maxIntervalMs   = p.maxMs;
+        pulseDurationMs = p.pulseMs;
+        intensityNear   = p.near;
+        intensityFar    = p.far;
+        squareCurve     = p.square;
+        intensitySteps  = p.steps;
+    }
+
+    /// <summary>
+    /// CSV 한 칸에 들어가는 햅틱 설정 요약. 어떤 값으로 받은 데이터인지 행마다 남기려고.
+    /// 쉼표를 쓰지 않는다.
+    /// </summary>
+    private string HapticProfileText()
+    {
+        var ci = CultureInfo.InvariantCulture;
+        return string.Format(ci, "{0}-{1}-{2}-{3}-{4}-{5}-{6}",
+            (int)minIntervalMs, (int)maxIntervalMs, pulseDurationMs,
+            (int)intensityNear, (int)intensityFar,
+            squareCurve ? "sq" : "lin",
+            intensitySteps >= 2 ? intensitySteps.ToString(ci) : "cont");
     }
 
     private static string BlockOrderText(int id)
@@ -358,7 +521,7 @@ public class ExperimentController : MonoBehaviour
             File.WriteAllText(csvPath,
                 "participant,block_index,case,trial_index,is_practice,eccentricity_deg,side," +
                 "search_time_s,total_time_s,first_turn_correct,reversals,path_efficiency," +
-                "error_clicks,timeout,end_by,dwell_setting_s\n", Encoding.UTF8);
+                "error_clicks,timeout,end_by,dwell_setting_s,haptic_profile\n", Encoding.UTF8);
             Debug.Log("[Experiment] CSV: " + csvPath);
         }
         catch (System.Exception e)
@@ -640,15 +803,13 @@ public class ExperimentController : MonoBehaviour
     {
         if (!guidanceOn) return;
 
-        float normalizedAngle = Mathf.Clamp01(angle / 180f);
-
         switch (currentCase)
         {
             case ExperimentCase.Case1_VisualOnly:
                 break;
 
             case ExperimentCase.Case2_Visual_PulseInterval:
-                float intervalMs = Mathf.Lerp(minIntervalMs, maxIntervalMs, normalizedAngle);
+                float intervalMs = Mathf.Lerp(minIntervalMs, maxIntervalMs, HapticRatio(angle));
                 hapticTimer += Time.deltaTime * 1000f;
                 if (hapticTimer >= intervalMs)
                 {
@@ -658,15 +819,40 @@ public class ExperimentController : MonoBehaviour
                 break;
 
             case ExperimentCase.Case3_Visual_Intensity:
-                int amplitude = Mathf.RoundToInt(Mathf.Lerp(255f, 30f, normalizedAngle));
                 hapticTimer += Time.deltaTime * 1000f;
                 if (hapticTimer >= 100f)
                 {
-                    HapticManager.SetContinuous(amplitude);
+                    HapticManager.SetContinuous(IntensityAt(angle));
                     hapticTimer = 0f;
                 }
                 break;
         }
+    }
+
+    /// <summary>
+    /// 각도(0~180도)를 0~1 비율로 바꾼다. squareCurve 를 켜면 제곱해서,
+    /// 가까워질 때 변화가 더 급해진다 (가이드 2-3(A)).
+    /// </summary>
+    private float HapticRatio(float angle)
+    {
+        float t = Mathf.Clamp01(angle / 180f);
+        return squareCurve ? t * t : t;
+    }
+
+    /// <summary>
+    /// Case 3 의 세기(1~255). intensitySteps 가 2 이상이면 그 수만큼 단계로 끊는다 (가이드 2-3(B)).
+    /// </summary>
+    private int IntensityAt(float angle)
+    {
+        float t = HapticRatio(angle);
+
+        if (intensitySteps >= 2)
+        {
+            float step = Mathf.Min(Mathf.Floor(t * intensitySteps), intensitySteps - 1);
+            t = (step + 0.5f) / intensitySteps;     // 각 단계의 중앙값을 쓴다
+        }
+
+        return Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(intensityNear, intensityFar, t)), 1, 255);
     }
 
     // ───────────────────────── 시행 종료 / 기록 ─────────────────────────
@@ -721,7 +907,8 @@ public class ExperimentController : MonoBehaviour
             .Append(errorClicks).Append(',')
             .Append(timedOut ? 1 : 0).Append(',')
             .Append(reason).Append(',')
-            .Append(dwellSeconds.ToString("F2", ci)).Append('\n');
+            .Append(dwellSeconds.ToString("F2", ci)).Append(',')
+            .Append(HapticProfileText()).Append('\n');
 
         try { File.AppendAllText(csvPath, line.ToString(), Encoding.UTF8); }
         catch (System.Exception e) { Debug.LogWarning("[Experiment] CSV 기록 실패: " + e.Message); }
