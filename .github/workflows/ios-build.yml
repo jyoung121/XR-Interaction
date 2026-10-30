@@ -57,6 +57,33 @@ jobs:
           echo "===== 공유 스킴 파일 ====="
           ls -la Unity-iPhone.xcodeproj/xcshareddata/xcschemes/ 2>/dev/null || echo "(공유 스킴 없음)"
 
+      # Unity 가 넣는 "Process symbols" 스크립트 단계가 서명 없는 빌드에서 실패한다.
+      # 크래시 심볼 처리용이라 사이드로드에는 필요 없으므로 무력화한다.
+      - name: Process symbols 단계 무력화
+        working-directory: xcode
+        run: |
+          python3 - <<'PY'
+          import re, io
+          p = "Unity-iPhone.xcodeproj/project.pbxproj"
+          s = io.open(p, encoding="utf-8").read()
+          blocks = re.findall(r"\{[^{}]*?isa = PBXShellScriptBuildPhase;.*?\};", s, re.S)
+          print("쉘스크립트 단계 %d개 발견" % len(blocks))
+          n = 0
+          for b in blocks:
+              m = re.search(r'name = "?([^";]+)"?;', b)
+              name = m.group(1) if m else "(이름없음)"
+              if "symbol" not in name.lower():
+                  print("  유지: %s" % name)
+                  continue
+              print("  무력화: %s" % name)
+              nb = re.sub(r'shellScript = "(?:[^"\]|\.)*";',
+                          'shellScript = "exit 0;";', b, count=1, flags=re.S)
+              if nb != b:
+                  s = s.replace(b, nb, 1); n += 1
+          io.open(p, "w", encoding="utf-8", newline="").write(s)
+          print("무력화한 단계: %d개" % n)
+          PY
+
       - name: 빌드 (서명 없음)
         working-directory: xcode
         run: |
@@ -73,6 +100,7 @@ jobs:
             ENABLE_BITCODE=NO
             DEVELOPMENT_TEAM=
             IPHONEOS_DEPLOYMENT_TARGET=15.0
+            DEBUG_INFORMATION_FORMAT=dwarf
           )
 
           # 공유 스킴이 있으면 scheme 으로, 없으면 target 으로 빌드한다.
