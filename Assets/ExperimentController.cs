@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -84,6 +85,14 @@ public class ExperimentController : MonoBehaviour
              "0이면 확정 직전까지 계속 안내. 원본 동작(화살표만 37°에서 사라짐)은 조건 간 정보량이 어긋났다.")]
     public float guidanceCutoffAngleDeg = 0f;
 
+    [Header("진단 / 테스트")]
+    [Tooltip("켜면 시행 수를 줄여 빠르게 한 바퀴 돌린다. 본 실험에서는 꺼야 한다")]
+    public bool testMode = true;
+    [Tooltip("앱 시작 시 약-중-강 펄스와 연속 진동으로 햅틱을 자가진단한다")]
+    public bool runHapticSelfTest = true;
+    [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
+    public bool showHud = true;
+
     [Header("기록")]
     [Tooltip("비워 두면 persistentDataPath 에 저장")]
     public string csvFileName = "";
@@ -148,11 +157,60 @@ public class ExperimentController : MonoBehaviour
         if (!Api.HasDeviceParams()) Api.ScanDeviceParams();
 
         HapticManager.Init();
+
+        if (testMode) { repetitionsPerCell = 1; practiceTrials = 1; }
+        if (showHud && headCamera != null) DebugHud.Create(headCamera);
+
         BuildPool();
         BuildBlockOrder();
         OpenCsv();
 
         blockIndex = 0;
+        if (runHapticSelfTest) StartCoroutine(HapticSelfTest());
+        else StartBlock();
+    }
+
+    /// <summary>앱을 켜자마자 햅틱이 되는지 눈과 손으로 바로 확인시킨다.</summary>
+    private IEnumerator HapticSelfTest()
+    {
+        phase = Phase.Ready;
+
+        string head = "햅틱 자가진단\n\n"
+                    + "플랫폼       : " + Application.platform + "\n"
+                    + "진동 가능    : " + HapticManager.HasVibrator + "\n"
+                    + "세기 조절    : " + (HapticManager.HasAmplitudeControl ? "지원함" : "지원 안 함") + "\n\n";
+
+        DebugHud.Set(head + "2초 뒤 약 - 중 - 강 순서로 울립니다.");
+        yield return new WaitForSeconds(2f);
+
+        int[] amps = { 70, 150, 255 };
+        string[] names = { "약", "중", "강" };
+        for (int i = 0; i < amps.Length; i++)
+        {
+            DebugHud.Set(head + "펄스 " + names[i] + "  (세기 " + amps[i] + " / 255)");
+            for (int k = 0; k < 5; k++)
+            {
+                HapticManager.Pulse(60, amps[i]);
+                yield return new WaitForSeconds(0.25f);
+            }
+            yield return new WaitForSeconds(0.9f);
+        }
+
+        DebugHud.Set(head + "연속 진동 - 세기가 서서히 올라갑니다.");
+        for (int i = 0; i <= 20; i++)
+        {
+            HapticManager.SetContinuous(30 + i * 11);
+            yield return new WaitForSeconds(0.1f);
+        }
+        HapticManager.StopContinuous();
+        HapticManager.Cancel();
+
+        DebugHud.Set(head
+            + "자가진단 끝.\n"
+            + "약-중-강이 다르게 느껴졌다면 세기 조절이 동작하는 것입니다.\n\n"
+            + "트리거(화면 탭)를 누르면 실험이 시작됩니다.");
+        yield return new WaitForSeconds(2.5f);
+
         StartBlock();
     }
 
@@ -567,6 +625,7 @@ public class ExperimentController : MonoBehaviour
     private void SetStatus(string s)
     {
         if (statusText != null) statusText.text = s;
+        DebugHud.Set(s);
     }
 
     private void OnDisable()
