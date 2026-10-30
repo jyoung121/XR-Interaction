@@ -48,8 +48,16 @@ public static class CIBuild
             Debug.Log("[CIBuild] XRGeneralSettings 를 새로 만들었다");
         }
 
-        perTarget.CreateDefaultManagerSettingsForBuildTarget(group);
+        // 없을 때만 만든다. 조건 없이 부르면 호출마다 XRManagerSettings 객체가
+        // 새로 생겨 XRGeneralSettings.asset 에 쌓인다(빌드 한 번에 한 쌍).
+        // 쌓인 것들은 참조되지 않아 동작에는 영향이 없지만 파일이 계속 커진다.
         XRGeneralSettings settings = perTarget.SettingsForBuildTarget(group);
+        if (settings == null || settings.Manager == null)
+        {
+            perTarget.CreateDefaultManagerSettingsForBuildTarget(group);
+            settings = perTarget.SettingsForBuildTarget(group);
+        }
+
         if (settings == null || settings.Manager == null)
         {
             Debug.LogError("[CIBuild] " + group + " 설정 객체를 만들지 못했다");
