@@ -38,6 +38,11 @@ public static class IOSBuildPostProcess
         plist.ReadFromFile(plistPath);
         plist.root.SetString("NSCameraUsageDescription",
             "Cardboard 뷰어의 QR 코드를 읽어 렌즈 값을 설정하기 위해 카메라를 사용합니다.");
+
+        // 실험 CSV 를 파일 앱 / iTunes 파일 공유로 꺼낼 수 있게 한다.
+        // 이게 없으면 iOS 샌드박스 안에 갇혀 데이터를 회수할 방법이 없다.
+        plist.root.SetBoolean("UIFileSharingEnabled", true);
+        plist.root.SetBoolean("LSSupportsOpeningDocumentsInPlace", true);
         plist.WriteToFile(plistPath);
 
         Debug.Log("[iOS PostProcess] CoreHaptics 연결 + 카메라 권한 문구 추가 완료");
