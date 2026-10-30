@@ -13,18 +13,22 @@ using UnityEngine;
 ///  SetContinuous()    — 세기를 바꿔 가며 이어지는 진동 (Case 3: 세기 변조). 주기적으로 반복 호출한다.
 ///  StopContinuous()   — 시행이 끝나면 호출
 ///
-/// HasAmplitudeControl 이 false 면 Case 3 는 그 기기에서 무의미하다.
+/// HasAmplitudeControl 이 false 면 Case 3 는 세기가 3단계로 뭉뚱그려진다.
+/// Diagnostics 는 iOS 에서 왜 진동이 안 되는지 보기 위한 것 — 맥 없이는 로그를 볼 수 없다.
 /// </summary>
 public static class HapticManager
 {
 #if UNITY_IOS && !UNITY_EDITOR
-    [DllImport("__Internal")] private static extern int  ch_init();
-    [DllImport("__Internal")] private static extern int  ch_supportsHaptics();
-    [DllImport("__Internal")] private static extern void ch_transient(float intensity, float sharpness);
-    [DllImport("__Internal")] private static extern void ch_beginContinuous(float intensity, float sharpness);
-    [DllImport("__Internal")] private static extern void ch_setContinuousIntensity(float intensity);
-    [DllImport("__Internal")] private static extern void ch_stopContinuous();
-    [DllImport("__Internal")] private static extern void ch_stopAll();
+    [DllImport("__Internal")] private static extern int    ch_init();
+    [DllImport("__Internal")] private static extern int    ch_supportsHaptics();
+    [DllImport("__Internal")] private static extern void   ch_transient(float intensity, float sharpness);
+    [DllImport("__Internal")] private static extern void   ch_beginContinuous(float intensity, float sharpness);
+    [DllImport("__Internal")] private static extern void   ch_setContinuousIntensity(float intensity);
+    [DllImport("__Internal")] private static extern void   ch_stopContinuous();
+    [DllImport("__Internal")] private static extern void   ch_stopAll();
+    [DllImport("__Internal")] private static extern void   ch_impact(float intensity);
+    [DllImport("__Internal")] private static extern void   ch_systemVibrate();
+    [DllImport("__Internal")] private static extern System.IntPtr ch_diagnostics();
 
     private static bool continuousRunning = false;
 #endif
@@ -34,11 +38,27 @@ public static class HapticManager
     /// <summary>진동 자체가 가능한가</summary>
     public static bool HasVibrator { get; private set; }
 
-    /// <summary>세기 조절이 가능한가. false 면 Case 3 실험 불가.</summary>
+    /// <summary>세기를 자유롭게 지정할 수 있는가. false 면 Case 3 는 세기 3단계로만 가능.</summary>
     public static bool HasAmplitudeControl { get; private set; }
 
     /// <summary>Case 2 펄스의 날카로움(iOS 전용, 0~1). Android 에서는 무시된다.</summary>
     public static float Sharpness = 0.5f;
+
+    /// <summary>iOS 진동 경로의 상태와 마지막 오류. 화면에 띄워 원인을 가린다.</summary>
+    public static string Diagnostics
+    {
+        get
+        {
+#if UNITY_IOS && !UNITY_EDITOR
+            System.IntPtr p = ch_diagnostics();
+            return p == System.IntPtr.Zero ? "(없음)" : Marshal.PtrToStringAnsi(p);
+#elif UNITY_ANDROID && !UNITY_EDITOR
+            return string.Format("android vib={0} amp={1}", HasVibrator, HasAmplitudeControl);
+#else
+            return "에디터 — 진동 없음";
+#endif
+        }
+    }
 
     public static void Init()
     {
@@ -55,15 +75,26 @@ public static class HapticManager
         int ok = ch_init();
         HasVibrator = true;                       // 아이폰은 Taptic Engine 이 기본 탑재
         HasAmplitudeControl = (ok == 1) && (ch_supportsHaptics() == 1);
-        Debug.Log($"[Haptics] iOS CoreHaptics. supported={HasAmplitudeControl}");
+        Debug.Log($"[Haptics] iOS. coreHaptics={HasAmplitudeControl} / {Diagnostics}");
         if (!HasAmplitudeControl)
-            Debug.LogWarning("[Haptics] 이 기기는 CoreHaptics 미지원(iPhone 8 미만 또는 iOS 13 미만). " +
-                             "Case 3(세기 변조)는 측정이 무의미하다.");
+            Debug.LogWarning("[Haptics] CoreHaptics 를 못 쓴다 — UIImpactFeedback(3단계)으로 대체한다. " +
+                             "Case 3(세기 변조)의 해상도가 떨어지므로 Limitations 에 적을 것.");
 
 #else
         HasVibrator = false;
         HasAmplitudeControl = false;
         Debug.Log("[Haptics] 에디터 — 진동 없음");
+#endif
+    }
+
+    /// <summary>
+    /// 엔진이 중간에 멈췄다 다시 켜졌을 수 있으므로 상태를 다시 읽는다.
+    /// 자가진단과 블록 전환 시점에 부른다.
+    /// </summary>
+    public static void Refresh()
+    {
+#if UNITY_IOS && !UNITY_EDITOR
+        HasAmplitudeControl = ch_supportsHaptics() == 1;
 #endif
     }
 
@@ -79,6 +110,7 @@ public static class HapticManager
 #elif UNITY_IOS && !UNITY_EDITOR
         // CoreHaptics 의 transient 는 길이를 지정할 수 없다(기기가 정한 짧은 탁 소리).
         // 길이 대신 세기로만 대응한다 — 보고서 Limitations 에 적을 것.
+        // CoreHaptics 가 실패하면 네이티브 쪽에서 UIImpactFeedback 으로 자동 전환된다.
         ch_transient(amplitude / 255f, Sharpness);
 #endif
     }
@@ -97,6 +129,14 @@ public static class HapticManager
         AndroidVibrationManager.Vibrate(90, amplitude);
 
 #elif UNITY_IOS && !UNITY_EDITOR
+        if (!HasAmplitudeControl)
+        {
+            // CoreHaptics 가 없으면 연속 진동을 만들 수 없다.
+            // 짧은 탁을 계속 찍어 세기 변화만이라도 전달한다(해상도는 3단계).
+            ch_impact(amplitude / 255f);
+            return;
+        }
+
         if (!continuousRunning)
         {
             ch_beginContinuous(amplitude / 255f, Sharpness);
@@ -113,6 +153,24 @@ public static class HapticManager
     {
 #if UNITY_IOS && !UNITY_EDITOR
         if (continuousRunning) { ch_stopContinuous(); continuousRunning = false; }
+#endif
+    }
+
+    /// <summary>세기 3단계 진동을 직접. 자가진단에서 경로를 나눠 확인할 때만 쓴다.</summary>
+    public static void ImpactOnly(int amplitude)
+    {
+#if UNITY_IOS && !UNITY_EDITOR
+        ch_impact(Mathf.Clamp(amplitude, 1, 255) / 255f);
+#endif
+    }
+
+    /// <summary>세기 고정 진동 한 번. 기기가 진동 자체는 되는지 가리는 용도.</summary>
+    public static void SystemVibrate()
+    {
+#if UNITY_IOS && !UNITY_EDITOR
+        ch_systemVibrate();
+#elif UNITY_ANDROID && !UNITY_EDITOR
+        AndroidVibrationManager.Vibrate(400, 255);
 #endif
     }
 

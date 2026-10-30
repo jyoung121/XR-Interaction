@@ -170,46 +170,85 @@ public class ExperimentController : MonoBehaviour
         else StartBlock();
     }
 
-    /// <summary>앱을 켜자마자 햅틱이 되는지 눈과 손으로 바로 확인시킨다.</summary>
+    /// <summary>
+    /// 앱을 켜자마자 진동이 되는지 손으로 바로 확인시킨다.
+    ///
+    /// 진동 경로가 세 단계이므로 하나씩 끊어서 돌린다. 어디까지 느껴지는지가
+    /// 곧 원인이다 — 맥이 없어 로그를 볼 수 없으니 이 방식으로 범위를 좁힌다.
+    ///   1단계도 안 느껴짐 → 기기/설정 문제 (설정 > 사운드 및 햅틱 > 시스템 햅틱)
+    ///   1단계만 느껴짐    → CoreHaptics 와 UIImpactFeedback 둘 다 실패
+    ///   2단계까지         → CoreHaptics 만 실패. Case 2 는 되고 Case 3 는 3단계로 뭉개짐
+    ///   4단계까지         → 전부 정상
+    /// </summary>
     private IEnumerator HapticSelfTest()
     {
         phase = Phase.Ready;
 
-        string head = "햅틱 자가진단\n\n"
-                    + "플랫폼       : " + Application.platform + "\n"
-                    + "진동 가능    : " + HapticManager.HasVibrator + "\n"
-                    + "세기 조절    : " + (HapticManager.HasAmplitudeControl ? "지원함" : "지원 안 함") + "\n\n";
+        string head = "진동 자가진단  (" + Application.platform + ")\n\n";
 
-        DebugHud.Set(head + "2초 뒤 약 - 중 - 강 순서로 울립니다.");
+        DebugHud.Set(head + "2초 뒤 1단계부터 시작합니다.\n손에 들고 계세요.");
         yield return new WaitForSeconds(2f);
 
+        // ── 1단계 : 기기 기본 진동 ─────────────────────────────
+        DebugHud.Set(head + "[1/4] 기기 기본 진동\n길게 3번 울립니다.");
+        for (int k = 0; k < 3; k++)
+        {
+            HapticManager.SystemVibrate();
+            yield return new WaitForSeconds(1.0f);
+        }
+        yield return new WaitForSeconds(0.6f);
+
+        // ── 2단계 : UIImpactFeedback (세기 3단계) ───────────────
         int[] amps = { 70, 150, 255 };
         string[] names = { "약", "중", "강" };
+
+        DebugHud.Set(head + "[2/4] 3단계 진동\n약 - 중 - 강 순서로 울립니다.");
+        yield return new WaitForSeconds(1.0f);
         for (int i = 0; i < amps.Length; i++)
         {
-            DebugHud.Set(head + "펄스 " + names[i] + "  (세기 " + amps[i] + " / 255)");
+            DebugHud.Set(head + "[2/4] 3단계 진동 — " + names[i]);
+            for (int k = 0; k < 4; k++)
+            {
+                HapticManager.ImpactOnly(amps[i]);
+                yield return new WaitForSeconds(0.3f);
+            }
+            yield return new WaitForSeconds(0.7f);
+        }
+
+        // ── 3단계 : CoreHaptics 펄스 (Case 2 가 쓰는 경로) ──────
+        HapticManager.Refresh();
+        DebugHud.Set(head + "[3/4] Case 2 펄스\n약 - 중 - 강 순서로 울립니다.");
+        yield return new WaitForSeconds(1.0f);
+        for (int i = 0; i < amps.Length; i++)
+        {
+            DebugHud.Set(head + "[3/4] Case 2 펄스 — " + names[i]);
             for (int k = 0; k < 5; k++)
             {
                 HapticManager.Pulse(60, amps[i]);
                 yield return new WaitForSeconds(0.25f);
             }
-            yield return new WaitForSeconds(0.9f);
+            yield return new WaitForSeconds(0.7f);
         }
 
-        DebugHud.Set(head + "연속 진동 - 세기가 서서히 올라갑니다.");
+        // ── 4단계 : CoreHaptics 연속 진동 (Case 3 가 쓰는 경로) ──
+        DebugHud.Set(head + "[4/4] Case 3 연속 진동\n세기가 서서히 올라갑니다.");
+        yield return new WaitForSeconds(1.0f);
         for (int i = 0; i <= 20; i++)
         {
             HapticManager.SetContinuous(30 + i * 11);
-            yield return new WaitForSeconds(0.1f);
+            yield return new WaitForSeconds(0.12f);
         }
         HapticManager.StopContinuous();
         HapticManager.Cancel();
+        yield return new WaitForSeconds(0.5f);
 
+        HapticManager.Refresh();
         DebugHud.Set(head
-            + "자가진단 끝.\n"
-            + "약-중-강이 다르게 느껴졌다면 세기 조절이 동작하는 것입니다.\n\n"
-            + "트리거(화면 탭)를 누르면 실험이 시작됩니다.");
-        yield return new WaitForSeconds(2.5f);
+            + "자가진단 끝.\n\n"
+            + "CoreHaptics : " + (HapticManager.HasAmplitudeControl ? "동작함" : "실패") + "\n"
+            + HapticManager.Diagnostics + "\n\n"
+            + "탭하면 실험이 시작됩니다.");
+        yield return new WaitForSeconds(6f);
 
         StartBlock();
     }
@@ -280,8 +319,10 @@ public class ExperimentController : MonoBehaviour
         phaseTimer = 0f;
         HideAll();
         HapticManager.Cancel();
-        SetStatus(string.Format("블록 {0}/{1} — {2}\n트리거를 눌러 시작",
-            blockIndex + 1, blockOrder.Count, currentCase));
+        HapticManager.Refresh();
+        SetStatus(string.Format("블록 {0}/{1} — {2}\n시행 {3}개 (연습 {4})\n\n{5}\n\n탭하면 시작",
+            blockIndex + 1, blockOrder.Count, currentCase,
+            trials.Count, practiceTrials, HapticManager.Diagnostics));
         Debug.Log(string.Format("[Experiment] block {0}/{1} = {2}", blockIndex + 1, blockOrder.Count, currentCase));
     }
 
