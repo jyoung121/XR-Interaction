@@ -899,7 +899,7 @@ MonoBehaviour:
   headCamera: {fileID: 330585546}
   visualArrowUI: {fileID: 1587685491}
   targetPrefab: {fileID: 5347507156922020364, guid: a0084506a2d4fc64aa429c1a88c8f091, type: 3}
-  totalDistractorCount: 11
+  totalDistractorCount: 23
   sphereRadius: 5
   selectAngleDeg: 8
   dwellSeconds: 1

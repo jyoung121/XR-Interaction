@@ -88,11 +88,28 @@ public class ExperimentController : MonoBehaviour
     public float elevationJitterDeg = 10f;
     [Tooltip("방해 물체끼리, 그리고 정답과 최소로 떨어질 각도(도)")]
     public float minSeparationDeg = 18f;
+    [Tooltip("켜면 물체를 위아래까지 전 구면에 뿌린다. 끄면 아래 elevationJitterDeg 만큼의 " +
+             "수평 띠에만 놓는다(이전 동작)")]
+    public bool fullSphere = true;
+    [Tooltip("전 구면 배치에서, 정답이 똑바로 위/아래에서 최소로 떨어질 각도. " +
+             "0 이면 정답이 천정이나 바닥에 올 수 있어 좌우(side) 구분이 흐려진다")]
+    public float sideRollMarginDeg = 15f;
 
     [Header("안내 차단")]
     [Tooltip("타겟까지 각도가 이 값보다 작아지면 화살표와 진동을 '함께' 끈다. " +
              "0이면 확정 직전까지 계속 안내. 원본 동작(화살표만 37°에서 사라짐)은 조건 간 정보량이 어긋났다.")]
     public float guidanceCutoffAngleDeg = 0f;
+
+    [Header("색 / 드웰 표시")]
+    [Tooltip("평소 색. 모든 물체가 같은 색이라 정답을 눈으로 바로 가려낼 수 없다")]
+    public Color idleColor = Color.white;
+    [Tooltip("드웰해서 가려냈을 때의 색")]
+    public Color revealColor = Color.red;
+    [Tooltip("시선이 이만큼 머물면 색이 바뀐다(초). dwellSeconds 보다 작아야 확정 전에 보인다")]
+    public float dwellRevealSeconds = 0.35f;
+    [Tooltip("켜면 어느 물체든 드웰하면 색이 바뀐다(조준 표시). " +
+             "끄면 정답만 바뀐다(찾았다는 신호)")]
+    public bool highlightAnyOnDwell = false;
 
     [Header("진단 / 테스트")]
     [Tooltip("켜면 시행 수를 줄여 빠르게 한 바퀴 돌린다. 본 실험에서는 꺼야 한다")]
@@ -157,6 +174,10 @@ public class ExperimentController : MonoBehaviour
     private int trialIndex = 0;
 
     private readonly List<GameObject> pool = new List<GameObject>();
+    // 매 프레임 GetComponent 를 부르지 않도록 미리 받아 둔다
+    private readonly List<Renderer> poolRenderers = new List<Renderer>();
+    private int highlightIndex = -1;
+    private float highlightTimer = 0f;
     private Transform correctTarget;
 
     private float hapticTimer, dwellTimer, phaseTimer;
@@ -639,6 +660,7 @@ public class ExperimentController : MonoBehaviour
             go.name = "PooledTarget_" + i;
             go.SetActive(false);
             pool.Add(go);
+            poolRenderers.Add(go.GetComponent<Renderer>());
         }
     }
 
@@ -782,8 +804,20 @@ public class ExperimentController : MonoBehaviour
         var dirs = new List<Vector3>();
 
         // 정답
-        Vector3 targetDir = YawPitch(fwd, spec.side * spec.eccentricity,
-                                     Random.Range(-elevationJitterDeg, elevationJitterDeg));
+        // 이심각은 그대로 지키고, 시선축을 돌아가는 회전각만 자유롭게 둔다.
+        // 오른쪽 반구에서 뽑아 왼쪽은 거울로 뒤집으므로 side 는 그대로 살아 있다.
+        Vector3 targetDir;
+        if (fullSphere)
+        {
+            float margin = Mathf.Clamp(sideRollMarginDeg, 0f, 80f);
+            float a = Random.Range(-90f + margin, 90f - margin);
+            targetDir = SphereDir(fwd, spec.eccentricity, spec.side >= 0 ? a : 180f - a);
+        }
+        else
+        {
+            targetDir = YawPitch(fwd, spec.side * spec.eccentricity,
+                                 Random.Range(-elevationJitterDeg, elevationJitterDeg));
+        }
         dirs.Add(targetDir);
 
         // 방해 물체 — 수평 띠 안에서, 서로 그리고 정답과 최소 간격을 지키도록 기각 표집
@@ -792,8 +826,10 @@ public class ExperimentController : MonoBehaviour
         while (dirs.Count < want + 1 && guard < want * 200 + 500)
         {
             guard++;
-            Vector3 cand = YawPitch(fwd, Random.Range(0f, 360f),
-                                    Random.Range(-elevationJitterDeg, elevationJitterDeg));
+            Vector3 cand = fullSphere
+                ? Random.onUnitSphere
+                : YawPitch(fwd, Random.Range(0f, 360f),
+                           Random.Range(-elevationJitterDeg, elevationJitterDeg));
             bool ok = true;
             for (int i = 0; i < dirs.Count; i++)
             {
@@ -802,8 +838,15 @@ public class ExperimentController : MonoBehaviour
             if (ok) dirs.Add(cand);
         }
         // 간격을 못 맞추면 남은 건 그냥 채운다(무한 루프 방지)
+        if (dirs.Count < want + 1)
+            Debug.LogWarning("[Experiment] 간격 " + minSeparationDeg + "도를 지키며 "
+                + (want + 1) + "개를 다 놓지 못했다 - 남은 "
+                + (want + 1 - dirs.Count) + "개는 간격 없이 채운다. "
+                + "minSeparationDeg 를 내리거나 totalDistractorCount 를 줄여야 한다");
         while (dirs.Count < want + 1)
-            dirs.Add(YawPitch(fwd, Random.Range(0f, 360f), Random.Range(-elevationJitterDeg, elevationJitterDeg)));
+            dirs.Add(fullSphere
+                ? Random.onUnitSphere
+                : YawPitch(fwd, Random.Range(0f, 360f), Random.Range(-elevationJitterDeg, elevationJitterDeg)));
 
         for (int i = 0; i < pool.Count; i++)
         {
@@ -814,10 +857,82 @@ public class ExperimentController : MonoBehaviour
             go.transform.position = center + dirs[i] * sphereRadius;
             go.transform.LookAt(center);
 
-            Renderer rend = go.GetComponent<Renderer>();
-            if (rend != null) rend.material.color = (i == 0) ? Color.red : Color.white;
+            // 모두 같은 색으로 둔다. 정답은 드웰해야 가려진다.
+            SetTargetColor(i, idleColor);
             if (i == 0) correctTarget = go.transform;
         }
+
+        highlightIndex = -1;
+        highlightTimer = 0f;
+    }
+
+    /// <summary>
+    /// 시선이 머문 물체의 색을 바꾼다.
+    ///
+    /// 모든 물체를 같은 색으로 두면 정답을 눈으로 바로 가려낼 수 없고, 화살표나
+    /// 진동을 따라가 드웰해야 알 수 있다. 예전에는 정답이 처음부터 빨간색이어서
+    /// 시야에 들어오는 순간 끝났고, 그만큼 안내(화살표·진동)의 몫이 작았다.
+    ///
+    /// 색이 바뀌는 시각(dwellRevealSeconds)은 확정 시각(dwellSeconds)보다 앞이라,
+    /// 확정되기 전에 "맞았다"를 먼저 본다.
+    /// </summary>
+    private void UpdateTargetHighlight()
+    {
+        // 조준 원뿔 안에서 시선에 가장 가까운 물체 하나
+        int aimed = -1;
+        float best = selectAngleDeg;
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            if (pool[i] == null || !pool[i].activeSelf) continue;
+            float a = Vector3.Angle(headCamera.forward,
+                                    pool[i].transform.position - headCamera.position);
+            if (a <= best) { best = a; aimed = i; }
+        }
+
+        if (aimed != highlightIndex)
+        {
+            if (highlightIndex >= 0) SetTargetColor(highlightIndex, idleColor);
+            highlightIndex = aimed;
+            highlightTimer = 0f;
+            return;
+        }
+
+        if (aimed < 0) return;
+
+        highlightTimer += Time.deltaTime;
+        if (highlightTimer < dwellRevealSeconds) return;
+
+        bool isCorrect = correctTarget != null && pool[aimed].transform == correctTarget;
+        if (highlightAnyOnDwell || isCorrect) SetTargetColor(aimed, revealColor);
+    }
+
+    private void SetTargetColor(int index, Color c)
+    {
+        if (index < 0 || index >= poolRenderers.Count) return;
+        Renderer rend = poolRenderers[index];
+        if (rend != null) rend.material.color = c;
+    }
+
+    /// <summary>
+    /// 시선축을 기준으로, 이심각 ecc 만큼 벗어난 방향 하나.
+    /// roll 은 시선축을 돌아가는 각도다 — 0 오른쪽, 90 위, 180 왼쪽, 270 아래.
+    ///
+    /// 이렇게 두면 "왼쪽 45도"가 왼쪽 수평뿐 아니라 왼쪽 위·왼쪽 아래도 될 수 있다.
+    /// 이심각(baseFwd 와의 각도)은 roll 과 무관하게 정확히 보존되므로, 통제 변수는
+    /// 그대로 살아 있다.
+    /// </summary>
+    private static Vector3 SphereDir(Vector3 baseFwd, float eccDeg, float rollDeg)
+    {
+        Vector3 f = baseFwd.normalized;
+        Vector3 r = Vector3.Cross(Vector3.up, f).normalized;
+        Vector3 u = Vector3.Cross(f, r).normalized;
+
+        float e = eccDeg * Mathf.Deg2Rad;
+        float p = rollDeg * Mathf.Deg2Rad;
+
+        return (Mathf.Cos(e) * f
+                + Mathf.Sin(e) * (Mathf.Cos(p) * r + Mathf.Sin(p) * u)).normalized;
     }
 
     private static Vector3 YawPitch(Vector3 baseFwd, float yawDeg, float pitchDeg)
@@ -869,6 +984,7 @@ public class ExperimentController : MonoBehaviour
         float angle = Vector3.Angle(headCamera.forward, dirToTarget);
 
         TrackHeadMotion();
+        UpdateTargetHighlight();
 
         bool guidanceOn = angle > guidanceCutoffAngleDeg;
         UpdateVisualArrow(dirToTarget, guidanceOn);
@@ -1071,6 +1187,8 @@ public class ExperimentController : MonoBehaviour
     {
         foreach (var go in pool) if (go != null) go.SetActive(false);
         if (visualArrowUI != null) visualArrowUI.gameObject.SetActive(false);
+        highlightIndex = -1;
+        highlightTimer = 0f;
     }
 
     private void SetStatus(string s)
