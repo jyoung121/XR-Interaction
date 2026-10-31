@@ -4,6 +4,7 @@
 // Android 의 VibrationEffect 와 맞추기 위해 두 가지를 제공한다.
 //   1) 짧은 펄스 (Case 2 — 주기 변조)        -> ch_transient
 //   2) 세기를 실시간으로 바꾸는 연속 진동 (Case 3) -> ch_beginContinuous / ch_setContinuousIntensity
+//   3) 구간별 세기 배열(진동 패턴)              -> ch_playWaveform
 //
 // 진동 경로는 세 단계로 떨어진다.
 //   CoreHaptics      — 세기를 자유롭게 지정. Case 2·3 모두 가능 (iOS 13+, iPhone 8+)
@@ -22,6 +23,8 @@
 
 static id g_engine     = nil;    // CHHapticEngine *
 static id g_continuous = nil;    // id<CHHapticAdvancedPatternPlayer>
+static id g_wave       = nil;    // id<CHHapticPatternPlayer> — 파형 재생기
+
 
 static BOOL g_hwSupports = NO;   // 하드웨어가 CoreHaptics 를 지원하는가
 static BOOL g_running    = NO;   // 엔진이 지금 돌고 있는가
@@ -151,6 +154,9 @@ static void AudioFallback(void)
 // ───────────────────────── Unity 가 부르는 함수 ─────────────────────────
 
 extern "C" {
+
+// ch_stopAll 이 정의보다 위에 오므로 미리 알린다
+void ch_stopWaveform(void);
 
 int ch_init(void)
 {
@@ -312,6 +318,7 @@ void ch_stopContinuous(void)
 void ch_stopAll(void)
 {
     ch_stopContinuous();
+    ch_stopWaveform();
     if (@available(iOS 13.0, *)) {
         if (g_engine != nil) {
             [(CHHapticEngine *)g_engine stopWithCompletionHandler:nil];
@@ -331,6 +338,134 @@ void ch_impact(float intensity)
 void ch_systemVibrate(void)
 {
     AudioFallback();
+}
+
+// ─────────────────── 파형 (Android createWaveform 대응) ───────────────────
+
+/// 한 파형에 넣는 이벤트 수 상한.
+/// 2000ms 를 10ms 로 쪼개면 200 구간이 나온다. CoreHaptics 패턴에 이벤트를
+/// 몇 개까지 넣을 수 있는지는 문서에 없어서, 안전하게 끊고 진단에 남긴다.
+#define kMaxWaveEvents 96
+
+void ch_stopWaveform(void)
+{
+    if (@available(iOS 13.0, *)) {
+        if (g_wave == nil) return;
+        NSError *error = nil;
+        [(id<CHHapticPatternPlayer>)g_wave stopAtTime:0 error:&error];
+        g_wave = nil;
+    }
+}
+
+/// Android VibrationEffect.createWaveform(timings, amplitudes, -1) 과 같은 일을 한다.
+///
+/// createWaveform 은 구간마다 세기를 그대로 유지한다(계단 모양). CoreHaptics 에는
+/// 그에 대응하는 API 가 없으므로, 구간마다 continuous 이벤트를 하나씩 놓아
+/// 같은 모양을 만든다. 세기 0 인 구간은 이벤트를 놓지 않으면 그대로 침묵이 된다.
+///
+/// 세기가 같은 구간이 연달아 있으면 하나로 합친다. 이벤트 수가 줄고, 짧은
+/// continuous 이벤트를 맞붙이면 경계에서 딸깍거리기 때문이다.
+///
+/// 주의: Taptic Engine 은 뜨는 데 시간이 걸려, 20ms 보다 짧은 구간은
+/// 안드로이드보다 뭉개져 들릴 수 있다. 샘플 간격을 늘리면 선명해진다.
+void ch_playWaveform(const int *durationsMs, const int *amplitudes, int count, float sharpness)
+{
+    if (durationsMs == NULL || amplitudes == NULL || count <= 0) return;
+
+    if (@available(iOS 13.0, *)) {
+        if (!EnsureRunning()) {
+            // 파형을 만들 수 없다. 모양은 포기하고 최고 세기로 한 번만 울려
+            // "신호는 왔다"는 것만 전달한다 — 실험에는 쓸 수 없는 상태다.
+            int peak = 0;
+            for (int i = 0; i < count; i++) if (amplitudes[i] > peak) peak = amplitudes[i];
+            ImpactFallback(peak / 255.0f);
+            return;
+        }
+
+        // 돌고 있던 파형은 교체한다 — Android vibrate() 와 같은 동작.
+        ch_stopWaveform();
+
+        NSMutableArray<CHHapticEvent *> *events = [NSMutableArray array];
+        double startSeconds = 0.0;
+        BOOL truncated = NO;
+        int i = 0;
+
+        while (i < count) {
+            int level = amplitudes[i];
+            if (level < 0)   level = 0;
+            if (level > 255) level = 255;
+
+            // 같은 세기가 이어지는 동안 한 구간으로 묶는다
+            double seconds = 0.0;
+            int j = i;
+            while (j < count) {
+                int next = amplitudes[j];
+                if (next < 0)   next = 0;
+                if (next > 255) next = 255;
+                if (next != level) break;
+                int ms = durationsMs[j];
+                if (ms > 0) seconds += ms / 1000.0;
+                j++;
+            }
+
+            if (level > 0 && seconds > 0.0) {
+                if (events.count >= kMaxWaveEvents) {
+                    truncated = YES;
+                } else {
+                    CHHapticEventParameter *pi =
+                        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticIntensity
+                                                                     value:level / 255.0f];
+                    CHHapticEventParameter *ps =
+                        [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness
+                                                                     value:sharpness];
+                    [events addObject:
+                        [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous
+                                                     parameters:@[pi, ps]
+                                                   relativeTime:startSeconds
+                                                       duration:seconds]];
+                }
+            }
+
+            startSeconds += seconds;
+            i = j;
+        }
+
+        if (truncated) SetErr([NSString stringWithFormat:@"wave: %d 구간 초과분 버림", kMaxWaveEvents]);
+        if (events.count == 0) return;      // 전 구간이 세기 0 — 울릴 것이 없다
+
+        NSError *error = nil;
+        CHHapticPattern *pattern = [[CHHapticPattern alloc] initWithEvents:events
+                                                               parameters:@[]
+                                                                    error:&error];
+        if (pattern == nil || error != nil) {
+            SetErr([NSString stringWithFormat:@"wave pattern: %@", error.localizedDescription]);
+            g_coreFail++;
+            return;
+        }
+
+        error = nil;
+        id<CHHapticPatternPlayer> player =
+            [(CHHapticEngine *)g_engine createPlayerWithPattern:pattern error:&error];
+        if (player == nil || error != nil) {
+            SetErr([NSString stringWithFormat:@"wave player: %@", error.localizedDescription]);
+            g_coreFail++;
+            return;
+        }
+
+        error = nil;
+        [player startAtTime:0 error:&error];
+        if (error != nil) {
+            SetErr([NSString stringWithFormat:@"wave start: %@", error.localizedDescription]);
+            g_coreFail++;
+            return;
+        }
+
+        g_wave = player;
+        g_coreOk++;
+        return;
+    }
+
+    ImpactFallback(1.0f);
 }
 
 /// 진단 문자열. 맥이 없어 Xcode 콘솔을 못 보므로 이걸 HUD 에 띄운다.

@@ -12,6 +12,7 @@ using UnityEngine;
 ///  Pulse()            — 짧은 한 번 (Case 2: 주기 변조)
 ///  SetContinuous()    — 세기를 바꿔 가며 이어지는 진동 (Case 3: 세기 변조). 주기적으로 반복 호출한다.
 ///  StopContinuous()   — 시행이 끝나면 호출
+///  PlayPattern()      — 진동 패턴 하나를 끝까지 (10가지 모양)
 ///
 /// HasAmplitudeControl 이 false 면 Case 3 는 세기가 3단계로 뭉뚱그려진다.
 /// Diagnostics 는 iOS 에서 왜 진동이 안 되는지 보기 위한 것 — 맥 없이는 로그를 볼 수 없다.
@@ -25,6 +26,8 @@ public static class HapticManager
     [DllImport("__Internal")] private static extern void   ch_beginContinuous(float intensity, float sharpness);
     [DllImport("__Internal")] private static extern void   ch_setContinuousIntensity(float intensity);
     [DllImport("__Internal")] private static extern void   ch_stopContinuous();
+    [DllImport("__Internal")] private static extern void   ch_playWaveform(int[] durationsMs, int[] amplitudes, int count, float sharpness);
+    [DllImport("__Internal")] private static extern void   ch_stopWaveform();
     [DllImport("__Internal")] private static extern void   ch_stopAll();
     [DllImport("__Internal")] private static extern void   ch_impact(float intensity);
     [DllImport("__Internal")] private static extern void   ch_systemVibrate();
@@ -156,6 +159,96 @@ public static class HapticManager
 #endif
     }
 
+    /// <summary>
+    /// 진동 패턴 하나를 끝까지 재생한다. 인자는 AndroidVibrationManager.PlayPattern 과 같다.
+    ///
+    ///  Android : VibrationEffect.createWaveform 으로 넘긴다 (원본 그대로).
+    ///  iOS     : 같은 timings/amplitudes 를 만들어 ch_playWaveform 으로 넘긴다.
+    ///            CoreHaptics 에 createWaveform 대응 API 가 없어, 구간마다
+    ///            continuous 이벤트를 하나씩 놓아 같은 계단 모양을 만든다.
+    ///
+    /// 모양을 만드는 계산(BuildWaveform / BuildMathWaveform)은 플랫폼과 무관한
+    /// 순수 수식이라 양쪽이 같은 함수를 쓴다 — 두 기기가 같은 파형을 받는다.
+    /// </summary>
+    public static void PlayPattern(VibrationPattern pattern, long pulseMs, long stepMs,
+        long gapMs, int highAmplitude, int lowAmplitude, int intensity,
+        int mathDurationMs = 200, int mathSampleMs = 20, float modulationHz = 5f)
+    {
+        if (!initialized) Init();
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        AndroidVibrationManager.PlayPattern(pattern, pulseMs, stepMs, gapMs,
+            highAmplitude, lowAmplitude, intensity, mathDurationMs, mathSampleMs, modulationHz);
+
+#elif UNITY_IOS && !UNITY_EDITOR
+        // 세기 환산은 안드로이드 쪽과 한 글자도 다르지 않게 맞춘다
+        int peak = Mathf.Clamp(Mathf.RoundToInt(
+            Mathf.Clamp(highAmplitude, 1, 255) * Mathf.Clamp(intensity, 1, 255) / 255f), 1, 255);
+        int low = Mathf.Clamp(Mathf.RoundToInt(
+            Mathf.Clamp(lowAmplitude, 1, 255) * Mathf.Clamp(intensity, 1, 255) / 255f), 1, peak);
+
+        long[] timings;
+        int[] amplitudes;
+
+        if (pattern == VibrationPattern.SinglePulse)
+        {
+            // 안드로이드는 createOneShot(pulseMs, peak) — 길이가 있는 짧은 울림이다.
+            // ch_transient 는 길이를 못 정하므로, 한 구간 파형으로 보내 길이를 살린다.
+            timings = new long[] { System.Math.Max(1L, pulseMs) };
+            amplitudes = new int[] { peak };
+        }
+        else if (AndroidVibrationManager.IsMathPattern(pattern))
+        {
+            AndroidVibrationManager.BuildMathWaveform(pattern, mathDurationMs, mathSampleMs,
+                modulationHz, peak, out timings, out amplitudes);
+        }
+        else
+        {
+            AndroidVibrationManager.BuildWaveform(pattern, stepMs, gapMs, peak, low,
+                out timings, out amplitudes);
+        }
+
+        PlayWaveform(timings, amplitudes);
+#endif
+    }
+
+    /// <summary>
+    /// timings(구간 길이 ms) / amplitudes(0~255) 짝을 그대로 재생한다.
+    /// Android 의 createWaveform 과 같은 의미이고, 되풀이는 하지 않는다.
+    /// </summary>
+    public static void PlayWaveform(long[] timings, int[] amplitudes)
+    {
+        if (timings == null || amplitudes == null) return;
+        int count = Mathf.Min(timings.Length, amplitudes.Length);
+        if (count <= 0) return;
+
+        if (!initialized) Init();
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        AndroidVibrationManager.PlayWaveform(timings, amplitudes);
+
+#elif UNITY_IOS && !UNITY_EDITOR
+        int[] durations = new int[count];
+        int[] levels = new int[count];
+        for (int i = 0; i < count; i++)
+        {
+            durations[i] = (int)Mathf.Clamp(timings[i], 0f, 60000f);
+            levels[i] = Mathf.Clamp(amplitudes[i], 0, 255);
+        }
+        ch_playWaveform(durations, levels, count, Sharpness);
+#endif
+    }
+
+    /// <summary>재생 중인 패턴을 끊는다.</summary>
+    public static void StopWaveform()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        AndroidVibrationManager.Cancel();
+#elif UNITY_IOS && !UNITY_EDITOR
+        ch_stopWaveform();
+#endif
+    }
+
     /// <summary>세기 3단계 진동을 직접. 자가진단에서 경로를 나눠 확인할 때만 쓴다.</summary>
     public static void ImpactOnly(int amplitude)
     {
@@ -182,6 +275,7 @@ public static class HapticManager
 
 #elif UNITY_IOS && !UNITY_EDITOR
         StopContinuous();
+        ch_stopWaveform();
 #endif
     }
 }

@@ -104,8 +104,24 @@ public class ExperimentController : MonoBehaviour
     [Tooltip("켜면 시작할 때 진동 프리셋을 비교하는 화면을 띄운다. 값을 정하는 용도이므로 " +
              "본 실험에서는 반드시 꺼야 한다")]
     public bool runHapticTuning = false;
+    [Tooltip("켜면 시작할 때 진동 패턴 10가지를 하나씩 확인하는 화면을 띄운다. " +
+             "아이폰에서 패턴이 되는지 보는 용도이므로 본 실험에서는 꺼야 한다")]
+    public bool runPatternTest = true;
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
+
+    [Header("진동 패턴 (패턴 확인 모드에서만 쓴다)")]
+    // 조원 원본 ExperimentController 의 기본값과 같은 값이다. 본 실험(Case 1/2/3)은
+    // 이 값을 쓰지 않는다 — 패턴이 아이폰에서 되는지 보는 확인 모드 전용이다.
+    public long waveStepMs = 20;
+    public long waveGapMs = 20;
+    public int waveHighAmplitude = 255;
+    public int waveLowAmplitude = 70;
+    public int envelopeDurationMs = 200;
+    public int envelopeSampleMs = 20;
+    public float envelopeModulationHz = 5f;
+    [Tooltip("확인 모드에서 같은 패턴을 몇 ms 마다 되풀이할지")]
+    public float patternRepeatMs = 700f;
 
     [Header("기록")]
     [Tooltip("비워 두면 persistentDataPath 에 저장")]
@@ -196,12 +212,22 @@ public class ExperimentController : MonoBehaviour
             yield return StartCoroutine(HapticTuning());
         }
 
+        // 패턴 확인 모드도 자가진단을 알에 둔다 — 아무것도 안 나라면
+        // 패턴 탓인지 시스템 햅틱 설정 탓인지 가려지 지 않아서다.
+        if (runPatternTest)
+        {
+            if (runHapticSelfTest && !runHapticTuning)
+                yield return StartCoroutine(HapticSelfTest());
+            yield return StartCoroutine(PatternTest());
+        }
+
         if (askParticipantId) yield return StartCoroutine(SelectParticipant());
 
         BuildBlockOrder();
         OpenCsv();
 
-        if (!runHapticTuning && runHapticSelfTest) yield return StartCoroutine(HapticSelfTest());
+        if (!runHapticTuning && !runPatternTest && runHapticSelfTest)
+            yield return StartCoroutine(HapticSelfTest());
 
         StartBlock();
     }
@@ -363,6 +389,124 @@ public class ExperimentController : MonoBehaviour
         DebugHud.Set("HAPTIC SET\n\n  " + Presets[idx].label + "\n\n" + HapticProfileText());
         Debug.Log("[Experiment] haptic preset = " + Presets[idx].label + " / " + HapticProfileText());
         yield return new WaitForSeconds(1.8f);
+    }
+
+    /// <summary>
+    /// 진동 패턴 10가지를 하나씩 재생해, 아이폰에서 모양이 구별되는지 확인한다.
+    ///
+    /// 조원이 안드로이드에 넣은 패턴은 VibrationEffect.createWaveform 으로
+    /// 구간별 세기를 지정하는 방식인데, CoreHaptics 에는 대응 API 가 없다.
+    /// HapticManager.PlayPattern 이 같은 timings/amplitudes 를 받아 구간마다
+    /// continuous 이벤트를 놓는 식으로 옮기는데, 그게 실제로 구별되게 들리는지는
+    /// 폰에서 만져 봐야만 알 수 있다. 빌드 한 번으로 열 개를 다 보기 위한 화면이다.
+    ///
+    /// 탭하면 다음 패턴. 열 개를 다 지나간 뒤 5초 가만히 두면 넘어간다.
+    /// </summary>
+    private IEnumerator PatternTest()
+    {
+        phase = Phase.Ready;
+        HideAll();
+        DebugHud.Show(true);
+
+        VibrationPattern[] list =
+            (VibrationPattern[])System.Enum.GetValues(typeof(VibrationPattern));
+        bool[] seen = new bool[list.Length];
+
+        int idx = 0;
+        float idle = 0f;
+        float timer = 0f;
+        const float exitAfter = 5f;
+
+        while (true)
+        {
+            if (Api.IsTriggerPressed)
+            {
+                idx = (idx + 1) % list.Length;
+                idle = 0f;
+                timer = 0f;
+                HapticManager.StopWaveform();
+            }
+            else
+            {
+                idle += Time.deltaTime;
+            }
+
+            seen[idx] = true;
+
+            timer += Time.deltaTime * 1000f;
+            if (timer >= Mathf.Max(100f, patternRepeatMs))
+            {
+                HapticManager.PlayPattern(list[idx], pulseDurationMs, waveStepMs, waveGapMs,
+                    waveHighAmplitude, waveLowAmplitude, 255,
+                    envelopeDurationMs, envelopeSampleMs, envelopeModulationHz);
+                timer = 0f;
+            }
+
+            int left = 0;
+            for (int i = 0; i < seen.Length; i++) if (!seen[i]) left++;
+
+            string shape, bars;
+            PatternShape(list[idx], out shape, out bars);
+
+            DebugHud.Set("PATTERN TEST   [" + (idx + 1) + "/" + list.Length + "]\n\n"
+                       + "  " + list[idx] + "\n\n"
+                       + shape + "\n"
+                       + "|" + bars + "|\n\n"
+                       + (left > 0
+                            ? "tap to change pattern\n" + left + " left to try"
+                            : "tap to change pattern\nhold still "
+                              + Mathf.CeilToInt(exitAfter - idle) + "s to go on") + "\n\n"
+                       + HapticManager.Diagnostics);
+
+            if (left == 0 && idle >= exitAfter) break;
+            yield return null;
+        }
+
+        HapticManager.StopWaveform();
+        HapticManager.Cancel();
+        hapticTimer = 0f;
+
+        DebugHud.Set("PATTERN TEST done\n\n" + HapticManager.Diagnostics);
+        Debug.Log("[Experiment] pattern test done / " + HapticManager.Diagnostics);
+        yield return new WaitForSeconds(1.8f);
+    }
+
+    /// <summary>
+    /// 패턴이 실제로 어떤 파형으로 나가는지 글자로 보여 준다.
+    /// 아무것도 안 느껴질 때 "파형이 비었는지" 와 "폰이 안 울리는지" 를 갈라 준다.
+    /// </summary>
+    private void PatternShape(VibrationPattern pattern, out string summary, out string bars)
+    {
+        long[] timings;
+        int[] amplitudes;
+        long totalMs;
+
+        if (pattern == VibrationPattern.SinglePulse)
+        {
+            timings = new long[] { System.Math.Max(1L, pulseDurationMs) };
+            amplitudes = new int[] { Mathf.Clamp(waveHighAmplitude, 1, 255) };
+            totalMs = timings[0];
+        }
+        else if (AndroidVibrationManager.IsMathPattern(pattern))
+        {
+            totalMs = AndroidVibrationManager.BuildMathWaveform(pattern, envelopeDurationMs,
+                envelopeSampleMs, envelopeModulationHz, waveHighAmplitude,
+                out timings, out amplitudes);
+        }
+        else
+        {
+            totalMs = AndroidVibrationManager.BuildWaveform(pattern, waveStepMs, waveGapMs,
+                waveHighAmplitude, waveLowAmplitude, out timings, out amplitudes);
+        }
+
+        summary = timings.Length + " seg   " + totalMs + " ms   peak " + waveHighAmplitude;
+
+        // 세기를 글자 높이로 그린다. 폰 화면이 좁으니 40칸에서 끊는다.
+        const string ramp = " .:-=+*#";
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < amplitudes.Length && i < 40; i++)
+            sb.Append(ramp[Mathf.Clamp(amplitudes[i] * (ramp.Length - 1) / 255, 0, ramp.Length - 1)]);
+        bars = sb.ToString();
     }
 
     private void ApplyPreset(HapticPreset p)
