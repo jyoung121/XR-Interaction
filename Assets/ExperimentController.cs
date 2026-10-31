@@ -195,6 +195,13 @@ public class ExperimentController : MonoBehaviour
     private int firstTurnSign;           // 0 = 아직, ±1
     private int reversals;
     private int lastMoveSign;
+    // 좌우만 세면 타겟이 위아래에 있을 때 탐색량이 과소측정된다.
+    // 시선 방향이 실제로 움직인 각도를 따로 누적해 좌우·위아래를 함께 담는다.
+    private Vector3 prevForward;
+    private float prevPitch;             // 고도각(도)
+    private float accumulatedPath;       // Σ 시선이 움직인 각도 (좌우+위아래)
+    private float accumulatedPitch;      // Σ|Δ고도각|
+    private float shortestPathDeg;       // 시행 시작 시점의 타겟까지 각도 (3D 최단)
     private int errorClicks;
 
     private string csvPath;
@@ -687,6 +694,7 @@ public class ExperimentController : MonoBehaviour
             File.WriteAllText(csvPath,
                 "participant,block_index,case,trial_index,is_practice,eccentricity_deg,side," +
                 "search_time_s,total_time_s,first_turn_correct,reversals,path_efficiency," +
+                "accum_path_deg,accum_pitch_deg,path_efficiency_3d," +
                 "error_clicks,timeout,end_by,dwell_setting_s,haptic_profile\n", Encoding.UTF8);
             Debug.Log("[Experiment] CSV: " + csvPath);
         }
@@ -773,15 +781,20 @@ public class ExperimentController : MonoBehaviour
         searchTime = -1f;
         accumulatedYaw = 0f;
         netYawSinceOnset = 0f;
+        accumulatedPath = 0f;
+        accumulatedPitch = 0f;
         firstTurnSign = 0;
         reversals = 0;
         lastMoveSign = 0;
         errorClicks = 0;
 
         prevYaw = headCamera.eulerAngles.y;
+        prevForward = headCamera.forward;
+        prevPitch = PitchOf(headCamera.forward);
 
         Vector3 dirToTarget = (correctTarget.position - headCamera.position).normalized;
         signedYawAtOnset = SignedYawTo(dirToTarget);
+        shortestPathDeg = Vector3.Angle(headCamera.forward, dirToTarget);
 
         trialStartTime = Time.time;
         phase = Phase.Trial;
@@ -942,6 +955,15 @@ public class ExperimentController : MonoBehaviour
         return (Quaternion.AngleAxis(pitchDeg, right) * d).normalized;
     }
 
+    /// <summary>
+    /// 고도각(도). -90 아래, 0 수평, +90 위.
+    /// eulerAngles.x 는 0~360 으로 돌아 들어와 뺄셈이 깨지므로 쓰지 않는다.
+    /// </summary>
+    private static float PitchOf(Vector3 dir)
+    {
+        return Mathf.Asin(Mathf.Clamp(dir.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+    }
+
     private float SignedYawTo(Vector3 dir)
     {
         Vector3 a = Vector3.ProjectOnPlane(headCamera.forward, Vector3.up).normalized;
@@ -1029,6 +1051,16 @@ public class ExperimentController : MonoBehaviour
 
         accumulatedYaw += Mathf.Abs(d);
         netYawSinceOnset += d;
+
+        // 좌우·위아래를 합친 실제 이동 각도. 타겟이 머리 위에 있으면 yaw 는
+        // 거의 안 움직이는데 이 값은 제대로 쌓인다.
+        Vector3 fwdNow = headCamera.forward;
+        accumulatedPath += Vector3.Angle(prevForward, fwdNow);
+        prevForward = fwdNow;
+
+        float pitchNow = PitchOf(fwdNow);
+        accumulatedPitch += Mathf.Abs(pitchNow - prevPitch);
+        prevPitch = pitchNow;
 
         // 첫 회전 방향 — 누적 5° 넘어선 순간의 부호
         if (firstTurnSign == 0 && Mathf.Abs(netYawSinceOnset) >= 5f)
@@ -1133,12 +1165,20 @@ public class ExperimentController : MonoBehaviour
         float shortestAbs = Mathf.Abs(signedYawAtOnset);
         float efficiency = accumulatedYaw > 0.01f ? Mathf.Clamp01(shortestAbs / accumulatedYaw) : 0f;
 
-        if (!currentTrial.isPractice) WriteRow(total, firstTurnCorrect, efficiency, timedOut, reason);
+        // 좌우만 보는 efficiency 는 타겟이 위아래에 있을 때 최단 경로를 짧게 잡아
+        // 효율을 과대평가한다. 3D 쪽을 같이 남겨 분석에서 고를 수 있게 한다.
+        float efficiency3d = accumulatedPath > 0.01f
+            ? Mathf.Clamp01(shortestPathDeg / accumulatedPath) : 0f;
+
+        if (!currentTrial.isPractice)
+            WriteRow(total, firstTurnCorrect, efficiency, efficiency3d, timedOut, reason);
 
         Debug.Log(string.Format(
-            "[Experiment] case={0} ecc={1} side={2} search={3:F2}s total={4:F2}s firstTurn={5} rev={6} eff={7:F2} err={8}{9}",
+            "[Experiment] case={0} ecc={1} side={2} search={3:F2}s total={4:F2}s firstTurn={5} rev={6} " +
+            "eff={7:F2} eff3d={8:F2} path={9:F0} pitch={10:F0} err={11}{12}",
             currentCase, currentTrial.eccentricity, currentTrial.side, searchTime, total,
-            firstTurnCorrect, reversals, efficiency, errorClicks, timedOut ? " TIMEOUT" : ""));
+            firstTurnCorrect, reversals, efficiency, efficiency3d,
+            accumulatedPath, accumulatedPitch, errorClicks, timedOut ? " TIMEOUT" : ""));
 
         HapticManager.StopContinuous();
         HapticManager.Cancel();
@@ -1148,7 +1188,8 @@ public class ExperimentController : MonoBehaviour
         phaseTimer = 0f;
     }
 
-    private void WriteRow(float total, int firstTurnCorrect, float efficiency, bool timedOut, EndReason reason)
+    private void WriteRow(float total, int firstTurnCorrect, float efficiency, float efficiency3d,
+        bool timedOut, EndReason reason)
     {
         var ci = CultureInfo.InvariantCulture;
         line.Length = 0;
@@ -1164,6 +1205,9 @@ public class ExperimentController : MonoBehaviour
             .Append(firstTurnCorrect).Append(',')
             .Append(reversals).Append(',')
             .Append(efficiency.ToString("F4", ci)).Append(',')
+            .Append(accumulatedPath.ToString("F1", ci)).Append(',')
+            .Append(accumulatedPitch.ToString("F1", ci)).Append(',')
+            .Append(efficiency3d.ToString("F4", ci)).Append(',')
             .Append(errorClicks).Append(',')
             .Append(timedOut ? 1 : 0).Append(',')
             .Append(reason).Append(',')
