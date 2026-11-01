@@ -105,11 +105,9 @@ public class ExperimentController : MonoBehaviour
     public Color idleColor = Color.white;
     [Tooltip("드웰해서 가려냈을 때의 색")]
     public Color revealColor = Color.red;
-    [Tooltip("시선이 이만큼 머물면 색이 바뀐다(초). dwellSeconds 보다 작아야 확정 전에 보인다")]
-    public float dwellRevealSeconds = 0.35f;
-    [Tooltip("켜면 어느 물체든 드웰하면 색이 바뀐다(조준 표시). " +
-             "끄면 정답만 바뀐다(찾았다는 신호)")]
-    public bool highlightAnyOnDwell = false;
+    [Tooltip("찾은 뒤 빨개진 정답을 몇 초 보여 주고 치울지. " +
+             "interTrialSeconds 보다 길면 그 값으로 잘린다")]
+    public float foundFeedbackSeconds = 0.6f;
 
     [Header("진단 / 테스트")]
     [Tooltip("켜면 시행 수를 줄여 빠르게 한 바퀴 돌린다. 본 실험에서는 꺼야 한다")]
@@ -176,8 +174,7 @@ public class ExperimentController : MonoBehaviour
     private readonly List<GameObject> pool = new List<GameObject>();
     // 매 프레임 GetComponent 를 부르지 않도록 미리 받아 둔다
     private readonly List<Renderer> poolRenderers = new List<Renderer>();
-    private int highlightIndex = -1;
-    private float highlightTimer = 0f;
+    private bool showingFoundFeedback;   // 찾은 정답을 보여 주는 중인가
     private Transform correctTarget;
 
     private float hapticTimer, dwellTimer, phaseTimer;
@@ -875,49 +872,7 @@ public class ExperimentController : MonoBehaviour
             if (i == 0) correctTarget = go.transform;
         }
 
-        highlightIndex = -1;
-        highlightTimer = 0f;
-    }
-
-    /// <summary>
-    /// 시선이 머문 물체의 색을 바꾼다.
-    ///
-    /// 모든 물체를 같은 색으로 두면 정답을 눈으로 바로 가려낼 수 없고, 화살표나
-    /// 진동을 따라가 드웰해야 알 수 있다. 예전에는 정답이 처음부터 빨간색이어서
-    /// 시야에 들어오는 순간 끝났고, 그만큼 안내(화살표·진동)의 몫이 작았다.
-    ///
-    /// 색이 바뀌는 시각(dwellRevealSeconds)은 확정 시각(dwellSeconds)보다 앞이라,
-    /// 확정되기 전에 "맞았다"를 먼저 본다.
-    /// </summary>
-    private void UpdateTargetHighlight()
-    {
-        // 조준 원뿔 안에서 시선에 가장 가까운 물체 하나
-        int aimed = -1;
-        float best = selectAngleDeg;
-
-        for (int i = 0; i < pool.Count; i++)
-        {
-            if (pool[i] == null || !pool[i].activeSelf) continue;
-            float a = Vector3.Angle(headCamera.forward,
-                                    pool[i].transform.position - headCamera.position);
-            if (a <= best) { best = a; aimed = i; }
-        }
-
-        if (aimed != highlightIndex)
-        {
-            if (highlightIndex >= 0) SetTargetColor(highlightIndex, idleColor);
-            highlightIndex = aimed;
-            highlightTimer = 0f;
-            return;
-        }
-
-        if (aimed < 0) return;
-
-        highlightTimer += Time.deltaTime;
-        if (highlightTimer < dwellRevealSeconds) return;
-
-        bool isCorrect = correctTarget != null && pool[aimed].transform == correctTarget;
-        if (highlightAnyOnDwell || isCorrect) SetTargetColor(aimed, revealColor);
+        showingFoundFeedback = false;
     }
 
     private void SetTargetColor(int index, Color c)
@@ -989,6 +944,9 @@ public class ExperimentController : MonoBehaviour
 
             case Phase.InterTrial:
                 phaseTimer += Time.deltaTime;
+                if (showingFoundFeedback &&
+                    phaseTimer >= Mathf.Min(foundFeedbackSeconds, interTrialSeconds))
+                    HideAll();
                 if (phaseTimer >= interTrialSeconds) AdvanceTrial();
                 break;
 
@@ -1006,7 +964,6 @@ public class ExperimentController : MonoBehaviour
         float angle = Vector3.Angle(headCamera.forward, dirToTarget);
 
         TrackHeadMotion();
-        UpdateTargetHighlight();
 
         bool guidanceOn = angle > guidanceCutoffAngleDeg;
         UpdateVisualArrow(dirToTarget, guidanceOn);
@@ -1182,7 +1139,19 @@ public class ExperimentController : MonoBehaviour
 
         HapticManager.StopContinuous();
         HapticManager.Cancel();
-        HideAll();
+
+        // 색은 찾은 순간에만 바뀐다. 탐색 중에 바뀌면 색 자체가 안내가 되어,
+        // 화살표와 진동의 몫을 재는 실험에서 교란이 된다.
+        // 시간을 다 쓴 시행은 찾은 것이 아니므로 아무것도 보여 주지 않는다.
+        if (reason == EndReason.Timeout)
+        {
+            HideAll();
+        }
+        else
+        {
+            SetTargetColor(0, revealColor);      // 정답은 언제나 pool[0]
+            showingFoundFeedback = true;
+        }
 
         phase = Phase.InterTrial;
         phaseTimer = 0f;
@@ -1231,8 +1200,7 @@ public class ExperimentController : MonoBehaviour
     {
         foreach (var go in pool) if (go != null) go.SetActive(false);
         if (visualArrowUI != null) visualArrowUI.gameObject.SetActive(false);
-        highlightIndex = -1;
-        highlightTimer = 0f;
+        showingFoundFeedback = false;
     }
 
     private void SetStatus(string s)
