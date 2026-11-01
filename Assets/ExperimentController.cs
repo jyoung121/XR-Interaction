@@ -175,6 +175,8 @@ public class ExperimentController : MonoBehaviour
     // 매 프레임 GetComponent 를 부르지 않도록 미리 받아 둔다
     private readonly List<Renderer> poolRenderers = new List<Renderer>();
     private bool showingFoundFeedback;   // 찾은 정답을 보여 주는 중인가
+    private bool triggerLatched;             // 직전 프레임에 손가락이 닿아 있었나
+    private bool triggerPressedThisFrame;    // 이 프레임에 탭이 '시작'됐나
     private Transform correctTarget;
 
     private float hapticTimer, dwellTimer, phaseTimer;
@@ -275,7 +277,7 @@ public class ExperimentController : MonoBehaviour
 
         while (idle < confirmAfter)
         {
-            if (Api.IsTriggerPressed)
+            if (triggerPressedThisFrame)
             {
                 id = (id + 1) % LatinSquare.Length;
                 idle = 0f;
@@ -358,7 +360,7 @@ public class ExperimentController : MonoBehaviour
 
         while (idle < confirmAfter)
         {
-            if (Api.IsTriggerPressed)
+            if (triggerPressedThisFrame)
             {
                 idx = (idx + 1) % Presets.Length;
                 idle = 0f;
@@ -444,7 +446,7 @@ public class ExperimentController : MonoBehaviour
 
         while (true)
         {
-            if (Api.IsTriggerPressed)
+            if (triggerPressedThisFrame)
             {
                 idx = (idx + 1) % list.Length;
                 idle = 0f;
@@ -928,8 +930,30 @@ public class ExperimentController : MonoBehaviour
 
     // ───────────────────────── 메인 루프 ─────────────────────────
 
+    /// <summary>
+    /// 탭 한 번을 한 번으로 센다.
+    ///
+    /// Api.IsTriggerPressed 는 touch.phase == Began 인지만 본다(Api.cs:121).
+    /// 그런데 iOS 는 손가락이 가만히 있으면 새 터치 이벤트를 보내지 않아서,
+    /// phase 가 Began 에 머문 채 손가락을 대고 있는 몇 프레임 동안 계속 true 가
+    /// 된다. 탭 한 번에 패턴이 다섯 칸 넘어간 원인이고, 시행 중에는 손가락을
+    /// 한 번 대는 것만으로 error_clicks 가 수십 번 올라간다.
+    ///
+    /// 닿기 시작한 프레임만 통과시킨다. Update 에서 프레임당 한 번만 갱신하므로,
+    /// 코루틴(참가자 선택 / 튜닝 / 패턴 확인)과 Update(블록 대기 / 시행)가
+    /// 같은 값을 보고 서로 어긋나지 않는다.
+    /// </summary>
+    private void UpdateTriggerEdge()
+    {
+        bool down = Api.IsTriggerPressed;
+        triggerPressedThisFrame = down && !triggerLatched;
+        triggerLatched = down;
+    }
+
     private void Update()
     {
+        UpdateTriggerEdge();
+
         // Cardboard 공통 처리
         if (Api.IsGearButtonPressed) Api.ScanDeviceParams();
         if (Api.IsTriggerHeldPressed) Api.Recenter();
@@ -939,7 +963,7 @@ public class ExperimentController : MonoBehaviour
         switch (phase)
         {
             case Phase.BlockRest:
-                if (Api.IsTriggerPressed) StartTrial();
+                if (triggerPressedThisFrame) StartTrial();
                 break;
 
             case Phase.InterTrial:
@@ -986,7 +1010,7 @@ public class ExperimentController : MonoBehaviour
 
         // 확정
         bool aimed = angle <= selectAngleDeg;
-        if (Api.IsTriggerPressed)
+        if (triggerPressedThisFrame)
         {
             if (aimed) { EndTrial(EndReason.Trigger); return; }
             errorClicks++;
