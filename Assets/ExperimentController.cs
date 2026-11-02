@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR.Management;
 using Google.XR.Cardboard;
 
 public enum ExperimentCase
@@ -137,6 +138,8 @@ public class ExperimentController : MonoBehaviour
     public float envelopeModulationHz = 5f;
     [Tooltip("확인 모드에서 같은 패턴을 몇 ms 마다 되풀이할지")]
     public float patternRepeatMs = 700f;
+    [Tooltip("설정 화면에서 Preview 로 들어 볼 패턴")]
+    public VibrationPattern previewPattern = VibrationPattern.SinglePulse;
 
     [Header("기록")]
     [Tooltip("비워 두면 persistentDataPath 에 저장")]
@@ -175,6 +178,8 @@ public class ExperimentController : MonoBehaviour
     // 매 프레임 GetComponent 를 부르지 않도록 미리 받아 둔다
     private readonly List<Renderer> poolRenderers = new List<Renderer>();
     private bool showingFoundFeedback;   // 찾은 정답을 보여 주는 중인가
+    private PatternSettingsMenu settingsMenu;
+    private bool xrOk;                       // 마지막 StartXR 이 성공했나
     private bool triggerLatched;             // 직전 프레임에 손가락이 닿아 있었나
     private bool triggerPressedThisFrame;    // 이 프레임에 탭이 '시작'됐나
     private Transform correctTarget;
@@ -218,6 +223,9 @@ public class ExperimentController : MonoBehaviour
 
         HapticManager.Init();
 
+        settingsMenu = gameObject.AddComponent<PatternSettingsMenu>();
+        settingsMenu.Initialize(this);
+
         if (testMode) { repetitionsPerCell = 1; practiceTrials = 1; }
         if (showHud && headCamera != null) DebugHud.Create(headCamera);
 
@@ -245,7 +253,7 @@ public class ExperimentController : MonoBehaviour
         {
             if (runHapticSelfTest && !runHapticTuning)
                 yield return StartCoroutine(HapticSelfTest());
-            yield return StartCoroutine(PatternTest());
+            yield return StartCoroutine(PatternSettings());
         }
 
         if (askParticipantId) yield return StartCoroutine(SelectParticipant());
@@ -429,6 +437,93 @@ public class ExperimentController : MonoBehaviour
     ///
     /// 탭하면 다음 패턴. 열 개를 다 지나간 뒤 5초 가만히 두면 넘어간다.
     /// </summary>
+    /// <summary>
+    /// 진동 값을 폰에서 고치는 화면을 띄운다.
+    ///
+    /// 화면이 떠 있는 동안에는 Cardboard XR 을 끈다. XR 모드에서는 화면이 둘로 갈라져
+    /// 글씨를 읽기 어렵고 터치·키보드가 제대로 먹지 않는다.
+    ///
+    /// XR 을 다시 켜는 데 실패하면 본 실험으로 넘어가지 않고 화면에 남는다.
+    /// Api 트리거는 XR 이 꺼져 있으면 항상 false 라(XRLoader._isStarted 검사),
+    /// 그냥 넘어가면 탭이 하나도 안 먹어 아무것도 못 하게 된다.
+    /// 이 화면은 IMGUI 버튼만 쓰므로 그 상태에서도 다시 시도할 수 있다.
+    /// </summary>
+    private IEnumerator PatternSettings()
+    {
+        DebugHud.Show(false);
+        yield return StartCoroutine(StopXR());
+
+        settingsMenu.Begin();
+        while (true)
+        {
+            while (!settingsMenu.Done) yield return null;
+            settingsMenu.Visible = false;
+
+            yield return StartCoroutine(StartXR());
+            if (!xrOk) continue;          // ShowError 가 화면을 다시 띄워 뒀다
+
+            if (!settingsMenu.RunPatternTest) break;
+
+            yield return StartCoroutine(PatternTest());
+
+            // 비교가 끝나면 값을 다시 만질 수 있게 화면으로 돌아온다
+            yield return StartCoroutine(StopXR());
+            settingsMenu.Begin();
+        }
+
+        settingsMenu.Visible = false;
+        DebugHud.Show(true);
+    }
+
+    private IEnumerator StopXR()
+    {
+        XRManagerSettings manager = XRGeneralSettings.Instance != null
+            ? XRGeneralSettings.Instance.Manager : null;
+
+        if (manager != null && manager.isInitializationComplete)
+        {
+            manager.StopSubsystems();
+            manager.DeinitializeLoader();
+        }
+
+        // XR 이 꺼져도 카메라는 스테레오 설정을 들고 있어 화면이 찌그러진다
+        Camera cam = headCamera != null ? headCamera.GetComponent<Camera>() : Camera.main;
+        if (cam != null)
+        {
+            cam.ResetAspect();
+            cam.fieldOfView = 60f;
+        }
+
+        yield return null;
+    }
+
+    private IEnumerator StartXR()
+    {
+        xrOk = false;
+
+        XRManagerSettings manager = XRGeneralSettings.Instance != null
+            ? XRGeneralSettings.Instance.Manager : null;
+        if (manager == null)
+        {
+            settingsMenu.ShowError("XR manager is missing.");
+            yield break;
+        }
+
+        if (!manager.isInitializationComplete) yield return manager.InitializeLoader();
+
+        if (manager.activeLoader == null)
+        {
+            manager.DeinitializeLoader();
+            settingsMenu.ShowError("Cardboard XR did not start. Tap a Start button again.");
+            yield break;
+        }
+
+        manager.StartSubsystems();
+        if (!Api.HasDeviceParams()) Api.ScanDeviceParams();
+        if (Api.HasNewDeviceParams()) Api.ReloadDeviceParams();
+        xrOk = true;
+    }
+
     private IEnumerator PatternTest()
     {
         phase = Phase.Ready;
