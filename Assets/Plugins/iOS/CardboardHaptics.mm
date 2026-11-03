@@ -368,7 +368,13 @@ void ch_stopWaveform(void)
 ///
 /// 주의: Taptic Engine 은 뜨는 데 시간이 걸려, 20ms 보다 짧은 구간은
 /// 안드로이드보다 뭉개져 들릴 수 있다. 샘플 간격을 늘리면 선명해진다.
-void ch_playWaveform(const int *durationsMs, const int *amplitudes, int count, float sharpness)
+///
+/// transientMaxMs 가 0 보다 크면, 그보다 짧은 구간은 continuous 가 아니라
+/// transient(짧은 탁) 로 낸다. 과자가 깨지는 느낌처럼 아주 짧고 날카로운 자극은
+/// continuous 로는 뭉개져서 표현이 안 된다.
+/// 0 이면 전부 continuous — 기존 패턴 10가지가 그대로 동작하도록 두기 위한 기본값이다.
+void ch_playWaveform(const int *durationsMs, const int *amplitudes, int count,
+                     float sharpness, int transientMaxMs)
 {
     if (durationsMs == NULL || amplitudes == NULL || count <= 0) return;
 
@@ -418,11 +424,22 @@ void ch_playWaveform(const int *durationsMs, const int *amplitudes, int count, f
                     CHHapticEventParameter *ps =
                         [[CHHapticEventParameter alloc] initWithParameterID:CHHapticEventParameterIDHapticSharpness
                                                                      value:sharpness];
-                    [events addObject:
-                        [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous
-                                                     parameters:@[pi, ps]
-                                                   relativeTime:startSeconds
-                                                       duration:seconds]];
+                    // 짧은 구간은 탁 한 번으로 낸다. transient 는 길이를 받지 않는
+                    // 초기화 함수가 따로 있으므로 그쪽을 쓴다.
+                    BOOL asTransient = (transientMaxMs > 0) &&
+                                       (seconds <= transientMaxMs / 1000.0);
+                    CHHapticEvent *ev;
+                    if (asTransient) {
+                        ev = [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticTransient
+                                                          parameters:@[pi, ps]
+                                                        relativeTime:startSeconds];
+                    } else {
+                        ev = [[CHHapticEvent alloc] initWithEventType:CHHapticEventTypeHapticContinuous
+                                                          parameters:@[pi, ps]
+                                                        relativeTime:startSeconds
+                                                            duration:seconds];
+                    }
+                    [events addObject:ev];
                 }
             }
 

@@ -30,6 +30,13 @@ public class PatternSettingsMenu : MonoBehaviour
     private string minInterval, maxInterval, near, far;
     private float sharpness;             // 0~1. iOS 전용 — 안드로이드는 무시한다
 
+    // 시나리오 확인용 (파일럿). 바리깡·치과는 지속 진동이라 단발 Preview 로는 들을 수 없다.
+    private bool buzzing;
+    private bool loadDip;
+    private float buzzSeconds;
+    private float buzzSharpness;         // 버즈를 시작할 때 쓴 sharpness
+    private int crunchSeed = 1;
+
     public void Initialize(ExperimentController experiment)
     {
         controller = experiment;
@@ -39,6 +46,7 @@ public class PatternSettingsMenu : MonoBehaviour
     /// <summary>화면을 띄운다. 컨트롤러가 XR 을 끈 뒤에 부른다.</summary>
     public void Begin()
     {
+        StopBuzz();
         RefreshFromController();
         Done = false;
         RunPatternTest = false;
@@ -71,6 +79,58 @@ public class PatternSettingsMenu : MonoBehaviour
         far = ((int)controller.intensityFar).ToString(ci);
         sharpness = Mathf.Clamp01(HapticManager.Sharpness);
         error = "";
+    }
+
+    /// <summary>
+    /// 지속 버즈를 돌린다. 바리깡·치과는 끊기지 않는 진동이라 단발 Preview 로는
+    /// 들어볼 수 없어서, 파일럿에서 기준 패턴을 정하려면 이게 있어야 한다.
+    ///
+    /// SetContinuous 는 첫 호출에만 sharpness 를 넘기고 그 뒤에는 세기만 갱신한다.
+    /// 그래서 돌아가는 중에 sharpness 를 바꿔도 안 먹는다. 바리깡과 치과를 가르는 축이
+    /// 바로 sharpness 이므로, 값이 바뀌면 재생기를 다시 띄워 준다.
+    /// </summary>
+    private void Update()
+    {
+        if (!buzzing) return;
+
+        if (!Visible || controller == null) { StopBuzz(); return; }
+
+        if (!Mathf.Approximately(buzzSharpness, sharpness))
+        {
+            HapticManager.StopContinuous();
+            HapticManager.Sharpness = Mathf.Clamp01(sharpness);
+            buzzSharpness = sharpness;
+        }
+
+        buzzSeconds += Time.deltaTime;
+
+        int peak;
+        if (!Read(highAmp, 1, 255, out peak)) peak = 200;
+
+        float load = loadDip ? ScenarioHaptics.ClipperLoad(buzzSeconds) : 1f;
+        HapticManager.SetContinuous(Mathf.Clamp(Mathf.RoundToInt(peak * load), 1, 255));
+    }
+
+    private void StartBuzz()
+    {
+        HapticManager.StopWaveform();
+        HapticManager.Sharpness = Mathf.Clamp01(sharpness);
+        buzzSharpness = sharpness;
+        buzzSeconds = 0f;
+        buzzing = true;
+    }
+
+    private void StopBuzz()
+    {
+        if (!buzzing) return;
+        buzzing = false;
+        buzzSeconds = 0f;
+        HapticManager.StopContinuous();
+    }
+
+    private void OnDisable()
+    {
+        StopBuzz();
     }
 
     private void OnGUI()
@@ -121,7 +181,8 @@ public class PatternSettingsMenu : MonoBehaviour
         GUILayout.Label("Envelope shapes (sine / triangle / sawtooth / square / decay / damped)");
         Field("Envelope duration (ms)  20-2000", ref envDuration);
         Field("Sample step (ms)  10-100", ref envSample);
-        Field("Modulation (Hz)  0.5-20", ref envModulation);
+        Field("Modulation (Hz)  0.5-50", ref envModulation);
+        GUILayout.Label("Usable ceiling is 1000 / (2 x sample step): 25Hz at 20ms, 50Hz at 10ms.");
         GUILayout.Label("duration x Hz / 1000 = cycles.  200ms x 5Hz = 1 cycle (one swell).");
         GUILayout.Label("600ms x 15Hz = 9 cycles, which feels like a rhythm instead.");
 
@@ -153,6 +214,36 @@ public class PatternSettingsMenu : MonoBehaviour
         GUILayout.Label("Report the number itself, not a Hz value.");
 
         GUILayout.Space(12);
+        GUILayout.Label("Scenario check  (pilot)");
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(buzzing ? "Stop buzz" : "Hold buzz  (clipper / dental)",
+                             GUILayout.Height(44)))
+        {
+            if (buzzing) StopBuzz();
+            else if (Apply()) StartBuzz();
+        }
+        if (GUILayout.Button(loadDip ? "[x] load dip" : "[ ] load dip",
+                             GUILayout.Width(160), GUILayout.Height(44)))
+            loadDip = !loadDip;
+        GUILayout.EndHorizontal();
+
+        if (GUILayout.Button("Crunch once  (eating)", GUILayout.Height(44)))
+        {
+            if (Apply())
+            {
+                StopBuzz();
+                int peak;
+                if (!Read(highAmp, 1, 255, out peak)) peak = 200;
+                crunchSeed++;
+                ScenarioHaptics.PlayCrunch(4, peak, crunchSeed);
+            }
+        }
+        GUILayout.Label("Buzz uses Peak strength + Sharpness, and keeps running until you stop it.");
+        GUILayout.Label("Clipper: sharpness 0.10-0.25, load dip ON.   Dental: sharpness 1.0, dip OFF.");
+        GUILayout.Label("Crunch is random each press. Current seed " + crunchSeed + " - write it down");
+        GUILayout.Label("when one feels right, so the same bite can be rebuilt later.");
+
+        GUILayout.Space(12);
         GUILayout.Label("Experiment (case 2 interval, case 3 strength)");
         Field("Minimum interval (ms)  1-10000", ref minInterval);
         Field("Maximum interval (ms)  1-10000", ref maxInterval);
@@ -171,11 +262,11 @@ public class PatternSettingsMenu : MonoBehaviour
         GUILayout.BeginHorizontal();
         if (GUILayout.Button("Compare all 10", GUILayout.Height(48)))
         {
-            if (Apply()) { RunPatternTest = true; Done = true; }
+            if (Apply()) { StopBuzz(); RunPatternTest = true; Done = true; }
         }
         if (GUILayout.Button("Start experiment", GUILayout.Height(48)))
         {
-            if (Apply()) { RunPatternTest = false; Done = true; }
+            if (Apply()) { StopBuzz(); RunPatternTest = false; Done = true; }
         }
         GUILayout.EndHorizontal();
 
@@ -209,7 +300,7 @@ public class PatternSettingsMenu : MonoBehaviour
 
         if (!Read(envDuration, 20, 2000, out duration) ||
             !Read(envSample, 10, 100, out sample) ||
-            !Read(envModulation, 0.5f, 20f, out modulation) ||
+            !Read(envModulation, 0.5f, 50f, out modulation) ||
             !Read(stepMs, 1, 2000, out step) ||
             !Read(gapMs, 1, 2000, out gap) ||
             !Read(highAmp, 1, 255, out high) ||

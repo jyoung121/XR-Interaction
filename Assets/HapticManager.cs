@@ -26,7 +26,7 @@ public static class HapticManager
     [DllImport("__Internal")] private static extern void   ch_beginContinuous(float intensity, float sharpness);
     [DllImport("__Internal")] private static extern void   ch_setContinuousIntensity(float intensity);
     [DllImport("__Internal")] private static extern void   ch_stopContinuous();
-    [DllImport("__Internal")] private static extern void   ch_playWaveform(int[] durationsMs, int[] amplitudes, int count, float sharpness);
+    [DllImport("__Internal")] private static extern void   ch_playWaveform(int[] durationsMs, int[] amplitudes, int count, float sharpness, int transientMaxMs);
     [DllImport("__Internal")] private static extern void   ch_stopWaveform();
     [DllImport("__Internal")] private static extern void   ch_stopAll();
     [DllImport("__Internal")] private static extern void   ch_impact(float intensity);
@@ -215,8 +215,12 @@ public static class HapticManager
     /// <summary>
     /// timings(구간 길이 ms) / amplitudes(0~255) 짝을 그대로 재생한다.
     /// Android 의 createWaveform 과 같은 의미이고, 되풀이는 하지 않는다.
+    ///
+    /// transientMaxMs 는 iOS 전용이다. 0 보다 크면 그보다 짧은 구간을 짧은 탁으로 낸다
+    /// (과자 깨지는 느낌처럼 날카로운 자극용). 기본값 0 이면 지금까지와 똑같이 동작한다.
+    /// 안드로이드는 createWaveform 에 이런 구분이 없어 이 값을 무시한다.
     /// </summary>
-    public static void PlayWaveform(long[] timings, int[] amplitudes)
+    public static void PlayWaveform(long[] timings, int[] amplitudes, int transientMaxMs = 0)
     {
         if (timings == null || amplitudes == null) return;
         int count = Mathf.Min(timings.Length, amplitudes.Length);
@@ -235,7 +239,7 @@ public static class HapticManager
             durations[i] = (int)Mathf.Clamp(timings[i], 0f, 60000f);
             levels[i] = Mathf.Clamp(amplitudes[i], 0, 255);
         }
-        ch_playWaveform(durations, levels, count, Sharpness);
+        ch_playWaveform(durations, levels, count, Sharpness, Mathf.Max(0, transientMaxMs));
 #endif
     }
 
