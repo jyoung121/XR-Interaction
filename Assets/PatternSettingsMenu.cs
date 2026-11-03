@@ -28,6 +28,7 @@ public class PatternSettingsMenu : MonoBehaviour
     private string envDuration, envSample, envModulation;
     private string stepMs, gapMs, highAmp, lowAmp, pulseMs, repeatMs;
     private string minInterval, maxInterval, near, far;
+    private float sharpness;             // 0~1. iOS 전용 — 안드로이드는 무시한다
 
     public void Initialize(ExperimentController experiment)
     {
@@ -68,6 +69,7 @@ public class PatternSettingsMenu : MonoBehaviour
         maxInterval = ((int)controller.maxIntervalMs).ToString(ci);
         near = ((int)controller.intensityNear).ToString(ci);
         far = ((int)controller.intensityFar).ToString(ci);
+        sharpness = Mathf.Clamp01(HapticManager.Sharpness);
         error = "";
     }
 
@@ -134,6 +136,21 @@ public class PatternSettingsMenu : MonoBehaviour
         Field("Low strength  1-255", ref lowAmp);
         Field("Pulse duration (ms)  1-2000", ref pulseMs);
         Field("Preview repeat (ms)  100-5000", ref repeatMs);
+
+        GUILayout.Space(12);
+        GUILayout.Label("Sharpness  (iPhone only - Android ignores it)");
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Sharpness  " + sharpness.ToString("0.00"), GUILayout.Width(170));
+        if (GUILayout.Button("-", GUILayout.Width(48), GUILayout.Height(34)))
+            sharpness = Mathf.Clamp01(Mathf.Round((sharpness - 0.05f) * 100f) / 100f);
+        sharpness = GUILayout.HorizontalSlider(sharpness, 0f, 1f, GUILayout.Width(180));
+        if (GUILayout.Button("+", GUILayout.Width(48), GUILayout.Height(34)))
+            sharpness = Mathf.Clamp01(Mathf.Round((sharpness + 0.05f) * 100f) / 100f);
+        GUILayout.EndHorizontal();
+        GUILayout.Label("0 = round and organic, 1 = crisp and precise. Apple does NOT call this");
+        GUILayout.Label("frequency, and it also changes how strong the buzz feels - so it is not");
+        GUILayout.Label("independent of the strength boxes above. Peak output sits near 0.7, not 1.");
+        GUILayout.Label("Report the number itself, not a Hz value.");
 
         GUILayout.Space(12);
         GUILayout.Label("Experiment (case 2 interval, case 3 strength)");
@@ -224,6 +241,10 @@ public class PatternSettingsMenu : MonoBehaviour
         controller.maxIntervalMs = hi;
         controller.intensityNear = n;
         controller.intensityFar = f;
+
+        // 슬라이더라 범위를 벗어날 수 없다. 패턴 재생 때 HapticManager 가 이 값을 읽는다
+        // (ch_playWaveform / ch_transient / ch_beginContinuous 로 그대로 넘어간다).
+        HapticManager.Sharpness = Mathf.Clamp01(sharpness);
         return true;
     }
 
