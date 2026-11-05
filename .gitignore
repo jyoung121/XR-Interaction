@@ -38,3 +38,6 @@ build_ios.log
 sideloadlydaemon.log
 iOSBuild/
 iOSBuild.zip
+
+# Unity 6 임시 폴더
+.utmp/
