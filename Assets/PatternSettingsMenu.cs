@@ -19,6 +19,7 @@ public class PatternSettingsMenu : MonoBehaviour
     public bool Visible { get; set; }
     public bool Done { get; private set; }
     public bool RunPatternTest { get; private set; }
+    public bool RunMirrorScene { get; private set; }
 
     private ExperimentController controller;
     private VibrationPattern selected = VibrationPattern.SinglePulse;
@@ -50,6 +51,7 @@ public class PatternSettingsMenu : MonoBehaviour
         RefreshFromController();
         Done = false;
         RunPatternTest = false;
+        RunMirrorScene = false;
         Visible = true;
     }
 
@@ -259,16 +261,28 @@ public class PatternSettingsMenu : MonoBehaviour
 
         if (GUILayout.Button("Preview this pattern", GUILayout.Height(44))) Preview();
 
+        if (GUILayout.Button("Mirror scene  (clipper / eating / dental)", GUILayout.Height(48)))
+        {
+            if (Apply())
+            {
+                StopBuzz();
+                RunMirrorScene = true;
+                RunPatternTest = false;
+                Done = true;
+            }
+        }
+
         GUILayout.BeginHorizontal();
         if (GUILayout.Button("Compare all 10", GUILayout.Height(48)))
         {
-            if (Apply()) { StopBuzz(); RunPatternTest = true; Done = true; }
+            if (Apply()) { StopBuzz(); RunPatternTest = true; RunMirrorScene = false; Done = true; }
         }
         if (GUILayout.Button("Start experiment", GUILayout.Height(48)))
         {
-            if (Apply()) { StopBuzz(); RunPatternTest = false; Done = true; }
+            if (Apply()) { StopBuzz(); RunPatternTest = false; RunMirrorScene = false; Done = true; }
         }
         GUILayout.EndHorizontal();
+        GUILayout.Label("'Start experiment' still launches the OLD search task - not this study.");
 
         GUILayout.EndArea();
 

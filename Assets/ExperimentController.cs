@@ -462,6 +462,14 @@ public class ExperimentController : MonoBehaviour
             yield return StartCoroutine(StartXR());
             if (!xrOk) continue;          // ShowError 가 화면을 다시 띄워 뒀다
 
+            if (settingsMenu.RunMirrorScene)
+            {
+                yield return StartCoroutine(MirrorScene());
+                yield return StartCoroutine(StopXR());
+                settingsMenu.Begin();
+                continue;
+            }
+
             if (!settingsMenu.RunPatternTest) break;
 
             yield return StartCoroutine(PatternTest());
@@ -473,6 +481,108 @@ public class ExperimentController : MonoBehaviour
 
         settingsMenu.Visible = false;
         DebugHud.Show(true);
+    }
+
+    // ───────────────────── 거울 씬 (새 주제) ─────────────────────
+
+    private bool scenarioBuzzing;
+    private int crunchSeed;
+
+    /// <summary>
+    /// 거울 방을 띄우고 세 시나리오를 차례로 보여 준다.
+    /// 트리거를 누르면 다음으로 넘어가고, 마지막 다음에 누르면 설정 화면으로 돌아온다.
+    ///
+    /// 아직 파일럿용이다 — 실험자가 눈으로 확인하고 진동 값을 맞추는 단계다.
+    /// 참가자가 직접 값을 올리내리는 화면은 블루투스 컨트롤러가 와야 붙는다.
+    /// </summary>
+    private IEnumerator MirrorScene()
+    {
+        phase = Phase.Ready;
+        HideAll();
+        DebugHud.Show(false);
+
+        MirrorRig rig = MirrorRig.Create(headCamera);
+        if (rig == null)
+        {
+            settingsMenu.ShowError("Mirror rig could not be created.");
+            yield break;
+        }
+
+        MirrorRig.Scenario[] order =
+        {
+            MirrorRig.Scenario.Clipper,
+            MirrorRig.Scenario.Food,
+            MirrorRig.Scenario.Dental
+        };
+
+        int idx = 0;
+        EnterScenario(rig, order[0]);
+
+        while (true)
+        {
+            if (triggerPressedThisFrame)
+            {
+                idx++;
+                if (idx >= order.Length) break;
+                EnterScenario(rig, order[idx]);
+            }
+
+            ApplyContactHaptics(rig);
+            yield return null;
+        }
+
+        HapticManager.StopContinuous();
+        HapticManager.StopWaveform();
+        scenarioBuzzing = false;
+        rig.Dispose();
+    }
+
+    private void EnterScenario(MirrorRig rig, MirrorRig.Scenario s)
+    {
+        // SetContinuous 는 첫 호출에만 sharpness 를 넘긴다. 시나리오를 바꿀 때
+        // 멈춰 두지 않으면 앞 시나리오의 날카로움이 그대로 남는다.
+        HapticManager.StopContinuous();
+        HapticManager.StopWaveform();
+        scenarioBuzzing = false;
+
+        // 바리깡은 둔탁하고 치과 드릴은 날카롭다. 파일럿에서 맞출 값의 출발점이다.
+        HapticManager.Sharpness = s == MirrorRig.Scenario.Dental ? 0.95f : 0.35f;
+
+        rig.ShowScenario(s);
+    }
+
+    /// <summary>
+    /// 진동을 접촉에 물린다. 거리가 아니라 닿았는지로 움직이는 게 이 설계의 핵심이다 —
+    /// 모터가 얼굴에 하나뿐이라 "멀면 약하게" 는 거리로 안 느껴지고 그냥 세기가
+    /// 오르내리는 걸로만 느껴진다. 닿기 전에는 아무것도 내보내지 않는다.
+    /// </summary>
+    private void ApplyContactHaptics(MirrorRig rig)
+    {
+        bool touching = rig.Contact > 0.5f;
+
+        if (rig.Current == MirrorRig.Scenario.Food)
+        {
+            // 씹기는 지속 진동이 아니라 짧은 탁이 여러 번이다. 닿는 순간 한 번만 쏜다.
+            if (touching && !scenarioBuzzing)
+            {
+                crunchSeed++;
+                ScenarioHaptics.PlayCrunch(4, waveHighAmplitude, crunchSeed);
+            }
+            scenarioBuzzing = touching;
+            return;
+        }
+
+        // 바리깡과 치과는 지속 진동. 닿아 있는 동안만 켠다.
+        if (touching)
+        {
+            HapticManager.SetContinuous(Mathf.Clamp(waveHighAmplitude, 1, 255));
+            scenarioBuzzing = true;
+        }
+        else if (scenarioBuzzing)
+        {
+            HapticManager.StopContinuous();
+            scenarioBuzzing = false;
+        }
     }
 
     private IEnumerator StopXR()
