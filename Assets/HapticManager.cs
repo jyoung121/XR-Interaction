@@ -213,6 +213,27 @@ public static class HapticManager
     }
 
     /// <summary>
+    /// Returns the full duration of one generated pattern. Repetition schedulers use this
+    /// to interpret their interval as silence after the pattern, not start-to-start time.
+    /// </summary>
+    public static long GetPatternDurationMs(VibrationPattern pattern, long pulseMs,
+        long stepMs, long gapMs, int mathDurationMs = 200, int mathSampleMs = 20,
+        float modulationHz = 5f)
+    {
+        if (pattern == VibrationPattern.SinglePulse)
+            return System.Math.Max(1L, pulseMs);
+
+        long[] timings;
+        int[] amplitudes;
+        if (AndroidVibrationManager.IsMathPattern(pattern))
+            return AndroidVibrationManager.BuildMathWaveform(pattern, mathDurationMs,
+                mathSampleMs, modulationHz, 255, out timings, out amplitudes);
+
+        return AndroidVibrationManager.BuildWaveform(pattern, stepMs, gapMs,
+            255, 1, out timings, out amplitudes);
+    }
+
+    /// <summary>
     /// timings(구간 길이 ms) / amplitudes(0~255) 짝을 그대로 재생한다.
     /// Android 의 createWaveform 과 같은 의미이고, 되풀이는 하지 않는다.
     ///

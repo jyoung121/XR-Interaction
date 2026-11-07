@@ -98,6 +98,7 @@ public class MirrorRig : MonoBehaviour
     public float Contact { get; private set; }
 
     public Scenario Current { get { return current; } }
+    public bool IsPlaying { get; private set; } = true;
 
     // ───────────────────────── 생성 ─────────────────────────
 
@@ -1338,6 +1339,7 @@ public class MirrorRig : MonoBehaviour
         current = s;
         elapsed = 0f;
         Contact = 0f;
+        IsPlaying = true;
 
         // 방을 통째로 갈아 끼운다. 미용실·집·치과는 벽도 바닥도 거울도 다르다.
         spec = SpecFor(s);
@@ -1384,6 +1386,12 @@ public class MirrorRig : MonoBehaviour
         ShowLabel(s);
     }
 
+    public void SetPlaying(bool value)
+    {
+        IsPlaying = value;
+        if (!value) Contact = 0f;
+    }
+
     private void LateUpdate()
     {
         TrackViewer();
@@ -1391,7 +1399,7 @@ public class MirrorRig : MonoBehaviour
         if (label != null && label.gameObject.activeSelf && Time.time > labelUntil)
             label.gameObject.SetActive(false);
 
-        if (current == Scenario.None) return;
+        if (current == Scenario.None || !IsPlaying) return;
         elapsed += Time.deltaTime;
         Animate();
     }

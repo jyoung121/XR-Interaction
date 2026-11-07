@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using UnityEngine.XR.Management;
 using Google.XR.Cardboard;
@@ -116,13 +117,15 @@ public class ExperimentController : MonoBehaviour
     [Tooltip("앱 시작 시 참가자 번호를 화면에서 고른다. 끄면 위 participantId 값을 그대로 쓴다")]
     public bool askParticipantId = true;
     [Tooltip("앱 시작 시 햅틱을 점검한다. 시스템 햅틱이 꺼진 폰을 걸러내므로 켜 두는 것을 권한다")]
-    public bool runHapticSelfTest = true;
+    public bool runHapticSelfTest = false;
     [Tooltip("켜면 시작할 때 진동 프리셋을 비교하는 화면을 띄운다. 값을 정하는 용도이므로 " +
              "본 실험에서는 반드시 꺼야 한다")]
     public bool runHapticTuning = false;
     [Tooltip("켜면 시작할 때 진동 패턴 10가지를 하나씩 확인하는 화면을 띄운다. " +
              "아이폰에서 패턴이 되는지 보는 용도이므로 본 실험에서는 꺼야 한다")]
-    public bool runPatternTest = true;
+    public bool runPatternTest = false;
+    [Tooltip("앱 시작 시 통합 설정 화면을 연다")]
+    public bool showSettingsOnStartup = true;
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
 
@@ -136,7 +139,7 @@ public class ExperimentController : MonoBehaviour
     public int envelopeDurationMs = 200;
     public int envelopeSampleMs = 20;
     public float envelopeModulationHz = 5f;
-    [Tooltip("확인 모드에서 같은 패턴을 몇 ms 마다 되풀이할지")]
+    [Tooltip("확인 모드에서 한 패턴이 끝난 뒤 다음 재생까지 기다릴 시간(ms)")]
     public float patternRepeatMs = 700f;
     [Tooltip("설정 화면에서 Preview 로 들어 볼 패턴")]
     public VibrationPattern previewPattern = VibrationPattern.SinglePulse;
@@ -247,12 +250,10 @@ public class ExperimentController : MonoBehaviour
             yield return StartCoroutine(HapticTuning());
         }
 
-        // 패턴 확인 모드도 자가진단을 알에 둔다 — 아무것도 안 나라면
-        // 패턴 탓인지 시스템 햅틱 설정 탓인지 가려지 지 않아서다.
-        if (runPatternTest)
+        // 통합 설정 화면에서 패턴 미리보기, 컨트롤러 확인, 미러 씬을 선택한다.
+        // 시작 직후 자동 진동 테스트는 기본적으로 실행하지 않는다.
+        if (showSettingsOnStartup || runPatternTest)
         {
-            if (runHapticSelfTest && !runHapticTuning)
-                yield return StartCoroutine(HapticSelfTest());
             yield return StartCoroutine(PatternSettings());
         }
 
@@ -261,7 +262,7 @@ public class ExperimentController : MonoBehaviour
         BuildBlockOrder();
         OpenCsv();
 
-        if (!runHapticTuning && !runPatternTest && runHapticSelfTest)
+        if (!runHapticTuning && !showSettingsOnStartup && !runPatternTest && runHapticSelfTest)
             yield return StartCoroutine(HapticSelfTest());
 
         StartBlock();
@@ -464,19 +465,13 @@ public class ExperimentController : MonoBehaviour
 
             if (settingsMenu.RunMirrorScene)
             {
-                yield return StartCoroutine(MirrorScene());
+                yield return StartCoroutine(MirrorScene(settingsMenu.SelectedMirrorScenario));
                 yield return StartCoroutine(StopXR());
-                settingsMenu.Begin();
+                settingsMenu.BeginMirrorSelection();
                 continue;
             }
 
-            if (!settingsMenu.RunPatternTest) break;
-
-            yield return StartCoroutine(PatternTest());
-
-            // 비교가 끝나면 값을 다시 만질 수 있게 화면으로 돌아온다
-            yield return StartCoroutine(StopXR());
-            settingsMenu.Begin();
+            if (settingsMenu.StartExperiment) break;
         }
 
         settingsMenu.Visible = false;
@@ -485,21 +480,19 @@ public class ExperimentController : MonoBehaviour
 
     // ───────────────────── 거울 씬 (새 주제) ─────────────────────
 
-    private bool scenarioBuzzing;
     private int crunchSeed;
 
     /// <summary>
     /// 거울 방을 띄우고 세 시나리오를 차례로 보여 준다.
     /// 트리거를 누르면 다음으로 넘어가고, 마지막 다음에 누르면 설정 화면으로 돌아온다.
     ///
-    /// 아직 파일럿용이다 — 실험자가 눈으로 확인하고 진동 값을 맞추는 단계다.
-    /// 참가자가 직접 값을 올리내리는 화면은 블루투스 컨트롤러가 와야 붙는다.
+    /// 선택한 시나리오 하나를 실행하고 블루투스 컨트롤러로 재생, 패턴, 세기를 조절한다.
     /// </summary>
-    private IEnumerator MirrorScene()
+    private IEnumerator MirrorScene(MirrorRig.Scenario scenario)
     {
         phase = Phase.Ready;
         HideAll();
-        DebugHud.Show(false);
+        DebugHud.Show(true);
 
         MirrorRig rig = MirrorRig.Create(headCamera);
         if (rig == null)
@@ -508,33 +501,160 @@ public class ExperimentController : MonoBehaviour
             yield break;
         }
 
-        MirrorRig.Scenario[] order =
-        {
-            MirrorRig.Scenario.Clipper,
-            MirrorRig.Scenario.Food,
-            MirrorRig.Scenario.Dental
-        };
-
-        int idx = 0;
-        EnterScenario(rig, order[0]);
+        int mode = scenario == MirrorRig.Scenario.Clipper ? 1 :
+                   scenario == MirrorRig.Scenario.Food ? 2 : 0;
+        int intensity = Mathf.Clamp(waveHighAmplitude, 1, 255);
+        int postPatternGapMs = Mathf.Clamp(Mathf.RoundToInt(patternRepeatMs), 20, 5000);
+        bool playing = true;
+        float scenarioClock = 0f;
+        float nextPatternAt = 0f;
+        float lastPatternEndsAt = 0f;
+        float nextIntensityStepAt = 0f;
+        float nextIntervalStepAt = 0f;
+        float fallbackExitAt = Time.unscaledTime + 0.75f;
+        bool touchingBefore = false;
+        EnterScenario(rig, scenario);
 
         while (true)
         {
-            if (triggerPressedThisFrame)
+            Gamepad pad = Gamepad.current;
+            if (pad != null && pad.buttonEast.wasPressedThisFrame) break;
+            if (Time.unscaledTime >= fallbackExitAt && triggerPressedThisFrame)
+                break; // 컨트롤러 연결이 끊겼을 때의 탈출 수단
+
+            if (pad != null && pad.buttonSouth.wasPressedThisFrame)
             {
-                idx++;
-                if (idx >= order.Length) break;
-                EnterScenario(rig, order[idx]);
+                playing = !playing;
+                rig.SetPlaying(playing);
+                StopScenarioHaptics();
+                touchingBefore = false;
+            }
+            if (pad != null && pad.buttonWest.wasPressedThisFrame)
+            {
+                mode = (mode + 12) % 13;
+                StopScenarioHaptics();
+                touchingBefore = false;
+                nextPatternAt = 0f;
+                lastPatternEndsAt = 0f;
+            }
+            if (pad != null && pad.buttonNorth.wasPressedThisFrame)
+            {
+                mode = (mode + 1) % 13;
+                StopScenarioHaptics();
+                touchingBefore = false;
+                nextPatternAt = 0f;
+                lastPatternEndsAt = 0f;
             }
 
-            ApplyContactHaptics(rig);
+            if (pad != null)
+            {
+                Vector2 stick = pad.leftStick.ReadValue();
+
+                if (Mathf.Abs(stick.y) < 0.55f) nextIntensityStepAt = 0f;
+                else if (nextIntensityStepAt <= 0f || Time.unscaledTime >= nextIntensityStepAt)
+                {
+                    intensity = Mathf.Clamp(intensity + (stick.y > 0f ? 5 : -5), 1, 255);
+                    nextIntensityStepAt = Time.unscaledTime +
+                        (nextIntensityStepAt <= 0f ? 0.35f : 0.12f);
+                }
+
+                if (Mathf.Abs(stick.x) < 0.55f) nextIntervalStepAt = 0f;
+                else if (nextIntervalStepAt <= 0f || Time.unscaledTime >= nextIntervalStepAt)
+                {
+                    // Left = shorter/faster, right = longer/slower.
+                    postPatternGapMs = Mathf.Clamp(
+                        postPatternGapMs + (stick.x > 0f ? 20 : -20), 20, 5000);
+                    nextIntervalStepAt = Time.unscaledTime +
+                        (nextIntervalStepAt <= 0f ? 0.35f : 0.12f);
+
+                    // Recalculate from the actual end of the currently playing pattern.
+                    if (lastPatternEndsAt > 0f)
+                        nextPatternAt = lastPatternEndsAt + postPatternGapMs / 1000f;
+                }
+            }
+
+            if (playing) scenarioClock += Time.deltaTime;
+            ApplyPilotHaptics(rig, mode, intensity, postPatternGapMs, scenarioClock,
+                ref touchingBefore, ref nextPatternAt, ref lastPatternEndsAt);
+            DebugHud.Set(MirrorStatus(scenario, playing, mode, intensity,
+                postPatternGapMs, pad != null));
             yield return null;
         }
 
+        StopScenarioHaptics();
+        rig.Dispose();
+        DebugHud.Show(false);
+    }
+
+    private void ApplyPilotHaptics(MirrorRig rig, int mode, int intensity,
+        int postPatternGapMs, float scenarioClock, ref bool touchingBefore,
+        ref float nextPatternAt, ref float lastPatternEndsAt)
+    {
+        bool touching = rig.Contact > 0.5f;
+        if (!touching)
+        {
+            if (touchingBefore) StopScenarioHaptics();
+            touchingBefore = false;
+            nextPatternAt = 0f;
+            lastPatternEndsAt = 0f;
+            return;
+        }
+
+        if (mode == 0) HapticManager.SetContinuous(intensity);
+        else if (mode == 1)
+        {
+            int loaded = Mathf.Clamp(Mathf.RoundToInt(
+                intensity * ScenarioHaptics.ClipperLoad(scenarioClock)), 1, 255);
+            HapticManager.SetContinuous(loaded);
+        }
+        else if (mode == 2)
+        {
+            if (!touchingBefore)
+            {
+                crunchSeed++;
+                ScenarioHaptics.PlayCrunch(4, intensity, crunchSeed);
+            }
+        }
+        else if (Time.unscaledTime >= nextPatternAt)
+        {
+            VibrationPattern pattern = (VibrationPattern)(mode - 3);
+            HapticManager.PlayPattern(pattern, pulseDurationMs, waveStepMs, waveGapMs,
+                waveHighAmplitude, waveLowAmplitude, intensity,
+                envelopeDurationMs, envelopeSampleMs, envelopeModulationHz);
+            long durationMs = HapticManager.GetPatternDurationMs(pattern,
+                pulseDurationMs, waveStepMs, waveGapMs,
+                envelopeDurationMs, envelopeSampleMs, envelopeModulationHz);
+            lastPatternEndsAt = Time.unscaledTime + durationMs / 1000f;
+            nextPatternAt = lastPatternEndsAt + postPatternGapMs / 1000f;
+        }
+
+        touchingBefore = true;
+    }
+
+    private static string PilotPatternName(int mode)
+    {
+        if (mode == 0) return "Continuous";
+        if (mode == 1) return "Clipper Load";
+        if (mode == 2) return "Crunch";
+        return ((VibrationPattern)(mode - 3)).ToString();
+    }
+
+    private static string MirrorStatus(MirrorRig.Scenario scenario, bool playing,
+        int mode, int intensity, int postPatternGapMs, bool connected)
+    {
+        return $"{scenario}  {(playing ? "PLAY" : "PAUSE")}\n" +
+               $"Pattern: {PilotPatternName(mode)}\n" +
+               $"Intensity: {intensity} / 255\n" +
+               $"Post-pattern gap: {postPatternGapMs} ms\n" +
+               $"Controller: {(connected ? "CONNECTED" : "NOT CONNECTED")}\n" +
+               "South play/pause | West/North pattern | East exit\n" +
+               "Stick up/down: intensity | left/right: post-gap";
+    }
+
+    private static void StopScenarioHaptics()
+    {
         HapticManager.StopContinuous();
         HapticManager.StopWaveform();
-        scenarioBuzzing = false;
-        rig.Dispose();
     }
 
     private void EnterScenario(MirrorRig rig, MirrorRig.Scenario s)
@@ -543,46 +663,11 @@ public class ExperimentController : MonoBehaviour
         // 멈춰 두지 않으면 앞 시나리오의 날카로움이 그대로 남는다.
         HapticManager.StopContinuous();
         HapticManager.StopWaveform();
-        scenarioBuzzing = false;
 
         // 바리깡은 둔탁하고 치과 드릴은 날카롭다. 파일럿에서 맞출 값의 출발점이다.
         HapticManager.Sharpness = s == MirrorRig.Scenario.Dental ? 0.95f : 0.35f;
 
         rig.ShowScenario(s);
-    }
-
-    /// <summary>
-    /// 진동을 접촉에 물린다. 거리가 아니라 닿았는지로 움직이는 게 이 설계의 핵심이다 —
-    /// 모터가 얼굴에 하나뿐이라 "멀면 약하게" 는 거리로 안 느껴지고 그냥 세기가
-    /// 오르내리는 걸로만 느껴진다. 닿기 전에는 아무것도 내보내지 않는다.
-    /// </summary>
-    private void ApplyContactHaptics(MirrorRig rig)
-    {
-        bool touching = rig.Contact > 0.5f;
-
-        if (rig.Current == MirrorRig.Scenario.Food)
-        {
-            // 씹기는 지속 진동이 아니라 짧은 탁이 여러 번이다. 닿는 순간 한 번만 쏜다.
-            if (touching && !scenarioBuzzing)
-            {
-                crunchSeed++;
-                ScenarioHaptics.PlayCrunch(4, waveHighAmplitude, crunchSeed);
-            }
-            scenarioBuzzing = touching;
-            return;
-        }
-
-        // 바리깡과 치과는 지속 진동. 닿아 있는 동안만 켠다.
-        if (touching)
-        {
-            HapticManager.SetContinuous(Mathf.Clamp(waveHighAmplitude, 1, 255));
-            scenarioBuzzing = true;
-        }
-        else if (scenarioBuzzing)
-        {
-            HapticManager.StopContinuous();
-            scenarioBuzzing = false;
-        }
     }
 
     private IEnumerator StopXR()
@@ -666,7 +751,10 @@ public class ExperimentController : MonoBehaviour
             seen[idx] = true;
 
             timer += Time.deltaTime * 1000f;
-            if (timer >= Mathf.Max(100f, patternRepeatMs))
+            long patternDurationMs = HapticManager.GetPatternDurationMs(list[idx],
+                pulseDurationMs, waveStepMs, waveGapMs,
+                envelopeDurationMs, envelopeSampleMs, envelopeModulationHz);
+            if (timer >= patternDurationMs + Mathf.Max(20f, patternRepeatMs))
             {
                 HapticManager.PlayPattern(list[idx], pulseDurationMs, waveStepMs, waveGapMs,
                     waveHighAmplitude, waveLowAmplitude, 255,
@@ -1148,8 +1236,15 @@ public class ExperimentController : MonoBehaviour
     /// 코루틴(참가자 선택 / 튜닝 / 패턴 확인)과 Update(블록 대기 / 시행)가
     /// 같은 값을 보고 서로 어긋나지 않는다.
     /// </summary>
-    private void UpdateTriggerEdge()
+    private void UpdateTriggerEdge(bool xrRunning)
     {
+        if (!xrRunning)
+        {
+            triggerPressedThisFrame = false;
+            triggerLatched = false;
+            return;
+        }
+
         bool down = Api.IsTriggerPressed;
         triggerPressedThisFrame = down && !triggerLatched;
         triggerLatched = down;
@@ -1157,13 +1252,19 @@ public class ExperimentController : MonoBehaviour
 
     private void Update()
     {
-        UpdateTriggerEdge();
+        XRManagerSettings manager = XRGeneralSettings.Instance != null
+            ? XRGeneralSettings.Instance.Manager : null;
+        bool xrRunning = manager != null && manager.activeLoader != null;
+        UpdateTriggerEdge(xrRunning);
 
         // Cardboard 공통 처리
-        if (Api.IsGearButtonPressed) Api.ScanDeviceParams();
-        if (Api.IsTriggerHeldPressed) Api.Recenter();
-        if (Api.HasNewDeviceParams()) Api.ReloadDeviceParams();
-        Api.UpdateScreenParams();
+        if (xrRunning)
+        {
+            if (Api.IsGearButtonPressed) Api.ScanDeviceParams();
+            if (Api.IsTriggerHeldPressed) Api.Recenter();
+            if (Api.HasNewDeviceParams()) Api.ReloadDeviceParams();
+            Api.UpdateScreenParams();
+        }
 
         switch (phase)
         {
