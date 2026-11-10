@@ -263,12 +263,16 @@ public class PatternSettingsMenu : MonoBehaviour
     {
         GUILayout.Label("PC Haptic Link");
         GUILayout.Label(hapticLink == null ? "Receiver unavailable" : hapticLink.Status);
-        GUILayout.Label(hapticLink != null && hapticLink.Connected ? "PC: CONNECTED" : "PC: waiting for ADB connection");
+        GUILayout.Label(hapticLink != null && hapticLink.Connected ? "PC: CONNECTED" : "PC: waiting for a connection");
         GUILayout.Space(8);
-        GUILayout.Label("1. Connect the Android phone by USB and enable USB debugging.");
-        GUILayout.Label("2. In Unity choose Tools > Haptic Waveform Designer.");
-        GUILayout.Label("3. Press ADB Forward, then Play on Phone.");
+        GUILayout.Label("ANDROID (USB): enable USB debugging, then press ADB Forward in Unity.");
+        GUILayout.Label("IPHONE (Wi-Fi): turn on Personal Hotspot and join the PC to it.");
+        GUILayout.Label("Then set Host in Unity to 172.20.10.1 (or the address above).");
+        GUILayout.Space(4);
+        GUILayout.Label("In Unity: Tools > Haptic Waveform Designer, then Play on Phone.");
         GUILayout.Label("The receiver stops when you leave this page.");
+        // 이 화면의 글자는 반드시 ASCII 여야 한다 — 내장 글꼴에 한글 글리프가 없어
+        // 한글은 빈 칸으로 보인다.
     }
 
     private void OpenPage(SettingsPage page)

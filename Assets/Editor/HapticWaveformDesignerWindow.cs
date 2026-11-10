@@ -16,6 +16,7 @@ public sealed class HapticWaveformDesignerWindow : EditorWindow
         public long[] durations;
         public int[] amplitudes;
         public int transientMaxMs;
+        public float sharpness;
     }
 
     [Serializable]
@@ -25,28 +26,104 @@ public sealed class HapticWaveformDesignerWindow : EditorWindow
         public string status = "";
     }
 
+    /// <summary>CoreHaptics 쪽 상한. CardboardHaptics.mm 의 kMaxWaveEvents 와 같은 값이어야 한다.</summary>
+    private const int IosMaxEvents = 96;
+
+    private const string HostKey = "HapticDesigner.Host";
+    private const string AndroidHost = "127.0.0.1";
+    private const string IPhoneHotspotHost = "172.20.10.1";
+
+    private string host = AndroidHost;
     private string durations = "80, 40, 120, 40, 200";
     private string amplitudes = "255, 0, 180, 0, 255";
     private int transientMaxMs;
-    private string status = "Connect the phone, open PC Haptic Link in the app, then forward the port.";
+    private bool overrideSharpness;
+    private float sharpness = 0.5f;
+    private string status = "Open PC Haptic Link in the app. Android: ADB Forward. iPhone: set Host to the address the app shows.";
 
     [MenuItem("Tools/Haptic Waveform Designer")]
     private static void Open() => GetWindow<HapticWaveformDesignerWindow>("Haptic Designer");
+
+    private void OnEnable() => host = EditorPrefs.GetString(HostKey, AndroidHost);
+
+    private void OnDisable() => EditorPrefs.SetString(HostKey, host);
 
     private void OnGUI()
     {
         EditorGUILayout.LabelField("Phone Waveform Preview", EditorStyles.boldLabel);
         EditorGUILayout.HelpBox("Each duration is paired with one amplitude. Duration: 1-2000 ms, amplitude: 0-255.", MessageType.Info);
+
+        // 전송 경로. 안드로이드는 adb 가 기기 루프백으로 밀어 주지만, iOS 에는 대응
+        // 도구가 없어 같은 와이파이에서 폰 주소로 직접 붙는다.
+        EditorGUILayout.LabelField("Transport", EditorStyles.boldLabel);
+        host = EditorGUILayout.TextField("Phone host", host);
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            if (GUILayout.Button("Android (adb, 127.0.0.1)")) host = AndroidHost;
+            if (GUILayout.Button("iPhone hotspot (172.20.10.1)")) host = IPhoneHotspotHost;
+        }
+
+        EditorGUILayout.Space();
+        EditorGUILayout.LabelField("Waveform", EditorStyles.boldLabel);
         durations = EditorGUILayout.TextField("Durations (ms)", durations);
         amplitudes = EditorGUILayout.TextField("Amplitudes", amplitudes);
         transientMaxMs = EditorGUILayout.IntSlider("iOS transient max (ms)", transientMaxMs, 0, 200);
 
+        overrideSharpness = EditorGUILayout.Toggle("Set iOS sharpness", overrideSharpness);
+        using (new EditorGUI.DisabledScope(!overrideSharpness))
+            sharpness = EditorGUILayout.Slider("Sharpness (iOS only)", sharpness, 0f, 1f);
+
+        DrawIosEventEstimate();
+
         EditorGUILayout.Space();
-        if (GUILayout.Button("ADB Forward", GUILayout.Height(30))) ForwardPort();
+        if (GUILayout.Button("ADB Forward (Android only)", GUILayout.Height(30))) ForwardPort();
         if (GUILayout.Button("Play on Phone", GUILayout.Height(36))) SendPlay();
         if (GUILayout.Button("Stop Phone Haptics", GUILayout.Height(30))) SendStop();
         EditorGUILayout.Space();
         EditorGUILayout.HelpBox(status, MessageType.None);
+    }
+
+    /// <summary>
+    /// iOS 는 구간을 그대로 재생하지 않는다. CoreHaptics 에 createWaveform 대응 API 가
+    /// 없어서 CardboardHaptics.mm 이 구간을 이벤트로 바꿔 놓는데,
+    ///  - 세기 0 구간은 이벤트를 만들지 않고 침묵이 되고
+    ///  - 같은 세기가 이어지면 하나로 합치고
+    ///  - 96개를 넘으면 초과분을 조용히 버린다.
+    /// 그래서 폰에서 안 들리는 뒷부분이 생길 수 있다. 보내기 전에 같은 셈을 해서 보여 준다.
+    /// </summary>
+    private void DrawIosEventEstimate()
+    {
+        long[] d;
+        int[] a;
+        try
+        {
+            d = ParseLongs(durations);
+            a = ParseInts(amplitudes);
+            if (d.Length == 0 || d.Length != a.Length) return;
+        }
+        catch (Exception) { return; }
+
+        int events = 0;
+        int i = 0;
+        while (i < a.Length)
+        {
+            int level = Mathf.Clamp(a[i], 0, 255);
+            long span = 0;
+            int j = i;
+            while (j < a.Length && Mathf.Clamp(a[j], 0, 255) == level)
+            {
+                if (d[j] > 0) span += d[j];
+                j++;
+            }
+            if (level > 0 && span > 0) events++;
+            i = j;
+        }
+
+        string text = $"iOS: {a.Length} segments merge into {events} CoreHaptics events (cap {IosMaxEvents}).";
+        if (events > IosMaxEvents)
+            EditorGUILayout.HelpBox(text + $" The last {events - IosMaxEvents} would be dropped on iPhone - the tail will not play.", MessageType.Warning);
+        else
+            EditorGUILayout.HelpBox(text, MessageType.None);
     }
 
     private void ForwardPort()
@@ -93,7 +170,8 @@ public sealed class HapticWaveformDesignerWindow : EditorWindow
                 command = "play",
                 durations = d,
                 amplitudes = a,
-                transientMaxMs = transientMaxMs
+                transientMaxMs = transientMaxMs,
+                sharpness = overrideSharpness ? sharpness : -1f
             });
             if (!response.ok) throw new IOException(response.status);
             status = "Phone ACK: " + response.status;
@@ -105,19 +183,22 @@ public sealed class HapticWaveformDesignerWindow : EditorWindow
     {
         try
         {
-            HapticResponse response = Send(new HapticCommand { command = "stop" });
+            HapticResponse response = Send(new HapticCommand { command = "stop", sharpness = -1f });
             if (!response.ok) throw new IOException(response.status);
             status = "Phone ACK: " + response.status;
         }
         catch (Exception ex) { status = "Stop failed: " + ex.Message; }
     }
 
-    private static HapticResponse Send(HapticCommand command)
+    private HapticResponse Send(HapticCommand command)
     {
+        string target = string.IsNullOrWhiteSpace(host) ? AndroidHost : host.Trim();
         using (TcpClient client = new TcpClient())
         {
-            IAsyncResult pending = client.BeginConnect("127.0.0.1", HapticLinkReceiver.Port, null, null);
-            if (!pending.AsyncWaitHandle.WaitOne(2000)) throw new IOException("Phone did not accept the connection. Open PC Haptic Link and run ADB Forward.");
+            IAsyncResult pending = client.BeginConnect(target, HapticLinkReceiver.Port, null, null);
+            if (!pending.AsyncWaitHandle.WaitOne(2000))
+                throw new IOException($"{target} did not accept the connection. Open PC Haptic Link in the app; " +
+                    "on Android run ADB Forward, on iPhone check that the PC is on the phone's hotspot and Host matches the address the app shows.");
             client.EndConnect(pending);
             client.ReceiveTimeout = 4000;
             client.SendTimeout = 4000;

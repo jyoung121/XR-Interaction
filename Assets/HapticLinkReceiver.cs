@@ -7,8 +7,15 @@ using System.Threading;
 using UnityEngine;
 
 /// <summary>
-/// Receives newline-delimited JSON waveforms forwarded by ADB from the Unity editor.
+/// Receives newline-delimited JSON waveforms sent by the Unity editor.
 /// The listener is deliberately active only while the PC Haptic Link settings page is open.
+///
+/// 소켓은 IPAddress.Any 로 묶는다. 두 경로를 다 받아야 하기 때문이다.
+///  - Android : PC 의 adb forward 가 기기 루프백으로 밀어 넣는다 (원래 경로)
+///  - iOS     : adb 에 대응하는 USB 터널 도구(iproxy)가 없으므로, 같은 와이파이에서
+///              PC 가 폰 주소로 직접 붙는다. 아이폰 개인용 핫스팟을 켜고 PC 를
+///              거기에 붙이면 폰은 항상 172.20.10.1 이고 단말 간 차단도 없다.
+/// Any 는 루프백도 받으므로 안드로이드 경로는 그대로 동작한다.
 /// </summary>
 public sealed class HapticLinkReceiver : MonoBehaviour
 {
@@ -21,6 +28,13 @@ public sealed class HapticLinkReceiver : MonoBehaviour
         public long[] durations = Array.Empty<long>();
         public int[] amplitudes = Array.Empty<int>();
         public int transientMaxMs = 0;
+
+        /// <summary>
+        /// iOS 전용. 0~1 이면 재생 전에 HapticManager.Sharpness 를 그 값으로 바꾼다.
+        /// 음수(기본값)면 앱의 현재 값을 그대로 쓴다 — 이 필드가 없는 옛 명령도 그대로 돈다.
+        /// 치과의 드릴 / 전동칫솔 구분이 이 값이라, PC 에서 바꿔 볼 수 있어야 한다.
+        /// </summary>
+        public float sharpness = -1f;
     }
 
     [Serializable]
@@ -65,10 +79,10 @@ public sealed class HapticLinkReceiver : MonoBehaviour
         if (running || !listenerRequested) return;
         try
         {
-            listener = new TcpListener(IPAddress.Loopback, Port);
+            listener = new TcpListener(IPAddress.Any, Port);
             listener.Start(1);
             running = true;
-            status = $"Listening on device port {Port}";
+            status = $"Listening on {LocalAddresses()} : {Port}";
             worker = new Thread(ListenLoop) { IsBackground = true, Name = "HapticLinkReceiver" };
             worker.Start();
         }
@@ -153,7 +167,7 @@ public sealed class HapticLinkReceiver : MonoBehaviour
                 connected = false;
                 lock (connectionLock) activeClient = null;
                 if (running && status == "PC connected")
-                    status = $"Listening on device port {Port}";
+                    status = $"Listening on {LocalAddresses()} : {Port}";
             }
         }
     }
@@ -197,11 +211,38 @@ public sealed class HapticLinkReceiver : MonoBehaviour
             return MakeResponse(false, status);
         }
 
+        // iOS 는 sharpness 가 질감을 바꾼다. 음수면 앱의 현재 값을 그대로 둔다.
+        if (message.sharpness >= 0f) HapticManager.Sharpness = Mathf.Clamp01(message.sharpness);
+
         HapticManager.StopWaveform();
         HapticManager.PlayWaveform(message.durations, message.amplitudes,
             Mathf.Clamp(message.transientMaxMs, 0, 2000));
-        status = $"Played {message.durations.Length} segments";
+        status = $"Played {message.durations.Length} segments, sharpness {HapticManager.Sharpness:0.00}";
         return MakeResponse(true, status);
+    }
+
+    /// <summary>
+    /// 화면에 띄울 이 기기의 IPv4 주소. PC 디자이너의 Host 칸에 이 값을 넣는다.
+    /// 아이폰은 로그를 볼 수 없으므로 주소를 알아낼 길이 화면뿐이다.
+    /// 핫스팟 인터페이스가 목록에 안 잡히는 경우가 있어, 화면에는 172.20.10.1 안내도
+    /// 같이 띄워 둔다(PatternSettingsMenu.DrawPcHapticLink).
+    /// </summary>
+    private static string LocalAddresses()
+    {
+        try
+        {
+            System.Text.StringBuilder found = new System.Text.StringBuilder();
+            foreach (IPAddress address in Dns.GetHostAddresses(Dns.GetHostName()))
+            {
+                if (address.AddressFamily != AddressFamily.InterNetwork) continue;
+                if (IPAddress.IsLoopback(address)) continue;
+                if (found.Length > 0) found.Append(" / ");
+                found.Append(address.ToString());
+            }
+            if (found.Length > 0) return found.ToString();
+        }
+        catch (Exception ex) { return "address unknown (" + ex.GetType().Name + ")"; }
+        return "address unknown";
     }
 
     private static string MakeResponse(bool ok, string message)
