@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -120,6 +121,12 @@ public class MirrorRig : MonoBehaviour
     private Material lipMatUp, lipMatLow;
     private TextMesh[] labelEdge;    // 안내 글자의 어두운 외곽선
     private const bool FakeContactShadows = false;  // 가짜 원반 그림자
+    // 한 입마다 사과가 한 조각 패이고, 이 수에 닿으면 없어진다.
+    private const int BiteStages = 4;
+    private Mesh[] biteMesh;          // [0] 아직 안 깨문 것 … [3] 세 입 깨문 것
+    private MeshFilter[] appleMesh;   // 갈아 끼울 사과 몸통
+    private int biteStage;            // 지금 몇 입 깨문 상태인가
+    private int biteCycle = -1;       // 깨무는 순간을 한 번만 세려고 둔다
     private const float LipBulge = 0.0018f;  // 입술을 앞으로 내미는 양
     private Quaternion pivToMesh = Quaternion.identity;  // headPivot → 원본 메시 좌표
     private bool pivToMeshOK;
@@ -3145,6 +3152,8 @@ public class MirrorRig : MonoBehaviour
         // 실제 젤리보다 크지만 올린다 — 여기서 중요한 건 치수가 아니라
         // "무엇을 먹는지 보이는 것" 이다.
         foodHard = BuildFoodItem("FoodHard", Resources.Load<GameObject>("Models/Apple"), 0.055f);
+        // 크기를 맞춘 뒤에 깨문 단계별 메시를 미리 만들어 둔다.
+        PrepareAppleBites(foodHard);
 
         // 젤리는 재질을 덮어쓴다. OBJ 와 같이 온 재질은 Standard 셰이더라
         // 아이폰 빌드에서 분홍색 오류 셰이더로 나온다(AddModel 참고).
@@ -3196,6 +3205,234 @@ public class MirrorRig : MonoBehaviour
 
         holder.SetActive(false);
         return holder;
+    }
+
+    /// <summary>
+    /// 사과를 깨문 단계별 메시를 미리 만들어 둔다.
+    ///
+    /// 한 입에 통째로 사라지면 먹는 게 아니라 지워지는 것으로 보인다.
+    /// 깨물 때마다 한 조각씩 패이고 네 입째에 없어지게 한다.
+    ///
+    /// 받아 온 사과는 169 정점이라 한 입 자리를 패기엔 너무 거칠다 —
+    /// 베어 문 자리가 육각형 구멍이 돼 버린다. 삼각형을 두 번 쪼개
+    /// 2768 면으로 올린 다음 파낸다.
+    ///
+    /// 파내는 방법은 **구와의 교차를 안쪽 면으로 미는 것**이다. 삼각형을
+    /// 지우는 쪽이 먼저 떠오르지만 그러면 구멍이 뚫려서 속살을 또 막아
+    /// 줘야 한다. 미는 쪽은 메시가 닫힌 채로 남아서 막을 것이 없다.
+    /// 민 정점으로만 이뤄진 삼각형은 과육 재질로 돌려서 하얗게 보이게
+    /// 한다 — 패인 자리가 껍질과 같은 빨강이면 패인 게 안 보인다.
+    /// </summary>
+    private void PrepareAppleBites(GameObject holder)
+    {
+        if (holder == null) return;
+
+        // 사과 몸통은 정점이 가장 많은 메시다. 꼭지·잎도 같은 메시에
+        // 서브메시로 들어 있다.
+        MeshFilter[] all = holder.GetComponentsInChildren<MeshFilter>(true);
+        int most = 0;
+        foreach (MeshFilter f in all)
+            if (f.sharedMesh != null && f.sharedMesh.vertexCount > most)
+                most = f.sharedMesh.vertexCount;
+        if (most == 0) return;
+
+        List<MeshFilter> body = new List<MeshFilter>();
+        foreach (MeshFilter f in all)
+            if (f.sharedMesh != null && f.sharedMesh.vertexCount == most) body.Add(f);
+        appleMesh = body.ToArray();
+
+        Mesh src = appleMesh[0].sharedMesh;
+        int subs = src.subMeshCount;
+
+        List<Vector3> v = new List<Vector3>();
+        src.GetVertices(v);
+        List<int> tri = new List<int>();
+        List<int> sub = new List<int>();
+        for (int sm = 0; sm < subs; sm++)
+        {
+            int[] t = src.GetTriangles(sm);
+            for (int i = 0; i + 2 < t.Length; i += 3)
+            {
+                tri.Add(t[i]); tri.Add(t[i + 1]); tri.Add(t[i + 2]);
+                sub.Add(sm);
+            }
+        }
+        SplitTris(v, tri, sub);
+        SplitTris(v, tri, sub);
+
+        Bounds b = src.bounds;
+        // 꼭지와 잎은 위에 달려 있다. 한 입 자리를 허리에 둬서 건드리지 않는다.
+        Vector3 mid = b.center - Vector3.up * (b.size.y * 0.05f);
+        float rad = Mathf.Max(b.size.x, b.size.z) * 0.5f;
+
+        biteMesh = new Mesh[BiteStages];
+        for (int k = 0; k < BiteStages; k++)
+            biteMesh[k] = BiteApple(v, tri, sub, subs, mid, rad, k);
+
+        // 과육 재질을 서브메시 한 칸 뒤에 붙인다.
+        Material flesh =
+            ToolModels.MakeMaterial(new Color(0.95f, 0.91f, 0.74f), 0f, 0.18f);
+        foreach (MeshFilter f in appleMesh)
+        {
+            MeshRenderer mr = f.GetComponent<MeshRenderer>();
+            if (mr == null) continue;
+            Material[] old = mr.sharedMaterials;
+            Material[] now = new Material[subs + 1];
+            for (int sm = 0; sm < subs; sm++)
+                now[sm] = sm < old.Length ? old[sm] : null;
+            now[subs] = flesh;
+            mr.sharedMaterials = now;
+        }
+
+        biteStage = 0;
+        SetBiteStage(0);
+
+        // 과육 면이 몇 장 나왔는지는 눈으로 가늠이 안 된다. 처음에
+        // 작은 자국 넷을 냈을 때 5280 면 중 32 면뿐이었는데, 그게
+        // 화면에서 안 보이는 이유였다 — 세어 봐야 알 수 있다.
+        Debug.Log("[MirrorRig] 사과 깨물기 — 쪼갠 뒤 " + v.Count + "꼭짓점 "
+                  + sub.Count + "면 / 과육면 " + biteMesh[1].GetTriangles(subs).Length / 3
+                  + "→" + biteMesh[BiteStages - 1].GetTriangles(subs).Length / 3);
+    }
+
+    /// <summary>삼각형을 네 쪽으로 쪼갠다. 변 가운데 점은 한 번만 만든다.</summary>
+    private static void SplitTris(List<Vector3> v, List<int> tri, List<int> sub)
+    {
+        Dictionary<long, int> seen = new Dictionary<long, int>();
+        List<int> nt = new List<int>(tri.Count * 4);
+        List<int> ns = new List<int>(sub.Count * 4);
+        for (int f = 0; f < sub.Count; f++)
+        {
+            int a = tri[f * 3], b = tri[f * 3 + 1], c = tri[f * 3 + 2];
+            int ab = EdgeMid(v, seen, a, b);
+            int bc = EdgeMid(v, seen, b, c);
+            int ca = EdgeMid(v, seen, c, a);
+            nt.Add(a);  nt.Add(ab); nt.Add(ca);
+            nt.Add(ab); nt.Add(b);  nt.Add(bc);
+            nt.Add(ca); nt.Add(bc); nt.Add(c);
+            nt.Add(ab); nt.Add(bc); nt.Add(ca);
+            for (int i = 0; i < 4; i++) ns.Add(sub[f]);
+        }
+        tri.Clear(); tri.AddRange(nt);
+        sub.Clear(); sub.AddRange(ns);
+    }
+
+    private static int EdgeMid(List<Vector3> v, Dictionary<long, int> seen, int a, int b)
+    {
+        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+        int got;
+        if (seen.TryGetValue(key, out got)) return got;
+        v.Add((v[a] + v[b]) * 0.5f);
+        got = v.Count - 1;
+        seen[key] = got;
+        return got;
+    }
+
+    /// <summary>
+    /// 몇 입째 깨문 자리가 메시 좌표에서 어느 쪽을 보는가 (도, Y 축 둘레).
+    /// 메시를 파는 쪽과 사과를 돌려 놓는 쪽이 **같은 값**을 봐야 패인
+    /// 자리가 거울을 향한다.
+    /// </summary>
+    private static float BiteAngle(int bites)
+    {
+        return -20f + 16f * bites;
+    }
+
+    /// <summary>사과를 <paramref name="bites"/> 번 깨문 메시를 만든다.</summary>
+    private Mesh BiteApple(List<Vector3> srcV, List<int> tri, List<int> sub, int subs,
+                           Vector3 mid, float rad, int bites)
+    {
+        List<Vector3> v = new List<Vector3>(srcV);
+        bool[] gone = new bool[v.Count];
+
+        if (bites > 0)
+        {
+            // **한 자리를 점점 크게** 베어 문다.
+            //
+            // 처음엔 작은 자국을 네 군데 돌아가며 냈다. 그런데 사과는 거울
+            // 속에서 가로 35 픽셀쯤이고, 그 자국 하나는 전체 5280 면 중
+            // 32 면 — 화면에서 3 픽셀짜리 점이라 아예 안 보였다. 과육을
+            // 자홍색으로 칠해 놓고 찍어 봐도 한 점도 안 나왔다.
+            //
+            // 사람이 사과를 먹는 모양도 실제로 이쪽이다. 한 자리를 계속
+            // 베어 물어서 허연 단면이 넓어지고, 사과는 초승달이 된다.
+            // 단면이 넓으니 작은 화면에서도 "먹고 있다" 가 읽힌다.
+            //
+            // 구를 **단계마다 하나만** 쓰는 것도 중요하다. 구를 여러 개
+            // 겹쳐 쓰면 앞 구에 끌려 들어간 정점을 뒤 구가 또 끌어당겨
+            // 이웃을 지나치고, 면이 뒤집혀 사과가 빨간 가시처럼 찢겨
+            // 보였다. 한 개면 정점마다 제 광선 위에서 한 번만 움직인다.
+            int k = bites;
+            float ang = BiteAngle(k) * Mathf.Deg2Rad;
+            Vector3 c = mid
+                      + new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang))
+                        * (rad * (0.92f + 0.06f * k))
+                      + Vector3.up * (rad * -0.05f);
+            float r = rad * (0.42f + 0.17f * k);
+
+            for (int i = 0; i < v.Count; i++)
+            {
+                if ((v[i] - c).sqrMagnitude >= r * r) continue;
+
+                // 패인 바닥은 **구의 안쪽 면**이다. 정점을 c 에서 바로 밀어내면
+                // 바깥 면으로 가서 혹이 솟는다. 사과 중심에서 정점으로 가는
+                // 선이 구를 처음 뚫는 자리로 당겨야 오목해진다.
+                Vector3 p = v[i] - mid;
+                Vector3 q = c - mid;
+                float pp = p.sqrMagnitude;
+                if (pp < 1e-12f) continue;
+                float pq = Vector3.Dot(p, q);
+                float disc = pq * pq - pp * (q.sqrMagnitude - r * r);
+                if (disc < 0f) continue;
+                float t = (pq - Mathf.Sqrt(disc)) / pp;
+                if (t <= 0f || t >= 1f) continue;
+                v[i] = mid + p * t;
+                gone[i] = true;
+            }
+        }
+
+        // 파인 자리만으로는 부족하다. 사과는 거울 속에서 엄지만 하게
+        // 보이는데, 20° 짜리 홍은 그 크기에서 몇 픽셀이라 안 읽힌다.
+        // 한 입마다 전체를 8.5 % 씩 줄여야 줄어드는 게 눈에 보인다.
+        if (bites > 0)
+        {
+            float k2 = 1f - 0.085f * bites;
+            for (int i = 0; i < v.Count; i++) v[i] = mid + (v[i] - mid) * k2;
+        }
+
+        Mesh m = new Mesh();
+        m.name = "Apple_bite" + bites;
+        if (v.Count > 65000)
+            m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        m.SetVertices(v);
+        m.subMeshCount = subs + 1;
+
+        List<int>[] outT = new List<int>[subs + 1];
+        for (int sm = 0; sm <= subs; sm++) outT[sm] = new List<int>();
+        for (int f = 0; f < sub.Count; f++)
+        {
+            int a = tri[f * 3], b = tri[f * 3 + 1], c2 = tri[f * 3 + 2];
+            // 세 꼭지 다 밀린 삼각형만 과육이다. 테두리 삼각형을 껍질로
+            // 남겨 두면 하얀 자리 둘레에 빨간 테가 얇게 돌아서 베어 문
+            // 자리처럼 보인다.
+            bool flesh = gone[a] && gone[b] && gone[c2];
+            List<int> dst = outT[flesh ? subs : sub[f]];
+            dst.Add(a); dst.Add(b); dst.Add(c2);
+        }
+        for (int sm = 0; sm <= subs; sm++) m.SetTriangles(outT[sm], sm);
+
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+        return m;
+    }
+
+    /// <summary>사과를 몇 입 깨문 모양으로 갈아 끼운다.</summary>
+    private void SetBiteStage(int stage)
+    {
+        if (appleMesh == null || biteMesh == null) return;
+        Mesh m = biteMesh[Mathf.Clamp(stage, 0, BiteStages - 1)];
+        foreach (MeshFilter f in appleMesh)
+            if (f != null) f.sharedMesh = m;
     }
 
     // ───────────────────────── 진행 ─────────────────────────
@@ -3252,6 +3489,10 @@ public class MirrorRig : MonoBehaviour
         if (plateApple != null) plateApple.gameObject.SetActive(!soft);
 
         // 음식은 둘 중 하나만 든다. 켜는 건 AnimateFood 가 한 입 주기에 맞춰 한다.
+        // 새로 들어가는 장면은 온전한 사과로 시작한다.
+        biteStage = 0;
+        biteCycle = -1;
+        SetBiteStage(0);
         food = kind == FoodKind.Soft ? foodSoft : foodHard;
         if (foodHard != null) foodHard.SetActive(false);
         if (foodSoft != null) foodSoft.SetActive(false);
@@ -3472,6 +3713,27 @@ public class MirrorRig : MonoBehaviour
         Contact = touching ? 1f : 0f;
     }
 
+    /// <summary>
+    /// 음식이 놓일 자세.
+    ///
+    /// 아직 온전한 것은 돌려서 보여 준다. 무른 것은 더 천천히 — 젤리가
+    /// 사과처럼 핑핑 돌면 단단해 보인다.
+    ///
+    /// 한 입 깨문 사과는 **패인 쪽을 거울로 돌려 놓는다**. 계속 돌게
+    /// 두면 애써 파 놓은 자리가 뒤로 숨는다. 실제로 그랬다 — 과육을
+    /// 자홍색으로 칠해 놓고 찍었는데 한 점도 안 나왔다. 사과는 거울에서
+    /// 가로 35 픽셀이라 패인 자리가 정면을 볼 때만 겨우 읽힌다. 손에 든
+    /// 사과를 빙글빙글 돌려 가며 먹지도 않으니 멈춰 세우는 쪽이 오히려
+    /// 자연스럽다. 조금만 흔들어 둔다.
+    /// </summary>
+    private Quaternion FoodSpin(bool soft)
+    {
+        if (soft || biteStage <= 0)
+            return Quaternion.Euler(0f, elapsed * (soft ? 22f : 26f), 0f);
+        return Quaternion.Euler(
+            0f, -BiteAngle(biteStage) + Mathf.Sin(elapsed * 1.1f) * 7f, 0f);
+    }
+
     private void AnimateFood()
     {
         if (food == null) return;
@@ -3482,12 +3744,18 @@ public class MirrorRig : MonoBehaviour
         // 단단한 것은 한 번에 딱 베어 물리고 짧고 크게 씹힌다.
         // 진동 쪽 조각 수(ScenarioHaptics.BuildCrunch)와 짝이 맞아야
         // 보이는 것과 느껴지는 것이 어긋나지 않는다.
-        const float onPlate = 0.9f;          // 접시에 놓인 채 기다리는 동안
-        float hold = soft ? 0.45f : 0.28f;   // 입술에 닿아 있는 순간
-        float chew = soft ? 1.50f : 1.00f;   // 씹는 시간
-        float chewRate  = soft ? 8f    : 14f;    // 오물거리는 속도
-        float chewDepth = soft ? 0.14f : 0.22f;  // 오물거리는 폭
-        float bite = onPlate + ApproachTime + hold + chew + 0.6f;   // 한 입 주기
+        // 사람은 이렇게 못 먹는다. 전엔 한 입이 4 초여서, 집어 들자마자
+        // 삼키고 곧바로 다시 집는 것으로 보였다. 구간마다 늘려 한 입을
+        // 6 초로 뒀다. 진동은 깨무는 순간에 한 번 터지고 끝나는 짧은
+        // 다발이라(ScenarioHaptics.BuildCrunch), 보이는 쪽을 늘려도
+        // 느껴지는 쪽과 어긋나지 않는다.
+        const float onPlate = 1.4f;          // 접시에 놓인 채 기다리는 동안
+        float hold = soft ? 0.70f : 0.50f;   // 입에 닿아 있는 순간
+        float chew = soft ? 2.40f : 1.90f;   // 씹는 시간
+        float chewRate  = soft ? 8f    : 12f;    // 오물거리는 속도
+        float chewDepth = soft ? 0.14f : 0.20f;  // 오물거리는 폭
+        const float after = 0.9f;            // 삼키고 잠시 쉬는 동안
+        float bite = onPlate + ApproachTime + hold + chew + after;   // 한 입 주기
 
         float t = Mathf.Repeat(elapsed, bite);
 
@@ -3529,9 +3797,13 @@ public class MirrorRig : MonoBehaviour
             // 아직 접시 위에 있다. 손은 내려와 있고 입도 다물려 있다.
             // 이 구간이 있어야 "책상 위의 것을 집어서" 가 눈에 보인다 —
             // 없으면 음식이 허공에서 생겨나 입으로 날아가는 것으로 보인다.
+            // 다 먹었으면 접시에서 새 사과를 집는다. 먹던 사과는 깨문
+            // 채로 접시 위에서 기다린다 — 쉬는 동안 저 혼자 온전해지면
+            // 같은 사과가 아니라 다른 사과를 집은 것으로 보인다.
+            if (!soft && biteStage >= BiteStages) { biteStage = 0; SetBiteStage(0); }
             food.SetActive(true);
             food.transform.localPosition = plateLocal;
-            food.transform.localRotation = Quaternion.Euler(0f, elapsed * (soft ? 22f : 40f), 0f);
+            food.transform.localRotation = FoodSpin(soft);
             SetMouth(0f);
             Contact = 0f;
             if (selfArm != null) selfArm.Rest();
@@ -3563,17 +3835,39 @@ public class MirrorRig : MonoBehaviour
         else
         {
             // 베어 물었다. 음식은 사라지고, 씹는 동안 진동이 난다.
-            food.SetActive(false);
+            // 베어 물었다.
             float c = u - ApproachTime - hold;
             bool chewing = c < chew;
-            // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 눈으로도 맞아떨어진다.
+
+            // 깨무는 순간은 한 번만 센다. 사과는 여기서 한 조각 패이고,
+            // 네 입째에 사라진다. 젤리는 한 알이니 통째로 들어간다.
+            int cyc = Mathf.FloorToInt(elapsed / bite);
+            if (cyc != biteCycle)
+            {
+                biteCycle = cyc;
+                if (!soft) { biteStage++; SetBiteStage(biteStage); }
+            }
+
+            // 깨문 사과는 여전히 손에 있다. 입에서 조금 내려서 들고
+            // 씹는다. 예전처럼 한 입에 통째로 감추면 먹는 게 아니라
+            // 지워지는 것으로 보이고, 입에 붙여 둔 채로 두면 아직
+            // 무는 중인지 씹는 중인지 분간이 안 된다.
+            bool inHand = !soft && biteStage < BiteStages;
+            food.SetActive(inHand);
+            // 많이 내려야 한다. 4.5 cm 만 내렸더니 주먹이 입과 사과를
+            // 통째로 덮어서, 베어 문 자리가 보이는 픽셀이 거의 없었다.
+            // 턱 아래까지 내리면 사과가 옷 앞에 통째로 드러난다.
+            if (inHand)
+                food.transform.localPosition = Vector3.Lerp(rest,
+                    rest - Vector3.up * 0.105f + Vector3.forward * 0.030f,
+                    Ease(Mathf.Clamp01(c / Mathf.Max(chew, 1e-3f))));
+
+            // 씩는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
             SetMouth(chewing ? 0.22f + chewDepth * Mathf.Sin(c * chewRate) : 0f);
             Contact = chewing ? 1f : 0f;
         }
 
-        // 무른 것은 천천히 돈다. 젤리가 사과처럼 핑핑 돌면 단단해 보인다.
-        food.transform.localRotation =
-            Quaternion.Euler(0f, elapsed * (soft ? 22f : 40f), 0f);
+        food.transform.localRotation = FoodSpin(soft);
 
         // 남이 먹여 주는 게 아니라 제 손으로 먹는다. 음식이 보이는 동안만 팔을 올린다.
         if (selfArm != null)

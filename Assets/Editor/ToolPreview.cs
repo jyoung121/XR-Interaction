@@ -237,8 +237,17 @@ public static class ToolPreview
 
         rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Hard);
         viewerGo.transform.rotation = look;
-        rig.StepForPreview(1.3f);                 // 사과를 베어 무는 순간
+        // 한 입 주기는 5.9 초고, 깨무는 순간은 주기 시작에서 3.1 초다.
+        // StepForPreview 는 시각을 **박아 넣는** 것이라 세 입째 모양을
+        // 보려면 깨무는 순간을 하나하나 밟아 줄여야 한다 — 한 번에
+        // 건너뛰면 한 입만 깨문 것으로 나온다.
+        const float BiteCycle = 5.9f;
+        const float BiteAt = 3.1f + 0.5f;
+        rig.StepForPreview(BiteAt);
         ShootFrom(eye, look, "mirror_food_hard.png", 75f);
+        rig.StepForPreview(BiteCycle + BiteAt);
+        rig.StepForPreview(BiteCycle * 2f + BiteAt);
+        ShootFrom(eye, look, "mirror_food_bitten.png", 75f);
 
         // 고개를 숙이면 거울에 제 몸이 보이는지. 집 거울이 전신인 이유가 이거다.
         Quaternion downward = Quaternion.Euler(27f, 0f, 0f);
