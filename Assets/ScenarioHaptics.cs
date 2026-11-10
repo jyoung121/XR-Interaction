@@ -2,22 +2,25 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 시나리오별 진동을 만든다 — 바리깡 / 음식먹기 / 치과치료.
+/// 시나리오별 진동을 만든다 — 치과치료 / 음식먹기.
+/// (바리깡은 11/10 에 빠졌다. 머리에 닿는 시나리오가 없어져서 두 상황 다 입이다.)
 ///
 /// 조원 코드(AndroidVibrationManager)에는 손대지 않는다. VibrationPattern enum 과
 /// BuildWaveform / BuildMathWaveform 이 거기 있어서, 그 파일을 고치면 조원이 Assets 를
 /// 통째로 덮을 때 또 충돌한다. 그래서 새 패턴은 전부 이 파일에서 만들고,
 /// 재생은 이미 양쪽 플랫폼이 공유하는 HapticManager.PlayWaveform 으로 넘긴다.
 ///
-/// 세 시나리오는 성격이 둘로 갈린다.
+/// 두 시나리오는 성격이 갈린다.
 ///
-///  바리깡 / 치과 : 지속 진동. 세기와 sharpness 만 다르다.
-///                  파형이 아니라 HapticManager.SetContinuous 로 돌린다.
-///                  바리깡은 머리카락이 두꺼운 데 걸리면 모터가 처지는 "부하 딥" 이 있고,
-///                  그게 있어야 진짜처럼 느껴진다 → ClipperLoad().
+///  치과     : 지속 진동. 파형이 아니라 HapticManager.SetContinuous 로 돌린다.
+///             두 수준(프리퀀시 높음/낮음)은 **변조 주파수**로 낸다 — 모터의 실제
+///             진동 주파수는 LRA 공진이라 못 바꾼다 (AndroidVibrationManager 참고).
+///             세기를 주기적으로 꿀렁이게 하는 ClipperLoad() 가 그 자리에 쓸 수 있다.
 ///
-///  음식먹기      : 불규칙한 짧은 탁이 여러 번. 파형으로 돌린다 → BuildCrunch().
-///                  주기가 일정하면 바로 기계처럼 들리므로 간격·세기를 흔든다.
+///  음식먹기 : 불규칙한 짧은 탁이 여러 번. 파형으로 돌린다 → BuildCrunch().
+///             주기가 일정하면 바로 기계처럼 들리므로 간격·세기를 흔든다.
+///             두 수준은 조각 수와 세기로 가른다 — 사과는 적고 세게,
+///             무른 것은 더 적고 약하게 (ExperimentController.ApplyContactHaptics).
 /// </summary>
 public static class ScenarioHaptics
 {

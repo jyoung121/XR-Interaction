@@ -43,16 +43,9 @@ public static class IOSBuildPostProcess
         // 이게 없으면 iOS 샌드박스 안에 갇혀 데이터를 회수할 방법이 없다.
         plist.root.SetBoolean("UIFileSharingEnabled", true);
         plist.root.SetBoolean("LSSupportsOpeningDocumentsInPlace", true);
-
-        // PC 햅틱 링크(HapticLinkReceiver)가 같은 와이파이에서 들어오는 연결을 받는다.
-        // iOS 14 부터 로컬 네트워크 사용에 권한이 필요하고, 이 문구가 없으면
-        // 권한을 물어보지 못해 연결이 조용히 막힌다 — 앱에서는 "waiting" 에서 멈춘 것처럼 보인다.
-        plist.root.SetString("NSLocalNetworkUsageDescription",
-            "PC 에서 보내는 진동 파형을 받아 재생하기 위해 같은 와이파이의 로컬 네트워크를 사용합니다.");
-
         plist.WriteToFile(plistPath);
 
-        Debug.Log("[iOS PostProcess] CoreHaptics 연결 + 카메라/로컬네트워크 권한 문구 추가 완료");
+        Debug.Log("[iOS PostProcess] CoreHaptics 연결 + 카메라 권한 문구 추가 완료");
     }
 }
 #endif

@@ -19,7 +19,25 @@ using UnityEngine;
 /// </summary>
 public class MirrorRig : MonoBehaviour
 {
-    public enum Scenario { None, Clipper, Food, Dental }
+    public enum Scenario { None, Food, Dental }
+
+    /// <summary>
+    /// 음식의 단단함. 11/10 에 음식 시나리오를 두 수준으로 나누기로 했다 —
+    /// 사과처럼 딱 부서지는 것과 빵처럼 물컹 눌리는 것.
+    ///
+    /// 시나리오를 둘로 쪼개지 않고 이 값으로 가른다. 방도 거울도 팔 동작도 같고
+    /// 달라지는 건 음식 모델과 씹는 속도뿐이라, 시나리오를 늘리면 방만 두 번 짓는다.
+    /// </summary>
+    public enum FoodKind { Hard, Soft }
+
+    /// <summary>
+    /// 치과에서 입에 닿는 도구. 두 수준을 **파라미터가 아니라 물건**으로 가른다.
+    ///
+    /// 드릴과 전동칫솔은 둘 다 입에 닿는 전동 공구인데 사람이 기대하는 느낌이
+    /// 정반대다 — 드릴은 날카롭고 무섭고, 칫솔은 둔하고 익숙하다.
+    /// 같은 진동을 줘도 "이게 맞는 느낌인가" 가 갈릴 것이라 보고 고른 짝이다.
+    /// </summary>
+    public enum DentalKind { Drill, Brush }
 
     // ───────────────────────── 치수 (m) ─────────────────────────
 
@@ -36,6 +54,44 @@ public class MirrorRig : MonoBehaviour
     // 치과 거울을 머리 위로 올리는 각. 누운 환자 위에 치료등이 달려 있는 모습이다.
     // 크게 줄수록 "누워 있다" 가 분명해지지만 목을 그만큼 젖히고 있어야 한다.
     private const float DentalPitch = 35f;
+
+    /// <summary>
+    /// 치과에서 거울 속 장면을 통째로 키우는 배율.
+    ///
+    /// 치과에서 봐야 하는 건 입 안이다 — 이가 몇 개인지 보일 정도로. 그런데
+    /// 반사는 거울의 두 배 거리(0.9 m)에 맺혀서, 사람 크기 그대로는 입이
+    /// 눈에 3도쯤으로 들어온다. 거울을 키우든 줄이든 이 각도는 안 변한다
+    /// (거울은 창문이지 돋보기가 아니다). 커져야 하는 건 거울 속 장면이다.
+    ///
+    /// **환자와 치과의를 같은 배율로, 같은 축(입)을 중심으로** 키운다. 둘 중
+    /// 하나만 키우면 도구를 쥔 손과 도구의 크기가 어긋난다 — 도구는 환자
+    /// 머리뼈에 매달려 있어서 환자를 따라 커지기 때문이다.
+    ///
+    /// 위로 더 못 올리는 이유: 얼굴이 입을 축으로 앞으로도 자라서, 너무
+    /// 키우면 **얼굴 앞면이 거울면(z = D)을 뚫고 참가자 방으로 나온다.**
+    /// 그러면 거울 테두리 바깥에 살색 덩어리가 떠 있는 게 보인다 — 6배에서
+    /// 실제로 그랬다. 입에서 얼굴 앞면까지가 5.5 cm 쯤이라 5배면 입
+    /// (z ≈ 0.77)에서 0.275 앞, 즉 z ≈ 0.50 으로 0.45 까지 5 cm 남는다.
+    /// </summary>
+    private const float DentalZoom = 5.0f;
+
+    // 사실적인 사람 머리 모델(poly.pizza "HeadRef")을 머리뼈에 덧씌워
+    // 봤다가 **뺐다.** 해부학적으로는 맞는데 이 저폴리 몸·방에 섞어 놓으니
+    // 얼굴만 따로 노는 데다 눈꺼풀뿐인 모델이라 표정이 죽어서, 원래 얼굴이
+    // 낫다는 판단이다. 다시 해 볼 거면 입 자리도 같이 옮겨야 한다 —
+    // 그 모델은 코끝이 z +0.476, 그 아래 입술이 y -0.27 / z +0.39 라
+    // (키를 1 로 본 값) 지금 mouthLocal 로는 얼굴 안쪽에 묻힌다.
+
+    /// <summary>
+    /// 집 장면에서 눈높이가 내려가는 양. 서 있을 때 기준에서 뺀다.
+    ///
+    /// 집은 **앉은 자세**다 — 식탁에 앉아 접시에서 집어 먹기로 했다. 서 있는
+    /// 채로 상만 놓았더니 상판이 거울 속 사람의 배를 가로질렀다. 상을 낮추면
+    /// 이번엔 무릎 높이가 되고, 서 있는 사람에게 맞는 상 높이란 게 없다.
+    /// 그래서 사람을 앉힌다 — 바닥이 이만큼 올라오고(PoseLegs 가 다리를 접는다)
+    /// y = -0.45 에 놓인 상판이 바닥에서 0.75 m, 보통 식탁 높이가 된다.
+    /// </summary>
+    private const float SitDrop = 0.50f;
 
     // 바닥 높이는 상수로 둘 수 없다 — 거울 속 사람의 발이 바닥에 닿아야 하는데
     // 그 키는 모델이 정한다. 전신 거울을 쓰면 발까지 보이므로 어긋나면 바로 드러난다.
@@ -54,13 +110,47 @@ public class MirrorRig : MonoBehaviour
     private Quaternion restHeadRot;   // 리그 기준 머리뼈의 기본 자세
     private Transform headPivot;      // 머리뼈에 매달린 축. 도구 좌표의 기준
     private Transform toolRoot;
-    private GameObject clipper;
-    private GameObject handpiece;
-    private GameObject food;
+    private GameObject handpiece;     // 치과 드릴
+    private GameObject toothbrush;    // 전동칫솔
+    private GameObject foodHard;      // 사과
+    private GameObject foodSoft;      // 젤리
+    private Transform plateJelly;     // 접시에 담아 둔 젤리들
+    private Transform plateApple;     // 같은 자리의 사과들
+    // 입술 — 다문 선에서 피부로 그러데이션으로 건너간다 (JawPiece).
+    private Material lipMatUp, lipMatLow;
+    private TextMesh[] labelEdge;    // 안내 글자의 어두운 외곽선
+    private const bool FakeContactShadows = false;  // 가짜 원반 그림자
+    private const float LipBulge = 0.0018f;  // 입술을 앞으로 내미는 양
+    private Quaternion pivToMesh = Quaternion.identity;  // headPivot → 원본 메시 좌표
+    private bool pivToMeshOK;
+    private const float LipBand = 0.0095f;   // 다문 선에서 입술 끝까지
+    private GameObject food;          // 둘 중 지금 켜져 있는 쪽
+    private float tableTopY;          // 집 식탁 상판 높이. 음식이 여기 놓인다
+    private Material jellyMat;        // 집어 든 젤리의 재질 — 한 입마다 색이 바뀐다
+    private int jellyHue = -1;        // 지금 칠해 둔 무지개 칸 (-1 = 아직)
+
+    /// <summary>
+    /// 젤리 색. 한 봉지에서 집어 먹는 것이니 알마다 색이 달라야 한다 —
+    /// 빨강 하나로 두면 사과와 같은 색이라 거울에서 두 조건이 구분되지 않았다.
+    /// 접시 위에는 이 색이 한 알씩 놓여 있고, 집어 드는 알은 한 입마다
+    /// 이 차례를 돌아가며 칠한다.
+    /// </summary>
+    private static readonly Color[] JellyColors =
+    {
+        new Color(0.88f, 0.12f, 0.10f),   // 빨강
+        new Color(0.95f, 0.47f, 0.06f),   // 주황
+        new Color(0.95f, 0.82f, 0.10f),   // 노랑
+        new Color(0.26f, 0.72f, 0.26f),   // 초록
+        new Color(0.16f, 0.42f, 0.86f),   // 파랑
+        new Color(0.58f, 0.26f, 0.78f),   // 보라
+    };
+
     private TextMesh label;
     private float labelUntil;
 
     private Scenario current = Scenario.None;
+    private FoodKind foodKind = FoodKind.Hard;
+    private DentalKind dentalKind = DentalKind.Drill;
     private float elapsed;
 
     private UnityEngine.Rendering.AmbientMode prevAmbientMode;
@@ -73,12 +163,29 @@ public class MirrorRig : MonoBehaviour
     private Vector3 headCenterLocal;
     private float headUnit;          // 목관절~정수리. 머리 크기의 기준자
 
-    private Transform mouthLips;     // 입술 테두리
-    private Transform mouthHole;     // 벌어진 틈
-    private Transform mouthTeeth;    // 윗니
+    // 입은 **얼굴에 뚫은 진짜 구멍**이다 (CarveMouth 참고). 입 자리의
+    // 얼굴 삼각형을 잘라 내 위·아래 두 조각으로 떼어 놓고, 그 뒤에 구강을
+    // 지었다. 두 조각이 벌어지면 그 사이로 구강이 들여다보인다.
+    private Transform mouthJawUp;    // 잘라 낸 얼굴 윗조각 (윗입술까지)
+    private Transform mouthJawLow;   // 잘라 낸 얼굴 아랫조각 (턱)
+    private Transform mouthCavity;   // 구강 안쪽 벽
+    private Transform mouthTeeth;    // 윗니 한 줄
+    private Transform mouthTeethLow; // 아랫니 한 줄
+    private Transform mouthTongue;   // 혀
+    private float holeHalfW, holeHalfH;   // 뚫어 둔 구멍의 반너비·반높이
+    private float mouthSkinZ;        // 구멍 자리 얼굴 표면의 z (headPivot 로컬)
+    private float holeCenterY;       // 구멍의 세로 한가운데. 입술선보다 아래다
+    private System.Collections.Generic.List<Vector3> cavityRing;  // 구멍 테두리 변
+    private Vector3 jawHinge;        // 턱이 도는 축 (headPivot 로컬)
+    // 제일 크게 벌렸을 때의 틈. 입술을 얇게 하면서 구멍을 6 mm 낮췄더니
+    // 보이는 틈도 그만큼 줄어 아랫니가 아랫입술에 가렸다. 그만큼 더 연다.
+    private const float JawOpenMax = 0.020f;
 
-    private Limb selfArm;            // 참가자 팔 — 사과는 제 손으로 든다
-    private Actor barber;            // 미용사
+    // 다리뼈. 집에서는 접어 앉히고 치과에서는 편다.
+    private Transform[] legUpper, legLower, legFoot;
+    private Quaternion[] legRestU, legRestL, legRestF;
+
+    private Limb selfArm;            // 참가자 팔 — 음식은 제 손으로 든다
     private Actor dentist;           // 치과의
     private Transform collar;        // 목에 두른 천의 깃
     private Color shirtColor = Color.grey;   // 참가자 상의 원래 색
@@ -98,7 +205,12 @@ public class MirrorRig : MonoBehaviour
     public float Contact { get; private set; }
 
     public Scenario Current { get { return current; } }
-    public bool IsPlaying { get; private set; } = true;
+
+    /// <summary>지금 보여 주고 있는 음식의 단단함. 진동 쪽에서 조각 수를 여기에 맞춘다.</summary>
+    public FoodKind CurrentFood { get { return foodKind; } }
+
+    /// <summary>지금 입에 닿고 있는 치과 도구. 진동 쪽에서 날카로움을 여기에 맞춘다.</summary>
+    public DentalKind CurrentDental { get { return dentalKind; } }
 
     // ───────────────────────── 생성 ─────────────────────────
 
@@ -141,7 +253,13 @@ public class MirrorRig : MonoBehaviour
         prevSkybox = RenderSettings.skybox;
         envSaved = true;
 
-        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        // 위·옆·아래를 다르게 준다. 로우폴리는 면이 넓고 평평해서
+        // 주변광이 한 색이면 붙어 다닌 종이처럼 보인다. 천장을 밝게,
+        // 바닥을 어둡게 두면 그리지 않은 그림자처럼 아래가 가락진다.
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+        RenderSettings.ambientSkyColor     = new Color(0.46f, 0.47f, 0.50f);
+        RenderSettings.ambientEquatorColor = new Color(0.33f, 0.33f, 0.35f);
+        RenderSettings.ambientGroundColor  = new Color(0.17f, 0.16f, 0.16f);
         RenderSettings.ambientLight = new Color(0.34f, 0.34f, 0.36f);
         RenderSettings.skybox = null;      // 방 안이다. 하늘이 비치면 안 된다.
     }
@@ -164,14 +282,16 @@ public class MirrorRig : MonoBehaviour
         // 전신 거울을 쓰면 발까지 보이므로 바닥이 어긋나면 바로 드러난다.
         BuildHead();
 
-        // 방은 상황마다 통째로 다르다. 셋을 미리 지어 두고 켜고 끈다.
+        // 방은 상황마다 통째로 다르다. 둘을 미리 지어 두고 켜고 끈다.
         // 넘어갈 때마다 새로 지으면 그 순간 화면이 멎는다.
-        rooms = new Transform[4];
-        rooms[(int)Scenario.Clipper] = BuildBarberShop();
-        rooms[(int)Scenario.Food]    = BuildHome();
-        rooms[(int)Scenario.Dental]  = BuildClinic();
+        rooms = new Transform[3];
+        rooms[(int)Scenario.None]   = BuildLobby();
+        rooms[(int)Scenario.Food]   = BuildHome();
+        rooms[(int)Scenario.Dental] = BuildClinic();
         for (int i = 0; i < rooms.Length; i++)
             if (rooms[i] != null) rooms[i].gameObject.SetActive(false);
+        if (rooms[(int)Scenario.None] != null)
+            rooms[(int)Scenario.None].gameObject.SetActive(true);
 
         BuildTools();
         BuildCast();
@@ -187,8 +307,8 @@ public class MirrorRig : MonoBehaviour
     }
 
     /// <summary>
-    /// 거울 한 장의 모양. 세 상황이 저마다 다른 거울을 쓴다 —
-    /// 미용실은 넓은 벽거울, 집은 전신 거울, 치과는 머리 위 둥근 거울이다.
+    /// 거울 한 장의 모양. 상황마다 다른 거울을 쓴다 —
+    /// 집은 전신 거울, 치과는 머리 위 둥근 거울이다.
     /// </summary>
     private struct MirrorSpec
     {
@@ -207,17 +327,27 @@ public class MirrorRig : MonoBehaviour
         MirrorSpec m = new MirrorSpec();
         switch (s)
         {
-            case Scenario.Food:
-                // 집 — 전신 거울. 세로로 길고 낮게 걸려서 고개를 숙이면 몸이 보인다.
-                m.w = 0.40f; m.h = 1.02f; m.centerY = -0.18f;
-                break;
             case Scenario.Dental:
                 // 치과 — 치료등에 달린 둥근 거울. 누운 환자 머리 위에 있다.
-                m.radius = 0.24f; m.pitch = DentalPitch;
+                //
+                // **입만 보이는 크기**다. 거울을 키워 봐야 입이 커지지는
+                // 않는다 — 거울은 창문이라, 키우면 입 둘레가 더 보일 뿐이다.
+                // 확대는 DentalZoom 이 거울 속 장면을 통째로 키워서 하고,
+                // 거울은 그 중 입 둘레가 담길 만큼만 잘라 낸다. 5배로 키운
+                // 입이 눈에 약 18도, 이 거울이 약 45도다. 한때 30도까지
+                // 좁혔다가 되돌렸다 — 입만 남기는 데는 성공했지만 거울 자체가
+                // 시야에서 너무 작은 동전이 됐다. 지금은 입과 입술·턱이
+                // 같이 들어오면서도 거울이 시야의 절반을 차지한다.
+                //
+                // centerY 는 눈높이에서 거울 한가운데까지다. 눈에서 거울 속
+                // 입(z ≈ 0.77, y ≈ -0.08)을 잇는 선이 거울면(z = D)을 지나는
+                // 높이 — -0.08 × 0.45 / 0.77 ≈ -0.047 — 에 맞춘다.
+                m.radius = 0.185f; m.centerY = -0.047f; m.pitch = DentalPitch;
                 break;
             default:
-                // 미용실 — 넓은 벽거울. 허리까지 넉넉히 들어온다.
-                m.w = 0.52f; m.h = 0.74f; m.centerY = -0.12f;
+                // 집 — 전신 거울. 앉은 눈높이 기준이라 한가운데가 꽤 아래다
+                // (SitDrop 참고). 넓게 잡아야 상 위의 손까지 한눈에 들어온다.
+                m.w = 0.72f; m.h = 1.34f; m.centerY = -0.28f;
                 break;
         }
         return m;
@@ -270,6 +400,42 @@ public class MirrorRig : MonoBehaviour
         Both(root, PrimitiveType.Cube, mat, pos, Vector3.zero, size, name);
     }
 
+    /// <summary>
+    /// 받아온 모델 하나를 이쪽 방과 거울 속 방에 한 번씩 놓는다.
+    /// Both 와 같은 일인데 기본 도형 대신 Resources 의 모델을 쓴다.
+    ///
+    /// 거울상을 **음수 스케일로 뒤집지 않는다.** 그러면 면의 감는 방향이
+    /// 뒤집혀서 안쪽이 보이고 그림자가 깨진다. 대신 Y 로 180도에서 yaw 를
+    /// 뺀 각으로 돌린다 — z 를 뒤집은 것과 방향이 같고 뒤집히지 않는다.
+    /// (상자는 180도 돌려도 제 모양이라 Both 의 -yaw 로도 같았지만,
+    ///  앞뒤가 있는 모델은 그러면 반대로 돌아 앉는다.)
+    ///
+    /// size 는 "이 모델을 몇 미터로 쓸지"다. 모델은 미리 기준 축 길이가
+    /// 1.0 이 되게 맞춰 뒀다(normalize_obj.py).
+    /// </summary>
+    private void BothModel(Transform root, string resource, Material mat,
+                           Vector3 pos, Vector3 euler, Vector3 size, string name)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            bool m = i == 1;
+            GameObject go = AddModel(root, resource, mat);
+            if (go == null) return;
+            go.name = (m ? "M_" : "R_") + name;
+            go.transform.localPosition = new Vector3(pos.x, pos.y, Z(pos.z, m));
+            go.transform.localRotation = m
+                ? Quaternion.Euler(-euler.x, 180f - euler.y, euler.z)
+                : Quaternion.Euler(euler);
+            go.transform.localScale = size;
+        }
+    }
+
+    private void BothModel(Transform root, string resource, Material mat,
+                           Vector3 pos, float yaw, Vector3 size, string name)
+    {
+        BothModel(root, resource, mat, pos, new Vector3(0f, yaw, 0f), size, name);
+    }
+
     /// <summary>빈 방 껍데기. 거울면 양쪽에 한 벌씩 짓는다.</summary>
     private void RoomShell(Transform root, Material wall, Material floorMat, Material ceilMat)
     {
@@ -296,6 +462,18 @@ public class MirrorRig : MonoBehaviour
             Box(root, wall, new Vector3(0f, midY, Z(farZ - 0.05f, m)),
                 new Vector3(RoomHalfW * 2f, wallH, 0.1f), tag + "End");
         }
+
+        // 방의 껍데기는 **그림자를 지지 않는다.**
+        //
+        // 키라이트는 위에서 내리쫬는 방향광인데 이 방은 천장이 닫혀
+        // 있다. 그대로 두면 천장이 빛을 통째로 막아서 방 안이 전부
+        // 그림자가 된다 — 그러면 그림자 「무늘」이 없어져 켜나 마나다.
+        // 껍데기만 캐스팅에서 빼면 빛은 천장을 지나 내려오고, 사람·
+        // 의자·접시 같은 안의 물건만 바닥에 그림자를 드리운다.
+        // 물리적으로는 말이 안 되지만, 보고 싶은 건 천장등 아래의
+        // 접촉 그림자다.
+        foreach (Renderer rr in root.GetComponentsInChildren<Renderer>(true))
+            rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
     }
 
     /// <summary>방 뒤쪽 벽 안쪽 면의 z. 소품을 여기에 붙이면 거울에 비친다.</summary>
@@ -398,6 +576,40 @@ public class MirrorRig : MonoBehaviour
     }
 
     /// <summary>
+    /// 방 하나에 하나만 두는 **그림자 지는 빛.**
+    ///
+    /// 지금까지 그림자가 아예 없었다. 등이 전부 점광 = URP 의 "추가
+    /// 광원" 인데 모바일 파이프라인에 추가 광원 그림자가 꺼져
+    /// 있어서다. 그림자를 받으려면 **메인 광원 = 방향광**이어야 한다.
+    ///
+    /// 그런데 방향광은 자리가 없어서 거울상을 만들 수가 없다 — 이 리그의
+    /// 거울은 비치는 게 아니라 방을 한 벌 더 지어 둔 것이라, 빛도 거울면
+    /// 기준으로 뒤집힌 짝이 있어야 한다. 점광은 위치를 뒤집어 한 번 더
+    /// 놓으면 되지만 방향광은 그렇게 못 한다.
+    ///
+    /// 해결은 **z 성분이 0 인 방향**만 쓰는 것이다. 위에서 옆(x)으로만
+    /// 기울인 빛은 z = D 로 뒤집어도 **자기 자신**이라, 이 방과 거울 속
+    /// 방이 띄같은 방향으로 빛을 받는다. 거울이 안 깨진다.
+    ///
+    /// 그림자는 하드다 (모바일 에셋에 soft 가 꺼져 있다). 대신 그림자
+    /// 거리를 9 m 로 좁혀 텍셀을 춘한히 넣고, 진하기를 0.55 로 낮춰
+    /// 가장자리 계단이 덜 눈에 띄게 한다.
+    /// </summary>
+    private void KeyLight(Transform root, float intensity, Color color)
+    {
+        GameObject go = new GameObject("KeyLight");
+        go.transform.SetParent(root, false);
+        go.transform.localRotation =
+            Quaternion.LookRotation(new Vector3(0.38f, -1f, 0f).normalized);
+        Light l = go.AddComponent<Light>();
+        l.type = LightType.Directional;
+        l.intensity = intensity;
+        l.color = color;
+        l.shadows = LightShadows.Hard;
+        l.shadowStrength = 0.55f;
+    }
+
+    /// <summary>
     /// 거울이 거울로 보이려면 비친 쪽 조명이 이쪽 조명의 거울상이어야 한다.
     /// 방향광은 위치가 없어서 반사시킬 수가 없다 — 하나로 양쪽을 비추면
     /// 거울 속 얼굴만 뒤에서 빛을 받아 어두워진다. 그래서 점광만 쓰고,
@@ -439,6 +651,49 @@ public class MirrorRig : MonoBehaviour
         l.shadows = LightShadows.None;
     }
 
+    /// <summary>
+    /// 물건이 바닥에 닿은 자리에 까는 **가짜 그림자.** 어두운 원반 한 장이다.
+    ///
+    /// 진짜 그림자를 켜지 않는 이유는 성능이 아까워서가 아니라 아예 못 켜서다.
+    /// 이 리그의 등은 전부 점광 = URP 의 "추가 광원"인데, 모바일 파이프라인
+    /// (Settings/Mobile_RPAsset.asset)에 `AdditionalLightShadowsSupported: 0`
+    /// 으로 꺼져 있다. Light 쪽에서 아무리 켜도 안 나온다. 켜려면 점광마다
+    /// 큐브맵 그림자를 구워야 하는데, 방마다 등이 둘씩 짝지어 있고
+    /// (Lamp 참고) Cardboard 는 그걸 양쪽 눈에 두 번 그린다.
+    ///
+    /// 바닥색을 받아서 그보다 어둡게 칠한다. 고정된 회색으로 두면 나무 바닥
+    /// 위에서는 푸르딩딩한 얼룩이 된다.
+    /// </summary>
+    private void ContactShadow(Transform root, Vector3 pos, float wx, float wz,
+                               Color surface, string name)
+    {
+        // 진짜 그림자가 생긴 뒤로는 **안 깔긴다.**
+        //
+        // 키라이트(방향광)는 비스듬히 내리쫬니 그림자가 한쪽으로
+        // 누워진다. 그 위에 물건 밑마다 동근 원반을 깔아 두면 빛 방향과
+        // 안 맞아서 그림자가 아니라 때처럼 보인다.
+        //
+        // 남겨 두는 이유는 이 방법이 언제든 다시 필요해질 수 있어서다 —
+        // 폰에서 그림자 값이 모자라면 이 스위치만 다시 켜면 된다.
+        if (!FakeContactShadows) return;
+
+        Material m = ToolModels.MakeMaterial(
+            new Color(surface.r * 0.52f, surface.g * 0.50f, surface.b * 0.50f), 0f, 0f);
+        Both(root, PrimitiveType.Cylinder, m, pos, Vector3.zero,
+             new Vector3(wx, 0.0006f, wz), name);
+    }
+
+    /// <summary>
+    /// 접시에 담는 것들을 묶어 두는 빈 통. 원점에 두므로 거울 뒤쪽 복제
+    /// 좌표 계산(Z)은 그대로 맞는다. 조건이 바뀌면 통째로 켜고 끈다.
+    /// </summary>
+    private Transform PlateGroup(Transform room, string name)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(room, false);
+        return go.transform;
+    }
+
     private Transform NewRoom(string name)
     {
         GameObject go = new GameObject(name);
@@ -446,76 +701,73 @@ public class MirrorRig : MonoBehaviour
         return go.transform;
     }
 
-    // ───────────────────────── 미용실 ─────────────────────────
+    // ───────────────────────── 집 ─────────────────────────
 
-    private Transform BuildBarberShop()
+    /// <summary>
+    /// 아무 상황도 고르지 않았을 때 서 있는 방.
+    ///
+    /// 전에는 이 방이 **없었다.** 방은 상황별로 하나씩만 지어 두고
+    /// `ShowScenario` 가 켜고 끄는데, `Scenario.None` 칸이 비어 있어서
+    /// 아무 방도 안 켜졌다. 등도 방에 달려 있으니 같이 꺼져서, 참가자가
+    /// 헤드셋을 쓰고 **맨 처음 보는 화면**이 캄캄한 허공에 어둑한 사람
+    /// 하나였다. 실험 시작 전 인상이 여기서 결정되는데 그게 암흑이었다.
+    ///
+    /// 그래서 빈 방 하나를 더 짓는다. 소품은 거의 없다 — 여기는 기다리는
+    /// 곳이지 보여 줄 곳이 아니고, 집도 치과도 아닌 중립이어야 다음에 켜질
+    /// 방이 새 장면으로 읽힌다.
+    /// </summary>
+    private Transform BuildLobby()
     {
-        Transform r = NewRoom("Room_Barber");
-        MirrorSpec m = SpecFor(Scenario.Clipper);
+        Transform r = NewRoom("Room_Lobby");
+        MirrorSpec m = SpecFor(Scenario.None);
 
-        Material wall  = ToolModels.MakeMaterial(new Color(0.30f, 0.34f, 0.35f), 0f, 0.10f);
-        Material floor = ToolModels.MakeMaterial(new Color(0.23f, 0.22f, 0.21f), 0f, 0.18f);
-        Material ceil  = ToolModels.MakeMaterial(new Color(0.42f, 0.42f, 0.42f), 0f, 0.06f);
-        Material wood  = ToolModels.MakeMaterial(new Color(0.34f, 0.23f, 0.15f), 0f, 0.22f);
-        Material chrome = ToolModels.MakeMaterial(new Color(0.72f, 0.73f, 0.75f), 0.8f, 0.72f);
-        Material black = ToolModels.MakeMaterial(new Color(0.10f, 0.10f, 0.11f), 0f, 0.26f);
+        // 여기서는 서 있다. eyeHeight 를 건드리지 않는다 (집은 앉은 자세라
+        // 방을 세우는 동안만 낮춰 쓴다 — BuildHome 참고).
+        Material wall  = ToolModels.MakeMaterial(new Color(0.72f, 0.73f, 0.76f), 0f, 0.07f);
+        Material floor = ToolModels.MakeMaterial(new Color(0.40f, 0.36f, 0.33f), 0f, 0.18f);
+        Material ceil  = ToolModels.MakeMaterial(new Color(0.88f, 0.88f, 0.89f), 0f, 0.04f);
+        Material frame = ToolModels.MakeMaterial(new Color(0.34f, 0.33f, 0.32f), 0f, 0.22f);
 
         RoomShell(r, wall, floor, ceil);
-        BuildMirrorWall(r, wall, black, m);
+        BuildMirrorWall(r, wall, frame, m);
 
-        // 거울 밑 작업대. 미용실이라고 알아보게 하는 건 결국 이것과 병들이다.
-        float deskY = m.centerY - m.h * 0.5f - 0.10f;
-        BothBox(r, wood, new Vector3(0f, deskY, D - 0.13f),
-                new Vector3(1.30f, 0.05f, 0.26f), "Desk");
-        Color[] bottles = {
-            new Color(0.78f, 0.74f, 0.34f), new Color(0.26f, 0.44f, 0.30f),
-            new Color(0.70f, 0.31f, 0.26f), new Color(0.32f, 0.36f, 0.48f) };
-        for (int i = 0; i < bottles.Length; i++)
-            Both(r, PrimitiveType.Cylinder, ToolModels.MakeMaterial(bottles[i], 0f, 0.42f),
-                 new Vector3(-0.44f + i * 0.17f, deskY + 0.08f, D - 0.14f), Vector3.zero,
-                 new Vector3(0.055f, 0.055f, 0.055f), "Bottle" + i);
+        // 걸레받이 — 벽과 바닥이 맞닿는 선이 하나 있어야 방에 깊이가 생긴다.
+        BothBox(r, frame, new Vector3(0f, -eyeHeight + 0.06f, BackWall + 0.01f),
+                new Vector3(RoomHalfW * 2f, 0.12f, 0.02f), "Base");
 
-        // 이발 의자 등받이. 참가자 **뒤**에 둬야 거울에 비쳐 뒤로 보인다.
-        BothBox(r, black, new Vector3(0f, -0.62f, -0.30f),
-                new Vector3(0.50f, 0.58f, 0.11f), "ChairBack");
-        Both(r, PrimitiveType.Cylinder, chrome, new Vector3(0f, -1.05f, -0.30f), Vector3.zero,
-             new Vector3(0.07f, 0.22f, 0.07f), "ChairPost");
+        // 발밑 그림자. 거울 속 사람은 z = 2D 에 서 있고, 그건 이쪽 z = 0 의
+        // 거울상이다 — Both 가 양쪽에 한 장씩 깔아 준다. 이게 없으면 사람이
+        // 바닥에 **서 있는** 게 아니라 떠 있는 것으로 보인다.
+        ContactShadow(r, new Vector3(0f, -eyeHeight + 0.002f, 0f),
+                      0.78f, 0.56f, floor.color, "BodyShadow");
 
-        // 뒷벽 — 거울에 비치는 배경. 삼색 등과 거울 하나, 수건 선반.
-        Material red  = ToolModels.MakeMaterial(new Color(0.72f, 0.20f, 0.18f), 0f, 0.30f);
-        Material white = ToolModels.MakeMaterial(new Color(0.88f, 0.87f, 0.84f), 0f, 0.30f);
-        Material blue = ToolModels.MakeMaterial(new Color(0.20f, 0.33f, 0.62f), 0f, 0.30f);
-        Material[] pole = { red, white, blue, red, white, blue };
-        for (int i = 0; i < pole.Length; i++)
-            Both(r, PrimitiveType.Cylinder, pole[i],
-                 new Vector3(-1.08f, 0.42f - i * 0.11f, BackWall + 0.05f), new Vector3(0f, 0f, 18f),
-                 new Vector3(0.10f, 0.055f, 0.10f), "Pole" + i);
-
-        BothBox(r, black, new Vector3(0.52f, 0.16f, BackWall),
-                new Vector3(0.62f, 0.78f, 0.03f), "BackMirrorFrame");
-        BothBox(r, ToolModels.MakeMaterial(new Color(0.46f, 0.48f, 0.49f), 0.3f, 0.55f),
-                new Vector3(0.52f, 0.16f, BackWall + 0.02f),
-                new Vector3(0.54f, 0.70f, 0.02f), "BackMirrorGlass");
-
-        BothBox(r, wood, new Vector3(-0.30f, -0.30f, BackWall + 0.09f),
-                new Vector3(0.72f, 0.04f, 0.20f), "Shelf");
-        for (int i = 0; i < 3; i++)
-            BothBox(r, white, new Vector3(-0.52f + i * 0.21f, -0.24f, BackWall + 0.09f),
-                    new Vector3(0.17f, 0.10f, 0.17f), "Towel" + i);
-
-        Lamp(r, new Vector3(-0.55f, CeilUp - 0.25f, -0.70f), 4.2f, 1.55f,
-             new Color(1f, 0.96f, 0.88f));
-        Lamp(r, new Vector3(0.25f, 0.20f, -0.45f), 2.8f, 0.85f,
-             new Color(1f, 0.95f, 0.88f));
+        // 천장등 하나. 짝을 지어야 거울 속도 같이 밝다 (Lamp 참고).
+        // 등은 **하나뿐이다.** 둘을 달았더니 각자의 거울상이 거울 속 천장
+        // 거의 같은 자리에 겹쳐서, 둘이 더해진 그 한 점만 하얗게 탔다.
+        // 짝은 Lamp 가 알아서 놓는다 — 이 한 줄이 방 양쪽을 다 밝힌다.
+        // 천장에 바싹 붙이면 그 자리만 타는 것도 같다 (BuildHome 의 등 참고).
+        //
+        // 자리는 집과 같다. 가운데(z 0.10)에 달았더니 거울상이 거울 속 사람
+        // 머리 바로 위에 떨어져서 정수리가 하얗게 떴다 — 이 모델은 머리
+        // 꼭대기가 머리카락이 아니라 **살색**이라 위에서 때리면 다 드러난다.
+        // 비스듬히 뒤에서 비춰야 정수리가 그늘에 들어간다.
+        KeyLight(r, 0.95f, new Color(1f, 0.98f, 0.94f));
+        Lamp(r, new Vector3(-0.40f, CeilUp - 0.50f, -0.55f), 5.6f, 0.58f,
+             new Color(0.98f, 0.97f, 0.94f));
         return r;
     }
-
-    // ───────────────────────── 집 ─────────────────────────
 
     private Transform BuildHome()
     {
         Transform r = NewRoom("Room_Home");
         MirrorSpec m = SpecFor(Scenario.Food);
+
+        // 집은 앉은 자세다 (SitDrop 참고). 이 방을 세우는 동안만 눈높이를
+        // 앉은 값으로 바꿔 둔다 — 바닥·걸레받이·서랍장이 전부 이 값에 매달려
+        // 있어서, 하나씩 고치는 것보다 기준을 바꾸는 쪽이 어긋날 데가 없다.
+        // 치과는 누운 자세라 선 눈높이 그대로 써야 하므로 나갈 때 되돌린다.
+        float standEye = eyeHeight;
+        eyeHeight -= SitDrop;
 
         Material wall  = ToolModels.MakeMaterial(new Color(0.76f, 0.71f, 0.63f), 0f, 0.06f);
         Material floor = ToolModels.MakeMaterial(new Color(0.47f, 0.33f, 0.21f), 0f, 0.20f);
@@ -528,6 +780,8 @@ public class MirrorRig : MonoBehaviour
         BuildMirrorWall(r, wall, wood, m);
 
         // 거울 옆 서랍장 — 거울 앞을 막지 않게 옆으로 비켜 놓는다.
+        ContactShadow(r, new Vector3(0.92f, -eyeHeight + 0.002f, D - 0.20f),
+                      0.80f, 0.56f, floor.color, "DresserShadow");
         BothBox(r, wood, new Vector3(0.92f, -eyeHeight + 0.38f, D - 0.22f),
                 new Vector3(0.62f, 0.76f, 0.40f), "Dresser");
         BothBox(r, ToolModels.MakeMaterial(new Color(0.30f, 0.21f, 0.13f), 0f, 0.30f),
@@ -557,6 +811,8 @@ public class MirrorRig : MonoBehaviour
              new Vector3(0.07f, 0.07f, 0.07f), "Knob");
 
         // 화분
+        ContactShadow(r, new Vector3(1.22f, -eyeHeight + 0.002f, BackWall + 0.29f),
+                      0.34f, 0.30f, floor.color, "PotShadow");
         Both(r, PrimitiveType.Cylinder, ToolModels.MakeMaterial(new Color(0.55f, 0.33f, 0.24f), 0f, 0.18f),
              new Vector3(1.22f, -eyeHeight + 0.16f, BackWall + 0.26f), Vector3.zero,
              new Vector3(0.24f, 0.16f, 0.24f), "Pot");
@@ -565,11 +821,116 @@ public class MirrorRig : MonoBehaviour
                  new Vector3(1.22f + (i - 1) * 0.10f, -eyeHeight + 0.44f + i * 0.08f, BackWall + 0.26f),
                  Vector3.zero, new Vector3(0.30f, 0.26f, 0.30f), "Leaf" + i);
 
-        // 집은 등이 하나뿐이고 따뜻하다. 미용실·치과보다 어둑해야 집처럼 보인다.
-        Lamp(r, new Vector3(-0.40f, CeilUp - 0.20f, -0.55f), 4.4f, 1.25f,
+        // 의자. 참가자는 z = 0 에 앉아 있으므로 거울상은 거울 속 사람 밑에 온다.
+        // BothModel 이 z 를 2D-z 로 한 번 더 놓아 주니 z = 0 하나면 둘 다 생긴다.
+        // 모델은 높이가 1.0 으로 맞춰져 있고 바닥이 y = 0 이다.
+        // yaw 180 — 이 모델은 제 -Z 를 본다. 0 으로 두면 등받이가 거울 쪽으로
+        // 와서, 거울 속에서 앉은 사람 **앞**에 등받이가 서 있었다.
+        BothModel(r, "Models/WoodChair", wood,
+                  new Vector3(0f, -eyeHeight, 0.02f), 180f,
+                  Vector3.one * 0.955f, "Chair");
+
+        // 식탁. "책상에 앉아 책상 위의 음식을 집어 먹는" 그림으로 정했다.
+        //
+        // 깊이가 이것밖에 안 되는 이유가 있다. 상은 참가자(z=0)와 거울면(z=D)
+        // **사이**에만 있을 수 있다 — 거울을 넘기면 상이 거울을 뚫는다. 그리고
+        // 거울상은 2D-z 로 뒤집혀 놓이므로, 상을 깊게 잡으면 거울 속 상의
+        // 먼 끝이 z = 2D 에 선 사람의 배를 지난다. 실제로 그렇게 났었다.
+        // 그래서 0.12 ~ 0.44 로 자른다 — 거울상은 0.46 ~ 0.78 이 되어
+        // 거울 속 사람(0.90) 앞에서 깔끔히 끝난다.
+        //
+        // 받아온 식탁 모델은 **낮고 넓은** 비율이라(높이가 폭의 0.377) 그대로
+        // 쓰면 좌탁이 된다. 위의 깊이 제약까지 있어서 축마다 다르게 늘린다.
+        // 식탁은 네모난 물건이라 늘려도 티가 덜 난다.
+        // 가로·세로는 **같은 배율로** 늘린다. 가로만 1.10 으로 묶고 세로를
+        // 2배로 늘렸더니 다리가 판자가 돼서 식탁이 아니라 궤짝이 됐다.
+        // 그래서 폭은 높이에 딸려 나온다 — 2 m 짜리 긴 식탁이 된다.
+        // 깊이만은 위의 제약 때문에 따로 눌러야 한다. 앞에서 보는 그림이라
+        // 눌린 건 다리가 얇아지는 정도로만 드러난다.
+        const float tableH = 0.765f, tableD = 0.32f;
+        float tableK = tableH / 0.377f;
+        BothModel(r, "Models/Table", wood,
+                  new Vector3(0f, -eyeHeight, D - 0.17f), 0f,
+                  new Vector3(tableK, tableK, tableD / 0.566f), "Table");
+        float tableTop = -eyeHeight + tableH;
+
+        // 음식이 놓이는 접시. AnimateFood 의 집어 드는 자리와 같은 좌표여야 한다.
+        tableTopY = tableTop;
+        Color plateColor = new Color(0.90f, 0.89f, 0.86f);
+        // 접시보다 아주 조금만 크게, 그리고 한쪽으로 밀어 둔다. 사방으로
+        // 고르게 삐져나오면 그림자가 아니라 접시 테두리로 읽힌다.
+        ContactShadow(r, new Vector3(-0.118f, tableTop + 0.0015f, D - 0.262f),
+                      0.212f, 0.212f, wood.color, "PlateShadow");
+        BothModel(r, "Models/Plate",
+                  ToolModels.MakeMaterial(plateColor, 0f, 0.35f),
+                  new Vector3(-0.13f, tableTop, D - 0.25f), 0f,
+                  Vector3.one * 0.20f, "Plate");
+
+        // 접시에 담긴 음식. 한가운데는 비워 둔다 — 집어 드는 알이 거기서
+        // 뜬다(AnimateFood). 모델 원점이 바닥이라 접시 높이에 그대로 둔다.
+        //
+        // **조건마다 담는 것이 다르다.** 사과를 집어 먹으면서 접시에는
+        // 젤리가 담겨 있으면 "단단한 음식" 조건이 무너진다. 두 벌을 다
+        // 지어 두고 ShowScenario 에서 한 벌만 켠다.
+        plateJelly = PlateGroup(r, "PlateJelly");
+        plateApple = PlateGroup(r, "PlateApple");
+
+        int slots = JellyColors.Length - 1;
+        for (int i = 1; i <= slots; i++)
+        {
+            float a = (i - 1) * (Mathf.PI * 2f / slots) + 0.4f;
+            Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * 0.045f,
+                                     tableTop + 0.010f,
+                                     D - 0.25f + Mathf.Sin(a) * 0.045f);
+            BothModel(plateJelly, "Models/GummyBear",
+                      ToolModels.MakeMaterial(JellyColors[i], 0f, 0.74f),
+                      at, a * Mathf.Rad2Deg + 150f,
+                      Vector3.one * 0.068f, "Jelly" + i);
+            ContactShadow(plateJelly, at + new Vector3(0f, 0.0005f, 0f),
+                          0.048f, 0.048f, plateColor, "JellyShadow" + i);
+        }
+
+        // 사과는 젤리보다 훨씬 굵어서 다섯 알을 같은 자리에 놓으면 서로
+        // 파고든다. 세 알만 놓고 반지름을 조금 줄인다.
+        for (int i = 0; i < 3; i++)
+        {
+            float a = i * (Mathf.PI * 2f / 3f) + 0.6f;
+            Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * 0.042f,
+                                     tableTop + 0.010f,
+                                     D - 0.25f + Mathf.Sin(a) * 0.042f);
+            // 재질을 null 로 주면 모델이 달고 온 색(빨간 몸통 + 초록 꼭지)을
+            // 그대로 쓰되 셰이더만 런타임 재질로 바뀐다 (AddModel 참고).
+            BothModel(plateApple, "Models/Apple", null,
+                      at, a * Mathf.Rad2Deg + 40f,
+                      Vector3.one * 0.055f, "Apple" + i);
+            ContactShadow(plateApple, at + new Vector3(0f, 0.0005f, 0f),
+                          0.050f, 0.050f, plateColor, "AppleShadow" + i);
+        }
+
+        // 상 위의 컵 — 상이 비어 있으면 식탁으로 안 읽힌다.
+        //
+        // y 는 -0.385 였다. 그런데 상판이 -0.335 라 컵이 상에 **10 cm 박혀**
+        // 있었다. 거울에서 굽 낮은 통으로 보이던 게 그래서다. 원기둥의
+        // scale.y 는 반높이라, 바닥을 상판에 놓으려면 상판 + 반높이다.
+        ContactShadow(r, new Vector3(0.22f, tableTop + 0.0015f, D - 0.295f),
+                      0.105f, 0.105f, wood.color, "CupShadow");
+        Both(r, PrimitiveType.Cylinder, cloth,
+             new Vector3(0.22f, tableTop + 0.055f, D - 0.30f), Vector3.zero,
+             new Vector3(0.075f, 0.055f, 0.075f), "Cup");
+
+        // 집은 등이 하나뿐이고 따뜻하다. 치과보다 어둑해야 집처럼 보인다.
+        //
+        // 천장에서 20 cm 밑에 세기 1.25 로 매달려 있었다. 점광은 거리 제곱으로
+        // 떨어지니 바로 위 천장만 **하얗게 타서** 흰 웅덩이가 됐다. 등을 더
+        // 내려 달고 세기를 낮추되 사거리는 늘린다 — 사거리를 늘려야 감쇠가
+        // 완만해져서 방이 어두워지지 않는다.
+        KeyLight(r, 0.95f, new Color(1f, 0.98f, 0.94f));
+        Lamp(r, new Vector3(-0.40f, CeilUp - 0.50f, -0.55f), 5.6f, 0.58f,
              new Color(1f, 0.92f, 0.78f));
         Lamp(r, new Vector3(0.95f, -0.25f, D - 0.40f), 1.9f, 0.70f,
              new Color(1f, 0.88f, 0.70f));
+
+        eyeHeight = standEye;
         return r;
     }
 
@@ -601,8 +962,33 @@ public class MirrorRig : MonoBehaviour
         // 진짜 갓이 거울 속으로 들어가고 거울상이 눈앞을 가린다.
         LampShade(r, shell, m, D - 0.055f);
         // 갓을 매단 팔. 거울 위로만 지나가게 띄운다.
-        BothBox(r, steel, new Vector3(0f, m.radius * 2.45f, D - 0.03f),
-                new Vector3(0.07f, 0.60f, 0.07f), "LampArm");
+        // 갓을 매단 팔. 거울이 입만 담을 만큼 좁아지면서(SpecFor 참고) 이 팔의
+        // **거울상**이 입 앞을 세로로 가로질렀다 — 팔은 거울 앞(z = D-0.03)에
+        // 있으니 거울상은 D+0.03 에, 즉 거울과 얼굴 사이에 맺힌다. 물리적으로는
+        // 맞지만 정작 봐야 할 것을 가린다. 아래 끝이 갓 바깥에서 끝나도록
+        // 통째로 올린다.
+        float armLen = 0.60f;
+        BothBox(r, steel,
+                new Vector3(0f, m.centerY + m.radius * 2.05f + armLen * 0.5f, D - 0.03f),
+                new Vector3(0.07f, armLen, 0.07f), "LampArm");
+
+        // 치료등 손잡이. 거울 테두리 좌우에 하나씩, 환자 쪽으로 나와 있다.
+        // 거울 둘레가 민무늬 회색 고리뿐이라 "조명"으로도 안 읽혔는데,
+        // 이 손잡이가 붙으면 바로 치과 치료등이 된다 — 치과의가 등을
+        // 끌어당길 때 잡는 그 막대다.
+        float grip = m.radius * 1.75f;
+        for (int sx = -1; sx <= 1; sx += 2)
+        {
+            BothBox(r, steel,
+                    new Vector3(sx * grip, m.centerY, D - 0.115f),
+                    new Vector3(0.035f, m.radius * 1.30f, 0.035f), "LampGrip" + sx);
+            BothBox(r, steel,
+                    new Vector3(sx * grip, m.centerY + m.radius * 0.62f, D - 0.085f),
+                    new Vector3(0.030f, 0.030f, 0.075f), "LampGripArmU" + sx);
+            BothBox(r, steel,
+                    new Vector3(sx * grip, m.centerY - m.radius * 0.62f, D - 0.085f),
+                    new Vector3(0.030f, 0.030f, 0.075f), "LampGripArmD" + sx);
+        }
 
         // 머리맡 받침. 거울 속에서 참가자 머리 뒤에 보인다.
         BothBox(r, teal, new Vector3(0f, -0.26f, -0.26f),
@@ -611,20 +997,83 @@ public class MirrorRig : MonoBehaviour
                 new Vector3(0.52f, 0.70f, 0.16f), "ChairBack");
 
         // 기구 쟁반 — 환자 왼쪽. 거울 속에서 치과의 뒤로 보인다.
+        //
+        // 전에는 쟁반 위에 작은 원통 세 개를 세워 뒀다. 그게 뭔지 알아볼
+        // 수가 없어서 "치과"로 안 읽혔다. 실제 기구 모델을 눕혀 놓는다 —
+        // 치경·메스·주사기는 생김새만으로 치과가 되는 물건이다.
         BothBox(r, steel, new Vector3(-0.72f, -0.30f, 0.10f),
                 new Vector3(0.40f, 0.02f, 0.30f), "Tray");
-        for (int i = 0; i < 3; i++)
-            Both(r, PrimitiveType.Cylinder, steel,
-                 new Vector3(-0.84f + i * 0.09f, -0.28f, 0.10f), new Vector3(90f, 0f, 0f),
-                 new Vector3(0.015f, 0.09f, 0.015f), "Probe" + i);
+        BothModel(r, "Models/DentalMirror", steel,
+                  new Vector3(-0.72f, -0.283f, 0.02f), 90f,
+                  Vector3.one * 0.17f, "TrayMirror");
+        BothModel(r, "Models/Scalpel", steel,
+                  new Vector3(-0.72f, -0.283f, 0.09f), 90f,
+                  Vector3.one * 0.15f, "TrayScalpel");
+        BothModel(r, "Models/Syringe", steel,
+                  new Vector3(-0.72f, -0.280f, 0.17f), new Vector3(90f, 90f, 0f),
+                  Vector3.one * 0.15f, "TraySyringe");
 
         // 뒷벽 — 수납장과 세면대. 기울어 보여도 치과 색이면 읽힌다.
-        BothBox(r, shell, new Vector3(-0.70f, -eyeHeight + 0.45f, BackWall + 0.22f),
-                new Vector3(1.20f, 0.90f, 0.44f), "Cabinet");
-        BothBox(r, steel, new Vector3(-0.70f, -eyeHeight + 0.92f, BackWall + 0.22f),
-                new Vector3(1.24f, 0.04f, 0.48f), "CabinetTop");
+        // 아래는 받아온 진료실 수납장, 위는 벽장(모델이 없어 상자 그대로).
+        BothModel(r, "Models/LabDesk", shell,
+                  new Vector3(-0.70f, -eyeHeight, BackWall + 0.22f), 0f,
+                  Vector3.one * 1.45f, "Cabinet");
+        BothBox(r, shell, new Vector3(-0.70f, -eyeHeight + 1.30f, BackWall + 0.14f),
+                new Vector3(1.30f, 0.52f, 0.28f), "WallCabinet");
         BothBox(r, teal, new Vector3(0.75f, 0.10f, BackWall),
                 new Vector3(0.70f, 0.50f, 0.03f), "XrayPanel");
+
+        // ── 고개를 숙이면 민무늬 회색 면만 보이던 문제 ──
+        //
+        // 이 방은 통째로 35도 젖혀져 있어서, 참가자가 턱을 당기면 시선이 바닥과
+        // 끝벽으로 떨어진다. 둘 다 아무 무늬 없는 밝은 회색 판이라 화면이 비어 보였다.
+        // 면을 끊어 주는 선을 깔고, 누워 있으면 당연히 보여야 할 것들을 몸 위에 놓는다.
+
+        Material line = ToolModels.MakeMaterial(new Color(0.58f, 0.61f, 0.63f), 0f, 0.06f);
+
+        // 바닥 줄눈. 선이 깔리면 기울어진 것도 깊이도 눈에 들어온다.
+        for (int i = 0; i < 5; i++)
+            BothBox(r, line,
+                    new Vector3(0f, -eyeHeight + 0.005f, D - 0.35f - i * 0.45f),
+                    new Vector3(RoomHalfW * 2f, 0.004f, 0.012f), "FloorLine" + i);
+
+        // 걸레받이 — 바닥과 벽이 만나는 자리를 끊어 준다.
+        for (int s = -1; s <= 1; s += 2)
+            BothBox(r, teal,
+                    new Vector3(s * RoomHalfW, -eyeHeight + 0.06f, D - RoomDepth * 0.5f),
+                    new Vector3(0.02f, 0.12f, RoomDepth), "Base" + s);
+        BothBox(r, teal, new Vector3(0f, -eyeHeight + 0.06f, BackWall),
+                new Vector3(RoomHalfW * 2f, 0.12f, 0.02f), "BaseEnd");
+
+        // 시술대와 에이프런은 **이쪽 방에만** 놓는다.
+        //
+        // 거울 속에는 이미 등받이와 에이프런 색이 들어가 있다. 모자랐던 건 1인칭으로
+        // 내려다보는 쪽이다 — 누워 있는데 제 몸도 의자도 없고 바닥만 보였다.
+        // Both 가 아니라 Box 를 쓰는 이유가 이것이다. 짝을 지으면 거울 속 사람 앞에
+        // 판이 하나 더 생겨 얼굴을 가린다.
+        // 종이 에이프런. 시술대와 색이 달라야 "내 가슴 위에 덮인 것" 으로 읽힌다.
+        //
+        // 처음에 0.40 x 0.30 을 눈 아래 0.32 m 에 뒀더니, 가까워서 화면 아래쪽을
+        // 통째로 덮은 데다 치료등을 받아 하얗게 타 버렸다 — 회색 벽이 흰 벽이 됐을 뿐이다.
+        // 더 내리고 줄이고 색을 죽여서, 빕 → 시술대 → 팔걸이 → 바닥 줄눈 순으로
+        // 겹쳐 보이게 한다. 한 겹이 아니라 여러 겹이라야 면이 아니라 공간으로 읽힌다.
+        Material bibMat = ToolModels.MakeMaterial(new Color(0.78f, 0.85f, 0.86f), 0f, 0.05f);
+        Box(r, bibMat, new Vector3(0f, -0.40f, 0.20f),
+            new Vector3(0.34f, 0.02f, 0.24f), "Bib");
+
+        for (int s = -1; s <= 1; s += 2)
+            Box(r, shell, new Vector3(s * 0.33f, -0.44f, 0f),
+                new Vector3(0.09f, 0.07f, 0.52f), "ArmRest" + s);
+
+        // 시술대. 밝은 청록 한 판으로 두면 회색 벽이 청록 벽으로 바뀔 뿐이다.
+        // 색을 한 단계 죽이고 쿠션 이음매를 넣어 면을 끊는다.
+        Material couchMat = ToolModels.MakeMaterial(new Color(0.33f, 0.55f, 0.60f), 0f, 0.10f);
+        Material seam     = ToolModels.MakeMaterial(new Color(0.24f, 0.42f, 0.47f), 0f, 0.06f);
+        Box(r, couchMat, new Vector3(0f, -0.50f, -0.30f),
+            new Vector3(0.52f, 0.06f, 0.80f), "Couch");
+        for (int i = 0; i < 3; i++)
+            Box(r, seam, new Vector3(0f, -0.468f, -0.05f - i * 0.26f),
+                new Vector3(0.52f, 0.004f, 0.012f), "CouchSeam" + i);
 
         // 얼굴을 비추는 등은 짝을 짓지 않는다.
         //
@@ -634,8 +1083,16 @@ public class MirrorRig : MonoBehaviour
         //
         // 치료등은 원래 환자를 비추지 이쪽을 비추지 않는다. 그러니 거울 속에만
         // 등이 있는 게 오히려 맞다. 짝 없는 등 하나를 거울 속 얼굴 앞에 둔다.
-        OneLamp(r, new Vector3(0.16f, 0.26f, 0.60f), 1.6f, 0.95f, new Color(0.95f, 0.98f, 1f));
-        Lamp(r, new Vector3(-0.60f, CeilUp - 0.20f, -0.60f), 4.4f, 1.30f,
+        //
+        // 세기는 0.95 에서 **0.40 으로 낮추고 사거리는 1.6 → 3.0 으로 늘렸다.**
+        // 거울 속 장면이 5배(DentalZoom)라 얼굴이 이 등 코앞까지 와 있어서,
+        // 이마가 순백으로 타고 이에는 하얀 판때기 같은 반사가 얹혀 있었다.
+        // 자리도 0.60 → 0.52 로 **물렸다.** 세기만 낮추면 코끝만 밝고 턱은
+        // 묻힌다 — 코와 볼의 거리 차가 그대로라서다. 등을 멀리 두고 사거리를
+        // 늘려야 그 차가 줄어 얼굴 전체가 고르게 받는다.
+        OneLamp(r, new Vector3(0.16f, 0.26f, 0.52f), 3.0f, 0.40f, new Color(0.95f, 0.98f, 1f));
+        KeyLight(r, 1.00f, new Color(1f, 0.99f, 0.97f));
+        Lamp(r, new Vector3(-0.60f, CeilUp - 0.50f, -0.60f), 5.6f, 0.62f,
              new Color(0.92f, 0.96f, 1f));
         return r;
     }
@@ -695,26 +1152,1207 @@ public class MirrorRig : MonoBehaviour
         // 뒤통수 -0.80 이었다. 다른 사람 모델로 바꿔도 대충 들어맞는 값이다.
         headCenterLocal = new Vector3(0f,          hh * 0.41f, -hh * 0.12f);
         templeLocal     = new Vector3(-hh * 0.41f, hh * 0.45f,  hh * 0.08f);
-        mouthLocal      = new Vector3(0f,          hh * 0.08f,  hh * 0.51f);
+        // 입의 z 는 0.51 이었다. 그건 **코끝** 깊이다. 입 자리에 광선을
+        // 쏴서 재 보니 얼굴 표면은 0.465 였다 — 입이 얼굴 앞에 1.3 cm 떠
+        // 있었다는 뜻이다. 구멍을 뚫으려면 이게 표면에 정확히 붙어야 한다.
+        mouthLocal      = new Vector3(0f,          hh * 0.08f,  hh * 0.465f);
 
-        BuildMouth();
+        CollectLegs();
+        BuildMouth(person);
     }
 
     /// <summary>
-    /// 입. 이 리그에는 얼굴 뼈가 없고 (Root/Hips/Abdomen/Torso/Chest/Neck/Head 가 전부다)
-    /// 블렌드셰이프도 없어서, 메시는 건드리지 않고 입술 자리에 작은 조각을 얹어
-    /// 크기로 여닫는다.
-    ///
-    /// 어두운 타원 하나만 놓으면 입으로 안 보인다 — 그냥 얼굴에 난 얼룩이다.
-    /// 입술 테두리(조금 짙은 살색) 위에 틈(검정)을 겹치고, 벌어지면 윗니가 드러나게
-    /// 세 겹으로 만들어야 입으로 읽힌다.
+    /// 다리뼈와 그 기본 방향을 모아 둔다. 리그가 치과에서 통째로 젖혀지므로
+    /// 기본 방향은 월드가 아니라 **리그 기준**으로 저장한다.
     /// </summary>
-    private void BuildMouth()
+    private void CollectLegs()
     {
-        mouthLips  = MouthPart("Lips",  new Color(0.64f, 0.46f, 0.40f), 0.10f);
-        mouthHole  = MouthPart("Hole",  new Color(0.07f, 0.04f, 0.04f), 0.02f);
-        mouthTeeth = MouthPart("Teeth", new Color(0.93f, 0.91f, 0.86f), 0.25f);
+        string[] side = { "L", "R" };
+        legUpper = new Transform[2]; legLower = new Transform[2]; legFoot = new Transform[2];
+        legRestU = new Quaternion[2]; legRestL = new Quaternion[2]; legRestF = new Quaternion[2];
+
+        Quaternion inv = Quaternion.Inverse(transform.rotation);
+        for (int i = 0; i < 2; i++)
+        {
+            legUpper[i] = FindBone(charRoot, "UpperLeg." + side[i]);
+            legLower[i] = FindBone(charRoot, "LowerLeg." + side[i]);
+            legFoot[i]  = FindBone(charRoot, "Foot." + side[i]);
+            if (legUpper[i] != null) legRestU[i] = inv * legUpper[i].rotation;
+            if (legLower[i] != null) legRestL[i] = inv * legLower[i].rotation;
+            if (legFoot[i]  != null) legRestF[i] = inv * legFoot[i].rotation;
+        }
+        if (legUpper[0] == null)
+            Debug.LogWarning("[MirrorRig] 다리뼈(UpperLeg.L)를 못 찾았다 — 앉은 자세를 못 만든다");
+    }
+
+    /// <summary>
+    /// 앉히거나 편다. 허벅지만 앞으로 눕히고 정강이·발은 제 방향 그대로 둔다.
+    ///
+    /// 뼈의 로컬 축이 어느 쪽을 향하는지는 모델마다 다르다. 그래서 로컬 회전을
+    /// 건드리지 않고 **리그 기준 회전을 직접 박는다** — 허벅지만 돌리고 자식은
+    /// 쉴 때 방향으로 되돌리면, 축이 어떻게 생겼든 "허벅지 수평, 정강이 수직"이
+    /// 된다. 부모를 먼저 넣어야 자식 값이 덮이지 않는다.
+    ///
+    /// 머리는 TrackViewer 가 참가자 머리에 붙여 놓으므로, 다리를 접으면 몸이
+    /// 올라가는 게 아니라 발이 올라온다. 그래서 집 바닥도 SitDrop 만큼 올렸다.
+    /// </summary>
+    private void PoseLegs(bool seated)
+    {
+        if (legUpper == null) return;
+
+        // 거울 속 사람은 참가자를 보고 서 있다(리그 -Z). 무릎이 그쪽으로 나와야
+        // 앉은 것이다. 아래(-Y)를 -Z 로 돌리는 축은 리그의 +X 다.
+        Quaternion bend = Quaternion.AngleAxis(seated ? 88f : 0f, transform.right);
+        for (int i = 0; i < 2; i++)
+        {
+            if (legUpper[i] != null) legUpper[i].rotation = bend * (transform.rotation * legRestU[i]);
+            if (legLower[i] != null) legLower[i].rotation = transform.rotation * legRestL[i];
+            if (legFoot[i]  != null) legFoot[i].rotation  = transform.rotation * legRestF[i];
+        }
+    }
+
+    /// <summary>
+    /// 입. **얼굴에 구멍을 뚫어서** 만든다.
+    ///
+    /// 전에는 메시를 안 건드리고 얼굴 앞면에 몇 mm 두께의 켜를 얹었다.
+    /// 그래서 이를 제 깊이로 둘 수가 없었다 — 아치를 세우면 어금니가
+    /// 불투명한 머리 속으로 들어가 사라지니까, 앞뒤로 0.5 cm 까지 눌러
+    /// 부조로 만들어야 했다. 치과 장면이 5배 확대라 그게 **종잇장 같은
+    /// 이**로 드러났다.
+    ///
+    /// 지금은 입 자리의 얼굴 삼각형을 잘라 내고(CarveMouth), 잘라 낸 것을
+    /// 위·아래 두 조각으로 나눠 그대로 되돌려 놓는다. 다문 입에서는 두
+    /// 조각이 원래 자리에 있어 **이음매가 없다** — 같은 메시, 같은 재질,
+    /// 같은 UV 니까. 벌리면 두 조각이 갈라지고 그 사이로 구강이 보인다.
+    /// 입술도 따로 안 만든다. 이 모델은 입술이 텍스처에 그려져 있어서
+    /// 잘라 낸 조각이 그걸 그대로 들고 간다.
+    /// </summary>
+    private void BuildMouth(GameObject person)
+    {
+        // 구멍 크기. 한 번 뚫으면 못 줄이므로 **제일 크게 벌렸을 때**에
+        // 맞춘다 (SetMouth 의 gap·w 최대값). 다문 입은 두 조각이 도로
+        // 덮으니 커도 손해가 없다.
+        // 가로는 사람 입만 하게(4.8 cm), 세로는 제일 크게 벌렸을 때(3.6 cm).
+        //
+        // 더 키우고 싶어도 못 키운다. 위로 1 cm 만 더 가면 **코**에 닿고,
+        // 옆으로 벌리면 얼굴이 둥글어서 구멍 가장자리와 한가운데의 깊이
+        // 차가 커진다 — 구강 벽을 어디에 맞춰 세워도 한쪽이 볼을 뚫고
+        // 나온다. 광선을 쏴 재 보니 ±2.4 cm 안에서는 그 차가 7 mm 라
+        // 벽 하나로 덮인다.
+        holeHalfW = 0.022f;
+        // **얇게 만들려고 여기를 줄이면 안 된다.** 입을 벌릴 때 보이는 틈은
+        // 턱이 얼마나 열리느냐가 아니라 이 구멍이 얼마나 크냐로 정해진다 —
+        // 아래턱 조각은 통째로 구멍 밑으로 내려가 버리기 때문이다. 1.4 cm 로
+        // 줄였더니 입술은 얇아졌지만 **아랫니가 안 보였다.** 구멍은 크게
+        // 두고, 입술은 다문 선 둘레만 색으로 칠한다 (JawPiece).
+        holeHalfH = 0.013f;
+
+        // 구멍의 한가운데는 입술선보다 **8 mm 아래**다. 입술선에 맞췄더니
+        // 위쪽 모서리가 **코를 베어 먹었다** — 떼어 낸 윗조각의 앞뒤 두께가
+        // 2.8 cm 로 나와서 알았다. 납작한 얼굴 조각이 그렇게 두꺼울 리 없다.
+        // 턱은 어차피 아래로 열리니 구멍도 아래로 치우치는 게 맞다.
+        holeCenterY = mouthLocal.y - 0.005f;
+
+        CarveMouth(person);
+        if (mouthJawLow != null)
+        {
+            // 턱은 **경첩으로 돈다.** 아래로 밀기만 하면 조각이 턱 앞에
+            // 떠서 판자처럼 보인다 — 얼굴이 아래로 갈수록 뒤로 말려
+            // 들어가기 때문이다. 귀 아래쯤(위로 2 cm, 뒤로 7.5 cm)에 축을
+            // 두면 내려가면서 저절로 뒤로도 물러난다. 사람 턱이 그렇다.
+            jawHinge = new Vector3(0f, mouthLocal.y + 0.020f, mouthSkinZ - 0.075f);
+            mouthJawLow.localPosition = jawHinge;
+            if (mouthJawLow.childCount > 0)
+                mouthJawLow.GetChild(0).localPosition = -jawHinge;
+        }
+        BuildCavity();
+
+        mouthTongue   = MouthPart("Tongue", new Color(0.70f, 0.30f, 0.32f), 0.35f);
+        // 이와 잇몸은 받아온 틀니 모델이다 (ToothRow 참고).
+        mouthTeeth    = ToothRow("TeethUp",  true);
+        mouthTeethLow = ToothRow("TeethLow", false);
         SetMouth(0f);
+    }
+    /// <summary>
+    /// 구강 안쪽 벽. **뚫은 구멍의 테두리를 그대로 뒤로 늘여서** 만든다.
+    ///
+    /// 막지 않으면 구멍으로 머리 속이 들여다보인다. 머리는 껍데기 하나라
+    /// 안쪽 면은 뒷면 컬링으로 안 그려지고, 결국 뒤통수 너머 방이 비친다.
+    ///
+    /// 처음엔 상자 다섯 장으로 둘러 세웠다가 **틈이 생겼다** — 얼굴이
+    /// 둥글어서 구멍 가장자리가 한가운데보다 1.3 cm 뒤에 있는데 상자는
+    /// 평평하다. 아래에서 올려다보면 시선이 입천장 앞모서리를 넘어 머리
+    /// 속으로 빠져서 새까맣게 보였다. 테두리에서 뽑으면 그 틈이 생길 수가
+    /// 없다 — 관의 입구가 곧 구멍이니까.
+    /// </summary>
+    private void BuildCavity()
+    {
+        GameObject root = new GameObject("MouthCavity");
+        root.transform.SetParent(headPivot, false);
+        mouthCavity = root.transform;
+        if (cavityRing == null || cavityRing.Count < 6) return;
+
+        // 어둡되 살색이 남은 적갈색. 새까맣게 두면 구멍이지 입이 아니다.
+        Material inner = ToolModels.MakeMaterial(new Color(0.30f, 0.13f, 0.13f), 0f, 0.10f);
+
+        const float depth = 0.034f;   // 입술에서 목구멍까지
+        const float taper = 0.45f;    // 뒤로 갈수록 좁아진다
+
+        Vector3 c = new Vector3(mouthLocal.x, holeCenterY, 0f);
+        var vs = new System.Collections.Generic.List<Vector3>();
+        var ts = new System.Collections.Generic.List<int>();
+
+        Vector3 back = Vector3.zero;
+        int n = cavityRing.Count / 2;
+        for (int i = 0; i < n; i++)
+        {
+            Vector3 a = cavityRing[i * 2], b2 = cavityRing[i * 2 + 1];
+            Vector3 ab = Taper(a, c, taper, depth, holeHalfH), bb = Taper(b2, c, taper, depth, holeHalfH);
+            back += (ab + bb) * 0.5f;
+            Quad(vs, ts, a, b2, bb, ab, c);
+        }
+        back /= Mathf.Max(n, 1);
+
+        // 입술 안쪽 **깃**. 턱이 돌면 아랫입술 조각이 구멍 테두리에서
+        // 떨어져 나가 입꼬리에 쐐기 모양 틈이 벌어진다 — 거기로 치과
+        // 의자의 파란 천이 비쳤다. 구강 입구를 한 겹 더 바깥·뒤로 둘러
+        // 두면 그 틈이 깃에 막힌다. 얼굴 표면보다 뒤에 있어 정면에서는
+        // 안 보인다.
+        for (int i = 0; i < n; i++)
+        {
+            Vector3 a = cavityRing[i * 2], b2 = cavityRing[i * 2 + 1];
+            // **두 겹**으로 두른다. 얼굴은 입에서 멀어질수록 빠르게 뒤로
+            // 말려서, 한 번에 멀리 보내면 깃이 볼을 뚫고 나온다. 그렇다고
+            // 가까이만 두면 테두리에서 조금 먼 곳이 안 받쳐진다. 두 번에
+            // 나눠 보내면 얼굴 뒤를 고르게 받친다.
+            Vector3 a1 = Flange(a, c, 1.12f, 0.0018f), b1 = Flange(b2, c, 1.12f, 0.0018f);
+            Vector3 a2 = Flange(a, c, 1.45f, 0.0075f), b2f = Flange(b2, c, 1.45f, 0.0075f);
+            Quad(vs, ts, a1, b1, b2, a, c);
+            Quad(vs, ts, a2, b2f, b1, a1, c);
+        }
+
+        // 목구멍 — 뒤를 막는다. 안 막으면 뒤통수 너머가 비친다.
+        int cen = vs.Count;
+        vs.Add(back);
+        for (int i = 0; i < n; i++)
+        {
+            Vector3 ab = Taper(cavityRing[i * 2], c, taper, depth, holeHalfH);
+            Vector3 bb = Taper(cavityRing[i * 2 + 1], c, taper, depth, holeHalfH);
+            int ia = vs.Count; vs.Add(ab);
+            int ib = vs.Count; vs.Add(bb);
+            // 목구멍은 입 쪽(+Z)을 봐야 한다.
+            if (Vector3.Cross(ab - back, bb - back).z >= 0f)
+            { ts.Add(cen); ts.Add(ia); ts.Add(ib); }
+            else
+            { ts.Add(cen); ts.Add(ib); ts.Add(ia); }
+        }
+
+        Mesh m = new Mesh();
+        m.name = "MouthCavity";
+        m.SetVertices(vs);
+        m.SetTriangles(ts, 0);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+
+        GameObject go = new GameObject("CavityMesh");
+        go.transform.SetParent(mouthCavity, false);
+        go.AddComponent<MeshFilter>().sharedMesh = m;
+        go.AddComponent<MeshRenderer>().sharedMaterial = inner;
+    }
+
+    /// <summary>
+    /// 0.1 mm 격자로 끊은 자리를 long 하나에 담는다. 자리가 같은 꼭짓점을
+    /// 하나로 묶을 때 쓴다.
+    ///
+    /// 처음엔 흔한 방식대로 축마다 소수를 곱해 XOR 했다. 그랬더니 서로
+    /// **다른 자리가 같은 값**으로 겹쳤고, 겹친 자리의 테두리 변이 두 번
+    /// 세어져 구강 벽에서 한 장이 빠졌다 — 입꼬리에 실금 같은 구멍이
+    /// 나서 그 너머 방이 비쳤다. 좌표를 21 비트씩 **쌓아** 두면 겹칠 수가
+    /// 없다 (±100 m 까지).
+    /// </summary>
+    private static long PosKey(Vector3 v)
+    {
+        long x = Mathf.Clamp(Mathf.RoundToInt(v.x * 10000f), -1048575, 1048575) + 1048576L;
+        long y = Mathf.Clamp(Mathf.RoundToInt(v.y * 10000f), -1048575, 1048575) + 1048576L;
+        long z = Mathf.Clamp(Mathf.RoundToInt(v.z * 10000f), -1048575, 1048575) + 1048576L;
+        return (x << 42) | (y << 21) | z;
+    }
+
+    /// <summary>테두리 한 점을 바깥·뒤로 보낸다 (입술 안쪽 깃).</summary>
+    private static Vector3 Flange(Vector3 p, Vector3 c, float outward, float back)
+    {
+        return new Vector3(c.x + (p.x - c.x) * outward,
+                           c.y + (p.y - c.y) * outward,
+                           p.z - back);
+    }
+
+    /// <summary>
+    /// 테두리 한 점을 구강 안쪽 끝으로 보낸다.
+    ///
+    /// 고르게 좁히면 안 된다. 입천장은 뒤로 말려 들어가지만 **바닥은
+    /// 오히려 더 내려가야** 한다 — 턱이 열리면 아랫니가 구멍 아래 모서리
+    /// 보다 더 내려가는데, 바닥을 구멍에 맞춰 두면 아랫니가 그 밑으로
+    /// 빠져 벽에 가려 사라진다. 실제로 그렇게 사라졌다.
+    /// 좌우는 그대로 둔다. 좁히면 어금니가 볼 벽을 뚫고 나온다.
+    ///
+    /// 다만 위아래가 **dy = 0 에서 이어져야** 한다. 바닥을 통째로 2 cm
+    /// 내렸더니 입꼬리(dy ≈ 0)에서 위벽과 아래벽이 2 cm 어긋나 벽이
+    /// 세로로 찢어졌고, 그 틈으로 치과 의자의 파란 천이 비쳤다.
+    /// 내리는 양을 dy 에 비례시키면 틈이 생길 자리가 없다.
+    /// </summary>
+    private static Vector3 Taper(Vector3 p, Vector3 c, float k, float depth, float halfH)
+    {
+        float dy = p.y - c.y;
+        float y;
+        if (dy > 0f) y = c.y + dy * k;                   // 입천장
+        else                                             // 바닥
+        {
+            // 내리는 양은 **턱이 벌어지는 양에 묶어 둔다.** 전에는 2 cm 로
+            // 적어 뒀는데, 나중에 벌림을 2.8 cm 로 키우자 아랫니가 바닥
+            // 아래로 빠져 또 사라졌다. 같은 실수를 두 번 했다.
+            float t = Mathf.Clamp01(-dy / Mathf.Max(halfH, 1e-4f));
+            y = c.y + dy * 1.8f - (JawOpenMax + 0.008f) * t;
+        }
+        return new Vector3(p.x, y, p.z - depth);
+    }
+
+    /// <summary>
+    /// 구강 벽 한 장. **한 겹**으로 깔되 감는 방향은 계산해서 정한다.
+    ///
+    /// 테두리 변의 방향을 모르니 처음엔 앞뒤 두 장을 겹쳐 깔았다. 그랬더니
+    /// RecalculateNormals 가 마주 보는 두 노멀을 평균 내서 0 에 가깝게
+    /// 만들었고, 구강이 줄무늬 부채처럼 보였다. 면의 노멀이 구강 축
+    /// 쪽을 보는지 내적으로 보고, 아니면 뒤집는다.
+    /// </summary>
+    private static void Quad(System.Collections.Generic.List<Vector3> vs,
+                             System.Collections.Generic.List<int> ts,
+                             Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 axis)
+    {
+        Quad(vs, ts, a, b, c, d, axis, true);
+    }
+
+    /// <summary>
+    /// inward 가 거짓이면 반대로 — 축에서 **멀어지는** 쪽을 보게 깐다.
+    /// 구강 벽은 안쪽을 보지만 입술은 바깥을 봐야 한다.
+    /// </summary>
+    private static void Quad(System.Collections.Generic.List<Vector3> vs,
+                             System.Collections.Generic.List<int> ts,
+                             Vector3 a, Vector3 b, Vector3 c, Vector3 d,
+                             Vector3 axis, bool inward)
+    {
+        Vector3 mid = (a + b + c + d) * 0.25f;
+        Vector3 toAxis = new Vector3(axis.x, axis.y, mid.z) - mid;
+        bool flip = Vector3.Dot(Vector3.Cross(b - a, c - a), toAxis) < 0f;
+        if (!inward) flip = !flip;
+
+        int i = vs.Count;
+        vs.Add(a); vs.Add(b); vs.Add(c); vs.Add(d);
+        if (!flip)
+        {
+            ts.Add(i); ts.Add(i + 1); ts.Add(i + 2);
+            ts.Add(i); ts.Add(i + 2); ts.Add(i + 3);
+        }
+        else
+        {
+            ts.Add(i); ts.Add(i + 2); ts.Add(i + 1);
+            ts.Add(i); ts.Add(i + 3); ts.Add(i + 2);
+        }
+    }
+
+    /// <summary>
+    /// 입 자리의 얼굴 삼각형을 잘라 내고, 잘라 낸 것을 위·아래 두 조각으로
+    /// 돌려준다.
+    ///
+    /// 그냥 지울 수는 없었다. 이 얼굴은 입 자리가 **삼각형 몇 장**으로 덮여
+    /// 있고 그 한 장의 변이 6 cm 다 — 입이 5 cm 니까, 한 장만 지워도 턱에서
+    /// 볼까지 뚫린다. 그래서 겹치는 삼각형만 3 mm 격자로 **잘게 쪼갠 뒤**
+    /// 구멍 안에 드는 조각만 떼어 낸다. 새로 생기는 꼭짓점은 원래 세
+    /// 꼭짓점에서 무게좌표로 뽑으므로 위치·노멀·UV·뼈가중치가 다 따라온다.
+    ///
+    /// 떼어 낸 조각은 버리지 않고 **같은 자리에 그대로** 다시 놓는다.
+    /// 다문 입에서 이음매가 안 보이는 건 그래서다 — 같은 메시, 같은 재질,
+    /// 같은 UV 다. 살색을 따로 칠해 덮었다면 얼굴에 네모가 하나 떴을 것이다.
+    ///
+    /// 조각은 스킨드가 아니라 headPivot 에 매단 고정 메시다. 얼굴 메시는
+    /// 머리뼈 하나에만 매달려 있어서 머리를 돌려도 모양이 안 바뀐다.
+    /// </summary>
+    private void CarveMouth(GameObject person)
+    {
+        SkinnedMeshRenderer head = null;
+        foreach (SkinnedMeshRenderer r in person.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            if (r.name.IndexOf("Head", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            { head = r; break; }
+        if (head == null || head.sharedMesh == null)
+        {
+            Debug.LogWarning("[MirrorRig] 머리 메시를 못 찾아 입을 못 뚫었다");
+            return;
+        }
+
+        Mesh src = head.sharedMesh;
+        Mesh baked = new Mesh();
+        head.BakeMesh(baked, true);
+        Vector3[] bv = baked.vertices;
+        if (bv.Length != src.vertexCount)
+        {
+            Debug.LogWarning("[MirrorRig] 구운 메시와 원본의 꼭짓점 수가 다르다");
+            return;
+        }
+
+        // 자를지 말지는 **구운 자세**로 판단하고, 잘라 낸 결과는 원본
+        // 좌표로 쓴다. 스키닝이 선형이라 무게좌표 보간이 양쪽에서 같다.
+        Transform rt = head.transform;
+        Vector3[] P = new Vector3[bv.Length];
+        for (int i = 0; i < bv.Length; i++)
+            P[i] = headPivot.InverseTransformPoint(rt.TransformPoint(bv[i]));
+
+        // 노멀도 **같은 좌표계로** 옮겨 둬야 한다. 처음엔 떼어 낸 조각에
+        // 원본 메시 좌표의 노멀을 그대로 넣었더니, 자리는 맞는데 빛을
+        // 엉뚱하게 받아서 다문 입이 새까만 구멍으로 보였다.
+        Vector3[] bn = baked.normals;
+        if (bn == null || bn.Length != bv.Length) bn = src.normals;
+        Vector3[] PN = new Vector3[bv.Length];
+        if (bn != null && bn.Length == bv.Length)
+            for (int i = 0; i < bn.Length; i++)
+                PN[i] = headPivot.InverseTransformDirection(rt.TransformDirection(bn[i])).normalized;
+        else
+            for (int i = 0; i < PN.Length; i++) PN[i] = Vector3.forward;
+
+        MakeLipShades(head);
+
+        Vector3[] V = src.vertices;
+        Vector3[] N = src.normals;
+        Vector2[] UV = src.uv;
+        Vector4[] TAN = src.tangents;
+        BoneWeight[] BW = src.boneWeights;
+        bool hasN = N != null && N.Length == V.Length;
+        bool hasUV = UV != null && UV.Length == V.Length;
+        bool hasTan = TAN != null && TAN.Length == V.Length;
+        bool hasBW = BW != null && BW.Length == V.Length;
+
+        var fv = new System.Collections.Generic.List<Vector3>(V);
+        var fn = new System.Collections.Generic.List<Vector3>(hasN ? N : new Vector3[0]);
+        var fuv = new System.Collections.Generic.List<Vector2>(hasUV ? UV : new Vector2[0]);
+        var ftan = new System.Collections.Generic.List<Vector4>(hasTan ? TAN : new Vector4[0]);
+        var fbw = new System.Collections.Generic.List<BoneWeight>(hasBW ? BW : new BoneWeight[0]);
+        var fp = new System.Collections.Generic.List<Vector3>(P);
+        var fpn = new System.Collections.Generic.List<Vector3>(PN);
+
+        // 나중에 구멍 테두리를 타원 위로 끌어다 붙일 때 쓰는 출신 삼각형.
+        // 원본 삼각형의 **안쪽**에서 나온 꼭짓점만 적는다 — 변을
+        // 공유하는 꼭짓점은 이웃 삼각형에도 똑같이 있어서, 한쪽만
+        // 밀면 둘이 벌어져 틈이 생긴다. 그 틈은 톱니보다 더 눈에 띄다.
+        var oA = new System.Collections.Generic.List<int>();
+        var oB = new System.Collections.Generic.List<int>();
+        var oC = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < V.Length; i++) { oA.Add(-1); oB.Add(-1); oC.Add(-1); }
+
+        int subs = src.subMeshCount;
+        var faceTris = new System.Collections.Generic.List<int>[subs];
+        var cutTris = new System.Collections.Generic.List<int>[subs];
+        for (int s = 0; s < subs; s++)
+        {
+            faceTris[s] = new System.Collections.Generic.List<int>();
+            cutTris[s] = new System.Collections.Generic.List<int>();
+        }
+
+        float mx = mouthLocal.x, my = holeCenterY;
+        float minZ = 1e9f;
+        int cut = 0;
+
+        for (int s = 0; s < subs; s++)
+        {
+            int[] T = src.GetTriangles(s);
+            for (int i = 0; i < T.Length; i += 3)
+            {
+                int ia = T[i], ib = T[i + 1], ic = T[i + 2];
+                Vector3 pa = P[ia], pb = P[ib], pc = P[ic];
+
+                // 구멍과 겹치지도 않는 삼각형은 손대지 않는다.
+                float loX = Mathf.Min(pa.x, Mathf.Min(pb.x, pc.x));
+                float hiX = Mathf.Max(pa.x, Mathf.Max(pb.x, pc.x));
+                float loY = Mathf.Min(pa.y, Mathf.Min(pb.y, pc.y));
+                float hiY = Mathf.Max(pa.y, Mathf.Max(pb.y, pc.y));
+                if (hiX < mx - holeHalfW || loX > mx + holeHalfW ||
+                    hiY < my - holeHalfH || loY > my + holeHalfH)
+                {
+                    faceTris[s].Add(ia); faceTris[s].Add(ib); faceTris[s].Add(ic);
+                    continue;
+                }
+
+                // 뒤통수 쪽 면은 자르면 안 된다. 구멍은 **얼굴 앞면**에만 난다.
+                //
+                // 처음엔 꼭짓점 차의 외적으로 앞뒷면을 갈랐다가 **뒤통수를
+                // 뚫었다.** 유니티는 시계방향이 앞면이라 그 외적이 면의
+                // 반대쪽을 가리킨다. 머리 한가운데(z = 0)보다 앞인지로
+                // 가르는 쪽이 감기는 방향에 안 휘둘린다.
+                if ((pa.z + pb.z + pc.z) / 3f <= 0f)
+                {
+                    faceTris[s].Add(ia); faceTris[s].Add(ib); faceTris[s].Add(ic);
+                    continue;
+                }
+
+                float edge = Mathf.Max(Vector3.Distance(pa, pb),
+                             Mathf.Max(Vector3.Distance(pb, pc), Vector3.Distance(pc, pa)));
+                int n = Mathf.Clamp(Mathf.RoundToInt(edge / 0.002f), 4, 32);
+
+                // (i, j) 격자점마다 꼭짓점을 한 번만 만든다.
+                int[] grid = new int[(n + 1) * (n + 1)];
+                for (int gi = 0; gi <= n; gi++)
+                    for (int gj = 0; gj <= n - gi; gj++)
+                    {
+                        float wb = (float)gi / n, wc = (float)gj / n, wa = 1f - wb - wc;
+                        grid[gi * (n + 1) + gj] = fv.Count;
+                        bool inner = gi > 0 && gj > 0 && gi + gj < n;
+                        oA.Add(inner ? ia : -1); oB.Add(ib); oC.Add(ic);
+                        fv.Add(V[ia] * wa + V[ib] * wb + V[ic] * wc);
+                        fp.Add(pa * wa + pb * wb + pc * wc);
+                        fpn.Add((PN[ia] * wa + PN[ib] * wb + PN[ic] * wc).normalized);
+                        if (hasN) fn.Add((N[ia] * wa + N[ib] * wb + N[ic] * wc).normalized);
+                        if (hasUV) fuv.Add(UV[ia] * wa + UV[ib] * wb + UV[ic] * wc);
+                        if (hasTan) ftan.Add(TAN[ia] * wa + TAN[ib] * wb + TAN[ic] * wc);
+                        // 뼈가중치는 섞지 않고 제일 가까운 꼭짓점 것을 쓴다.
+                        // 얼굴은 머리뼈 하나에만 매달려 있어 어차피 셋이 같다.
+                        if (hasBW) fbw.Add(wa >= wb && wa >= wc ? BW[ia] : (wb >= wc ? BW[ib] : BW[ic]));
+                    }
+
+                for (int gi = 0; gi < n; gi++)
+                    for (int gj = 0; gj < n - gi; gj++)
+                    {
+                        AddSub(faceTris[s], cutTris[s], fp, ref cut, ref minZ, mx, my,
+                               grid[gi * (n + 1) + gj],
+                               grid[(gi + 1) * (n + 1) + gj],
+                               grid[gi * (n + 1) + gj + 1]);
+                        if (gj < n - gi - 1)
+                            AddSub(faceTris[s], cutTris[s], fp, ref cut, ref minZ, mx, my,
+                                   grid[(gi + 1) * (n + 1) + gj],
+                                   grid[(gi + 1) * (n + 1) + gj + 1],
+                                   grid[gi * (n + 1) + gj + 1]);
+                    }
+            }
+        }
+
+        if (cut == 0)
+        {
+            Debug.LogWarning("[MirrorRig] 입 자리에서 잘라 낼 면이 없었다");
+            return;
+        }
+        // ---- 구멍 테두리를 타원 위로 끌어다 붙인다 ----
+        //
+        // 자를지 말지는 쪼갠 조각의 **무게중심**으로 갈랐다. 그래서 테두리가
+        // 2 mm 격자를 따라 톱니로 남는다. 치과 거울은 장면을 5 배로 키워
+        // 보여 주므로 그 톱니가 1 cm 짜리로 보인다 — 격자를 더 잘게 쪼개도
+        // 톱니는 작아질 뿐 없어지지 않는다.
+        //
+        // 그래서 경계에 걸친 꼭짓점만 타원 위로 민다. 민 자리의 무게좌표를
+        // **원본 삼각형에서 다시 풀면** z·노멀·UV 까지 같이 따라오므로
+        // 꼭짓점이 얼굴 표면에서 떨어지지 않는다. 자리만 옮기면 입술선이
+        // 표면에서 떠서 얼굴에 금이 간 것처럼 보인다.
+        {
+            System.Func<Vector3, long> Key = PosKey;
+
+            // 자리마다 "구멍 쪽 삼각형이 썼나(1) / 얼굴 쪽이 썼나(2)".
+            // 둘 다면 그 자리가 테두리다.
+            var touch = new System.Collections.Generic.Dictionary<long, int>();
+            for (int s = 0; s < subs; s++)
+            {
+                for (int i = 0; i < cutTris[s].Count; i++)
+                {
+                    long k = Key(fp[cutTris[s][i]]); int m;
+                    touch.TryGetValue(k, out m); touch[k] = m | 1;
+                }
+                for (int i = 0; i < faceTris[s].Count; i++)
+                {
+                    long k = Key(fp[faceTris[s][i]]); int m;
+                    touch.TryGetValue(k, out m); touch[k] = m | 2;
+                }
+            }
+
+            int moved = 0;
+            for (int i = V.Length; i < fp.Count; i++)
+            {
+                int ia2 = oA[i];
+                if (ia2 < 0) continue;                       // 변 위의 꼭짓점은 손대지 않는다
+                Vector3 q = fp[i];
+                if (q.z <= mouthLocal.z - 0.030f || q.z >= mouthLocal.z + 0.012f) continue;
+                int mk;
+                if (!touch.TryGetValue(Key(q), out mk) || mk != 3) continue;
+
+                float ex = (q.x - mx) / holeHalfW, ey = (q.y - my) / holeHalfH;
+                float r = Mathf.Sqrt(ex * ex + ey * ey);
+                if (r < 0.3f || r > 2.5f) continue;
+                float tx = mx + (q.x - mx) / r, ty = my + (q.y - my) / r;
+
+                int ib2 = oB[i], ic2 = oC[i];
+                Vector3 pa2 = P[ia2], pb2 = P[ib2], pc2 = P[ic2];
+                float d = (pb2.y - pc2.y) * (pa2.x - pc2.x) + (pc2.x - pb2.x) * (pa2.y - pc2.y);
+                if (Mathf.Abs(d) < 1e-9f) continue;          // xy 에 눕혀 보면 선이 된 삼각형
+                float wa = ((pb2.y - pc2.y) * (tx - pc2.x) + (pc2.x - pb2.x) * (ty - pc2.y)) / d;
+                float wb = ((pc2.y - pa2.y) * (tx - pc2.x) + (pa2.x - pc2.x) * (ty - pc2.y)) / d;
+                float wc = 1f - wa - wb;
+                // 타원 위의 그 점이 이 삼각형 밖이면 건드리지 않는다.
+                // 억지로 끌어오면 이웃 삼각형을 뚫고 나간다.
+                if (wa < -0.02f || wb < -0.02f || wc < -0.02f) continue;
+
+                fv[i] = V[ia2] * wa + V[ib2] * wb + V[ic2] * wc;
+                fp[i] = pa2 * wa + pb2 * wb + pc2 * wc;
+                fpn[i] = (PN[ia2] * wa + PN[ib2] * wb + PN[ic2] * wc).normalized;
+                if (hasN) fn[i] = (N[ia2] * wa + N[ib2] * wb + N[ic2] * wc).normalized;
+                if (hasUV) fuv[i] = UV[ia2] * wa + UV[ib2] * wb + UV[ic2] * wc;
+                if (hasTan) ftan[i] = TAN[ia2] * wa + TAN[ib2] * wb + TAN[ic2] * wc;
+                moved++;
+            }
+            Debug.Log("[MirrorRig] 입술선 다듬기 — 꼭짓점 " + moved + "개를 타원 위로 옮겼다");
+        }
+
+        // ---- 입 주변 음영을 **다시 짓는다** ----
+        //
+        // 사용자가 "입 위에 선 같은 게 보인다" 고 한 그 선이다. 재어 보니
+        // 선 양쪽이 **같은 살색의 밝기만 다른 두 단**이었다 (135,113,87 →
+        // 125,104,81). 틈도, 구강이 비친 것도 아니고, 떼어 낸 조각의
+        // 경계도 아니다 — 조각을 초록색으로 물들여 렌더해 보니 조각은
+        // 선보다 아래에서 시작했다. 순전히 얼굴 메시 안의 음영 단이다.
+        //
+        // 원인은 원본 머리 모델이 들고 있는 **노멀**이다. 입에서 3 cm 안에
+        // 원본 꼭짓점이 스물넷뿐인데 이웃끼리 평균 68.7°(최대 170°)나
+        // 꺾여 있고, 자리가 똑같은 꼭짓점을 두 벌 두고 서로 다른 노멀을
+        // 준 "각진 모서리" 가 56 군데다. 그 값을 6 cm 짜리 삼각형에 걸쳐
+        // 직선으로 펴면 면 안에서는 기울기가 일정하고 **변에서만 꺾인다.**
+        // 눈은 그 꺾임을 선으로 읽는다. 치과 거울이 5 배로 키우니 더 또렷.
+        //
+        // 그 노멀을 손보려 두 번 헛짚었다.
+        //  · 이웃끼리 섞기 — 단이 137→125 에서 138→132 로 옅어질 뿐이었다.
+        //    각진 모서리의 두 벌은 서로를 "등진 노멀" 로 보고 피해서,
+        //    하필 그 선만 살아남는다.
+        //  · 자리가 같은 것끼리 합치기 — 더 나빠졌다. 입 안쪽으로 접혀
+        //    들어간 꼭짓점(뒤를 보는 노멀)까지 피부에 섞여서 입 위에
+        //    87 까지 어두워지는 쐐기가 생겼다.
+        //
+        // 그래서 들고 있는 노멀을 **믿지 않고 버린다.** 자리만 보고 다시
+        // 짓는다 — 꼭짓점마다 1.4 cm 안의 이웃에 평면을 맞춰(최소제곱)
+        // 그 평면의 법선을 쓴다. 가중치가 거리에 따라 매끄럽게 줄어드니
+        // 법선도 자리에 따라 매끄럽게 변한다. 꺾일 변이 아예 없다.
+        //
+        // 입 안쪽으로 접힌 꼭짓점은 평면을 기울인다. z 로 걸러 내되
+        // 뚝 끊지 않고 **부드럽게** 가중치를 0 으로 내린다 — 뚝 끊으면
+        // 끊기는 자리가 또 선이 된다.
+        {
+            const float REG = 0.042f;    // 다시 지을 범위
+            const float EDGE = 0.014f;   // 범위 끝에서 원래 값으로 돌아가는 폭
+            const float R = 0.013f;      // 평면을 맞출 이웃 거리
+
+            var idx = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < fp.Count; i++)
+                if ((fp[i] - mouthLocal).sqrMagnitude < REG * REG) idx.Add(i);
+
+            // headPivot 좌표의 노멀을 원본 메시 좌표로 되돌리는 회전.
+            // 입 주변은 전부 머리 뼈 하나에 매달려 있어서 **회전 하나**로
+            // 끝난다. 두 쌍(N → PN)이 있으면 그 회전이 정해진다. 정말로
+            // 하나인지는 아래에서 잔차를 재서 로그로 남긴다.
+            Quaternion back = Quaternion.identity;
+            bool haveBack = false;
+            if (hasN)
+            {
+                int ia3 = -1, ib3 = -1;
+                float bestCross = 0f;
+                var cand = new System.Collections.Generic.List<int>();
+                for (int i = 0; i < V.Length && cand.Count < 60; i++)
+                    if ((P[i] - mouthLocal).sqrMagnitude < 0.060f * 0.060f) cand.Add(i);
+                for (int a = 0; a < cand.Count; a++)
+                    for (int b = a + 1; b < cand.Count; b++)
+                    {
+                        float c2 = Vector3.Cross(N[cand[a]], N[cand[b]]).magnitude;
+                        if (c2 > bestCross) { bestCross = c2; ia3 = cand[a]; ib3 = cand[b]; }
+                    }
+                if (bestCross > 0.25f)
+                {
+                    Quaternion fromRest = Quaternion.LookRotation(N[ia3], N[ib3]);
+                    Quaternion fromPiv = Quaternion.LookRotation(PN[ia3], PN[ib3]);
+                    back = fromRest * Quaternion.Inverse(fromPiv);
+                    haveBack = true;
+                    pivToMesh = back;   // back 이 곧 headPivot → 메시 다
+                    pivToMeshOK = true;
+
+                    float worst = 0f;
+                    for (int t = 0; t < cand.Count; t++)
+                        worst = Mathf.Max(worst, Vector3.Angle(back * PN[cand[t]], N[cand[t]]));
+                    Debug.Log("[MirrorRig] 노멀 좌표 되돌리기 — 꼭짓점 " + cand.Count
+                        + "개로 잰 잔차 최대 " + worst.ToString("F1") + "°");
+                    if (worst > 8f) { haveBack = false; pivToMeshOK = false; }   // 뼈가 하나가 아니다 — 손대지 않는다
+                }
+            }
+
+            // 1.4 cm 칸으로 묶어 이웃을 찾는다. 안 묶으면 쌍마다 거리를
+            // 재서 꼭짓점 수의 제곱만큼 걸린다.
+            var cell = new System.Collections.Generic.Dictionary<long,
+                       System.Collections.Generic.List<int>>();
+            System.Func<Vector3, long> CK = v =>
+                ((long)Mathf.FloorToInt(v.x / R) + 32768L) * 4294967296L
+              + ((long)Mathf.FloorToInt(v.y / R) + 32768L) * 65536L
+              + ((long)Mathf.FloorToInt(v.z / R) + 32768L);
+            foreach (int i in idx)
+            {
+                long k = CK(fp[i]);
+                System.Collections.Generic.List<int> list;
+                if (!cell.TryGetValue(k, out list))
+                { list = new System.Collections.Generic.List<int>(); cell[k] = list; }
+                list.Add(i);
+            }
+
+            var fit = new Vector3[idx.Count];
+            var ok = new bool[idx.Count];
+            int given = 0;
+            for (int q = 0; q < idx.Count; q++)
+            {
+                int i = idx[q];
+                Vector3 here = fp[i];
+                // z = a + b·dx + c·dy 를 최소제곱으로 맞춘다. 얼굴은 입
+                // 주변에서 +Z 를 보고 있어 이렇게 높이로 적을 수 있다.
+                double s00 = 0, s01 = 0, s02 = 0, s11 = 0, s12 = 0, s22 = 0;
+                double t0 = 0, t1 = 0, t2 = 0;
+                int cnt = 0;
+                for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dz = -1; dz <= 1; dz++)
+                {
+                    System.Collections.Generic.List<int> list;
+                    if (!cell.TryGetValue(CK(here + new Vector3(dx, dy, dz) * R), out list))
+                        continue;
+                    for (int t = 0; t < list.Count; t++)
+                    {
+                        Vector3 e = fp[list[t]] - here;
+                        float d = e.magnitude;
+                        if (d >= R) continue;
+                        float w = 1f - d / R;
+                        w *= w;
+                        // 입 안쪽으로 접힌 자리는 서서히 뺀다
+                        w *= Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((e.z + 0.007f) / 0.004f));
+                        if (w <= 0f) continue;
+                        s00 += w;        s01 += w * e.x;         s02 += w * e.y;
+                        s11 += w * e.x * e.x;                    s12 += w * e.x * e.y;
+                        s22 += w * e.y * e.y;
+                        t0 += w * e.z;   t1 += w * e.x * e.z;    t2 += w * e.y * e.z;
+                        cnt++;
+                    }
+                }
+                // 3×3 대칭 연립방정식을 크라메르로 푼다
+                double det = s00 * (s11 * s22 - s12 * s12)
+                           - s01 * (s01 * s22 - s12 * s02)
+                           + s02 * (s01 * s12 - s11 * s02);
+                if (cnt < 4 || System.Math.Abs(det) < 1e-18) { fit[q] = fpn[i]; continue; }
+                double b = (s00 * (t1 * s22 - s12 * t2)
+                          - t0  * (s01 * s22 - s12 * s02)
+                          + s02 * (s01 * t2 - t1 * s02)) / det;
+                double c = (s00 * (s11 * t2 - t1 * s12)
+                          - s01 * (s01 * t2 - t1 * s02)
+                          + t0  * (s01 * s12 - s11 * s02)) / det;
+                Vector3 nf2 = new Vector3((float)(-b), (float)(-c), 1f).normalized;
+                // 높이로 적는 맞춤은 면이 정면을 볼 때만 맞는다. 볼 옆처럼
+                // 70° 넘게 누운 자리에서는 믿지 말고 원래 노멀을 둔다.
+                if (nf2.z < 0.34f) { fit[q] = fpn[i]; continue; }
+                if (Vector3.Dot(nf2, fpn[i]) < 0f) nf2 = -nf2;
+                fit[q] = nf2;
+                ok[q] = true;
+                given++;
+            }
+
+            // 평면이 안 맞은 몇 군데를 이웃에게서 받아 온다.
+            //
+            // 이웃이 넷도 안 되면 연립방정식이 안 풀려서 원본의 엉뚱한
+            // 노멀이 그대로 남는다. 그런 자리는 잘 맞은 이웃의 평균을 쓴다.
+            //
+            // 지금 이 머리에서는 안 맞는 자리가 여섯인데 **한 군데도 못
+            // 받아 온다** — 1.4 cm 안에 성한 이웃이 아예 없는, 쪼개지지
+            // 않은 성긴 원본 꼭짓점들이라서다. 범위 끝이라 어차피 섞는
+            // 양이 0 으로 줄어 화면에는 안 나타난다. 한때 이 여섯이
+            // 입 위의 점선이라고 짚었는데, 개수만 우연히 맞았을 뿐
+            // 아니었다 (점선의 정체는 JawUpSkinned 에 적어 뒀다).
+            // 다른 머리 모델로 갈면 쓸모가 생기므로 남겨 둔다.
+            {
+                int fixedUp = 0;
+                var where = new System.Collections.Generic.Dictionary<int, int>();
+                for (int q = 0; q < idx.Count; q++) where[idx[q]] = q;
+                var patched = new Vector3[idx.Count];
+                for (int q = 0; q < idx.Count; q++)
+                {
+                    if (ok[q]) { patched[q] = fit[q]; continue; }
+                    patched[q] = fit[q];
+                    Vector3 here = fp[idx[q]], sum = Vector3.zero;
+                    float wsum = 0f;
+                    for (int dx = -1; dx <= 1; dx++)
+                    for (int dy = -1; dy <= 1; dy++)
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        System.Collections.Generic.List<int> list;
+                        if (!cell.TryGetValue(CK(here + new Vector3(dx, dy, dz) * R), out list))
+                            continue;
+                        for (int t = 0; t < list.Count; t++)
+                        {
+                            int j = list[t];
+                            int qj = where.ContainsKey(j) ? where[j] : -1;
+                            if (qj < 0 || !ok[qj]) continue;
+                            float d = (fp[j] - here).magnitude;
+                            if (d >= R) continue;
+                            float w = 1f - d / R;
+                            sum += fit[qj] * w;
+                            wsum += w;
+                        }
+                    }
+                    if (wsum > 0f && sum.sqrMagnitude > 1e-12f)
+                    { patched[q] = sum.normalized; fixedUp++; }
+                }
+                for (int q = 0; q < idx.Count; q++) fit[q] = patched[q];
+                if (idx.Count - given > 0)
+                    Debug.Log("[MirrorRig] 평면이 안 맞은 " + (idx.Count - given)
+                        + "군데 중 " + fixedUp + "군데를 이웃에게서 받아 왔다");
+            }
+
+            for (int q = 0; q < idx.Count; q++)
+            {
+                int i = idx[q];
+                float dist = (fp[i] - mouthLocal).magnitude;
+                // 범위는 **입 둘레로 좌한다.** 얼굴 전체(6 cm)로 넓혔더니
+                // 코가 납작한 널빤지가 됐다. 이 모델은 꼭짓점이 3282개뿐이라
+                // **노멀이 형태를 대신 지고 있다** — 매끄럽게 펌면 형태까지
+                // 같이 사라진다. 도려낸 입 주변만 고치는 게 맞다.
+                float w2 = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((REG - dist) / EDGE));
+                Vector3 nn = Vector3.Slerp(fpn[i], fit[q], w2).normalized;
+                fpn[i] = nn;
+                if (hasN && haveBack) fn[i] = (back * nn).normalized;
+            }
+            Debug.Log("[MirrorRig] 음영 다시 짓기 — 꼭짓점 " + idx.Count + "개 중 "
+                + given + "개에 평면을 맞췄다");
+        }
+
+        mouthSkinZ = minZ;
+
+        // 얼굴 메시를 갈아 끼운다. 원본은 Resources 의 에셋이라 **반드시**
+        // 복제해야 한다 — 그대로 고치면 프로젝트 파일이 바뀐다.
+        Mesh face = Object.Instantiate(src);
+        face.name = src.name + "_Carved";
+        face.triangles = new int[0];
+        face.SetVertices(fv);
+        if (hasN) face.SetNormals(fn);
+        if (hasUV) face.SetUVs(0, fuv);
+        if (hasTan) face.SetTangents(ftan);
+        if (hasBW) face.boneWeights = fbw.ToArray();
+        face.subMeshCount = subs;
+        for (int s = 0; s < subs; s++) face.SetTriangles(faceTris[s], s);
+        face.RecalculateBounds();
+        head.sharedMesh = face;
+
+        // 구멍 테두리. 한 삼각형만 쓰는 변이 테두리다. 구강은 이걸 뒤로
+        // 늘여서 만든다 (BuildCavity). 자리가 같은 꼭짓점은 번호가 달라도
+        // 하나로 쳐야 한다 — 안 그러면 쪼갠 삼각형들 사이 이음매까지
+        // 테두리로 세어서 구강 안에 칸막이가 생긴다.
+        cavityRing = BoundaryRing(fp, cutTris, subs);
+
+        // 떼어 낸 조각. 위는 고정, 아래는 턱이라 돌아간다 (SetMouth).
+        // 가르는 선은 구멍 한가운데가 아니라 **입술선**이다.
+        mouthJawUp = JawUpSkinned(head, fv, fn, fp, fpn, fbw, cutTris, subs, mouthLocal.y);
+        mouthJawLow = JawPiece("JawLow", head, fp, fpn, fuv, cutTris, subs, false, mouthLocal.y);
+
+        Object.DestroyImmediate(baked);
+        Debug.Log(string.Format("[MirrorRig] 입을 뚫었다 — 떼어 낸 면 {0}장, 구멍 자리 표면 z {1:0.0000}",
+                                cut, mouthSkinZ));
+    }
+
+    /// <summary>
+    /// 뚫은 구멍의 테두리 변을 모은다. 두 점씩 짝지어 돌려준다.
+    /// </summary>
+    private System.Collections.Generic.List<Vector3> BoundaryRing(
+        System.Collections.Generic.List<Vector3> p,
+        System.Collections.Generic.List<int>[] tris, int subs)
+    {
+        // 자리로 꼭짓점을 합친다 (0.1 mm 격자).
+        var weld = new System.Collections.Generic.Dictionary<long, int>();
+        var id = new System.Collections.Generic.Dictionary<int, int>();
+        var pos = new System.Collections.Generic.List<Vector3>();
+        var count = new System.Collections.Generic.Dictionary<long, int>();
+
+        System.Func<int, int> W = i =>
+        {
+            int w;
+            if (id.TryGetValue(i, out w)) return w;
+            Vector3 v = p[i];
+            long key = PosKey(v);
+            if (!weld.TryGetValue(key, out w)) { w = pos.Count; weld[key] = w; pos.Add(v); }
+            id[i] = w;
+            return w;
+        };
+
+        for (int s = 0; s < subs; s++)
+        {
+            var t = tris[s];
+            for (int i = 0; i < t.Count; i += 3)
+            {
+                int a = W(t[i]), b = W(t[i + 1]), c = W(t[i + 2]);
+                for (int e = 0; e < 3; e++)
+                {
+                    int u = e == 0 ? a : (e == 1 ? b : c);
+                    int v = e == 0 ? b : (e == 1 ? c : a);
+                    long key = (long)Mathf.Min(u, v) * 1000003L + Mathf.Max(u, v);
+                    int n;
+                    count.TryGetValue(key, out n);
+                    count[key] = n + 1;
+                }
+            }
+        }
+
+        var ring = new System.Collections.Generic.List<Vector3>();
+        var deg = new System.Collections.Generic.Dictionary<int, int>();
+        int odd = 0;
+        foreach (var kv in count)
+        {
+            if (kv.Value > 2) odd++;
+            // 한 번만 쓰인 변이 테두리다 — 다만 **홀수 번**으로 세야 한다.
+            // 얼굴 메시에는 UV 이음매가 있어서 같은 자리에 꼭짓점이 둘씩
+            // 있다. 자리로 묶고 나면 그 이음매의 변 하나가 세 번 쓰인 것으로
+            // 나오는데, 그걸 버리면 구강 벽에서 한 장이 빠져 입꼬리에
+            // 실금 같은 구멍이 난다.
+            if ((kv.Value & 1) == 0) continue;
+            int u = (int)(kv.Key / 1000003L), v = (int)(kv.Key % 1000003L);
+            ring.Add(pos[u]); ring.Add(pos[v]);
+            int d;
+            deg.TryGetValue(u, out d); deg[u] = d + 1;
+            deg.TryGetValue(v, out d); deg[v] = d + 1;
+        }
+
+        // 테두리는 **닫힌 고리**라야 한다. 한 점에 변이 두 개씩 붙지
+        // 않으면 그 자리에서 구강 벽이 한 장 빠지고, 실금 같은 구멍으로
+        // 머리 너머가 비친다 — 치과 거울에서 그 실금으로 의자의 파란
+        // 천이 비쳤다.
+        //
+        // 받아온 얼굴 메시는 깨끗하지 않다. UV 이음매에 겹친 꼭짓점이
+        // 있어서 자리로 묶고 나면 변 하나가 세 번 쓰인 것으로 나온다.
+        // 그런 자리를 규칙으로 다 걸러 내려 하기보다, **끊긴 끝끼리
+        // 이어 붙인다.** 끝은 가까이 붙어 있으니 가장 가까운 짝을 잇는다.
+        var ends = new System.Collections.Generic.List<int>();
+        foreach (var kv in deg) if ((kv.Value & 1) == 1) ends.Add(kv.Key);
+        int sewn = 0;
+        while (ends.Count >= 2)
+        {
+            int a0 = ends[0];
+            ends.RemoveAt(0);
+            int best = 0;
+            float bd = float.MaxValue;
+            for (int i = 0; i < ends.Count; i++)
+            {
+                float d = (pos[ends[i]] - pos[a0]).sqrMagnitude;
+                if (d < bd) { bd = d; best = i; }
+            }
+            int b0 = ends[best];
+            ends.RemoveAt(best);
+            ring.Add(pos[a0]); ring.Add(pos[b0]);
+            sewn++;
+        }
+
+        if (sewn > 0 || odd > 0)
+            Debug.Log(string.Format(
+                "[MirrorRig] 구멍 테두리 — 변 {0}개 (끊긴 자리 {1}군데를 이었다, 겹친 변 {2}개)",
+                ring.Count / 2, sewn, odd));
+        else
+            Debug.Log("[MirrorRig] 구멍 테두리 닫힘 — 변 " + (ring.Count / 2) + "개");
+        return ring;
+    }
+
+    /// <summary>쪼갠 작은 삼각형 하나를 얼굴 쪽/구멍 쪽으로 보낸다.</summary>
+    private void AddSub(System.Collections.Generic.List<int> keep,
+                        System.Collections.Generic.List<int> drop,
+                        System.Collections.Generic.List<Vector3> p,
+                        ref int cut, ref float minZ, float mx, float my,
+                        int a, int b, int c)
+    {
+        // z 로도 잘라야 한다. x·y 만 보면 같은 자리의 **턱 밑과 목**까지
+        // 같이 뜯긴다 — 떼어 낸 아랫조각의 앞뒤 두께가 5.2 cm 로 나와서
+        // 알았다. 얼굴 앞면만 남기는 띠를 둔다.
+        //
+        // 네모가 아니라 **타원**으로 뚫는다. 입술을 따로 안 만들었으니
+        // 이 테두리가 곧 입술선이다 — 네모로 뚫으면 입이 아니라 창문이 된다.
+        Vector3 mid = (p[a] + p[b] + p[c]) / 3f;
+        float ex = (mid.x - mx) / holeHalfW, ey = (mid.y - my) / holeHalfH;
+        if (ex * ex + ey * ey < 1f
+            && mid.z > mouthLocal.z - 0.030f && mid.z < mouthLocal.z + 0.012f)
+        {
+            drop.Add(a); drop.Add(b); drop.Add(c);
+            cut++;
+            if (mid.z < minZ) minZ = mid.z;
+        }
+        else { keep.Add(a); keep.Add(b); keep.Add(c); }
+    }
+
+    /// <summary>
+    /// 윗조각은 **얼굴과 똑같이 스키닝해서** 단다.
+    ///
+    /// 치과 화면에서 윗입술을 가로질러 흰 점선 호가 그어졌다. 구강을
+    /// 자홍색으로 물들여 보니 그 선은 자홍색이 아니었다 — 입 속이 비친 게
+    /// 아니라 **머리 너머 천장등**이 비쳤다는 뜻이다. 재어 보니 입 주변
+    /// 꼭짓점 24개 중 8개가 뼈를 둘 이상 섞어 쓰고 있었다 (주 가중치가
+    /// 최저 0.921). 얼굴 메시는 그 가중치대로 휘는데 윗조각은 headPivot 에
+    /// 그냥 매달린 고정 메시였다. 그래서 고개를 젖히는 치과 장면에서만
+    /// 둘이 어긋나 테두리가 벌어졌고, 그 틈으로 밝은 방이 보였다.
+    ///
+    /// 윗조각은 어차피 **움직이지 않는다** (턱을 따라 도는 건 아랫조각뿐).
+    /// 그러니 얼굴과 같은 뼈·같은 가중치로 스키닝해 주면 얼굴이 어떻게
+    /// 휘든 꼭짓점이 똑같이 따라가서 틈이 생길 수가 없다. 좌표도 그래서
+    /// headPivot 이 아니라 **원본 메시 좌표**(fv·fn)로 넣는다.
+    /// </summary>
+    private Transform JawUpSkinned(SkinnedMeshRenderer head,
+                                   System.Collections.Generic.List<Vector3> v,
+                                   System.Collections.Generic.List<Vector3> n,
+                                   System.Collections.Generic.List<Vector3> piv,
+                                   System.Collections.Generic.List<Vector3> pn,
+                                   System.Collections.Generic.List<BoneWeight> bw,
+                                   System.Collections.Generic.List<int>[] tris,
+                                   int subs, float my)
+    {
+        var map = new System.Collections.Generic.Dictionary<int, int>();
+        var vs = new System.Collections.Generic.List<Vector3>();
+        var ns = new System.Collections.Generic.List<Vector3>();
+        var us = new System.Collections.Generic.List<Vector2>();
+        var ws = new System.Collections.Generic.List<BoneWeight>();
+        var vp = new System.Collections.Generic.List<Vector3>();   // 뼈를 못 쓸 때용
+        var np = new System.Collections.Generic.List<Vector3>();
+        var outTris = new System.Collections.Generic.List<int>();
+        int total = 0;
+
+        for (int s = 0; s < subs; s++)
+        {
+            var t = tris[s];
+            for (int i = 0; i < t.Count; i += 3)
+            {
+                float midY = (piv[t[i]].y + piv[t[i + 1]].y + piv[t[i + 2]].y) / 3f;
+                if (midY < my) continue;                 // 아랫조각은 턱이 가져간다
+                for (int k = 0; k < 3; k++)
+                {
+                    int srcI = t[i + k], dst;
+                    if (!map.TryGetValue(srcI, out dst))
+                    {
+                        dst = vs.Count;
+                        map[srcI] = dst;
+                        float lip = LipAmount(piv[srcI], my);
+                        Vector3 p = v[srcI];
+                        // 입술을 앞으로 내미는 건 headPivot 좌표의 +Z 다.
+                        // 메시 좌표로는 방향이 달라서 회전을 태워 보낸다.
+                        if (pivToMeshOK)
+                            p += pivToMesh * new Vector3(0f, 0f, LipBulge * lip);
+                        vs.Add(p);
+                        vp.Add(piv[srcI] + new Vector3(0f, 0f, LipBulge * lip));
+                        us.Add(new Vector2(0.5f, 1f - lip));
+                        if (n.Count > srcI) ns.Add(n[srcI]);
+                        if (pn != null && pn.Count > srcI) np.Add(pn[srcI]);
+                        if (bw != null && bw.Count > srcI) ws.Add(bw[srcI]);
+                    }
+                    outTris.Add(dst);
+                }
+                total++;
+            }
+        }
+        if (total == 0) return null;
+
+        Mesh m = new Mesh();
+        m.name = "JawUp";
+        m.SetVertices(vs);
+        if (ns.Count == vs.Count) m.SetNormals(ns);
+        m.SetUVs(0, us);
+        m.subMeshCount = 1;
+        m.SetTriangles(outTris, 0);
+        bool skinned = ws.Count == vs.Count && head.sharedMesh != null
+                    && head.sharedMesh.bindposes != null
+                    && head.sharedMesh.bindposes.Length > 0;
+        if (skinned)
+        {
+            m.boneWeights = ws.ToArray();
+            m.bindposes = head.sharedMesh.bindposes;
+        }
+        m.RecalculateBounds();
+        if (ns.Count != vs.Count) m.RecalculateNormals();
+
+        GameObject go = new GameObject("JawUp");
+        if (skinned)
+        {
+            // 얼굴 렌더러와 **같은 자리**에 둔다. 스키닝은 뼈가 하니
+            // 자리 자체는 거의 쓰이지 않지만, 경계 상자 계산이 어긋나면
+            // 화면 밖이라고 판단해 통째로 안 그려 버린다.
+            // 스키닝은 뼈가 하니 이 객체의 자리 자체는 안 쓰인다.
+            // 그래도 **예전과 같은 자리**(headPivot 아래)에 둔다 —
+            // 얼굴 렌더러의 부모 밑에 달았더니 치과 장면에서만
+            // 사라졌다. 장면마다 그 위 계층이 다르기 때문이다.
+            go.transform.SetParent(headPivot, false);
+
+            SkinnedMeshRenderer smr = go.AddComponent<SkinnedMeshRenderer>();
+            smr.sharedMesh = m;
+            smr.bones = head.bones;
+            smr.rootBone = head.rootBone;
+            smr.sharedMaterial = lipMatUp;
+            smr.updateWhenOffscreen = true;
+            smr.localBounds = new Bounds(m.bounds.center,
+                                        m.bounds.size + Vector3.one * 0.10f);
+            smr.quality = SkinQuality.Bone4;
+        }
+        else
+        {
+            // 뼈를 못 구했다 — 예전처럼 headPivot 에 고정으로 단다.
+            // 좌표계가 다르니 headPivot 좌표를 쓴다.
+            Debug.LogWarning("[MirrorRig] 윗조각을 스키닝하지 못했다 — 고정 메시로 단다");
+            go.transform.SetParent(headPivot, false);
+            m.SetVertices(vp);
+            if (np.Count == vp.Count) m.SetNormals(np);
+            m.RecalculateBounds();
+            go.AddComponent<MeshFilter>().sharedMesh = m;
+            go.AddComponent<MeshRenderer>().sharedMaterial = lipMatUp;
+        }
+        return go.transform;
+    }
+
+    /// <summary>
+    /// 떼어 낸 면 중 위(또는 아래) 절반을 고정 메시로 만들어 headPivot 에 단다.
+    /// 좌표는 headPivot 로컬이라 머리를 돌려도 같이 돈다.
+    /// </summary>
+    private Transform JawPiece(string name, SkinnedMeshRenderer head,
+                               System.Collections.Generic.List<Vector3> p,
+                               System.Collections.Generic.List<Vector3> n,
+                               System.Collections.Generic.List<Vector2> uv,
+                               System.Collections.Generic.List<int>[] tris,
+                               int subs, bool upper, float my)
+    {
+        var map = new System.Collections.Generic.Dictionary<int, int>();
+        var vs = new System.Collections.Generic.List<Vector3>();
+        var ns = new System.Collections.Generic.List<Vector3>();
+        var us = new System.Collections.Generic.List<Vector2>();
+
+        // 조각 전체를 **한 장**으로 그린다. 색은 재질이 아니라 그러데이션
+        // 그림이 낸다 — 삼각형 단위로 재질을 갈랐더니 입술과 피부의
+        // 경계가 2 mm 짜리 톱니 계단으로 드러났다. 치과 거울은 장면을
+        // 5 배로 키우므로 그 계단이 그대로 보인다.
+        //
+        // 꼭짓점마다 "입술다움"을 재서 UV 로 적어 둔다. 띠 바깥에서는
+        // 그림의 색이 **얼굴 재질 색과 똑같아서** 이음매가 아예 없다.
+        var outTris = new System.Collections.Generic.List<int>();
+        int total = 0;
+
+        for (int s = 0; s < subs; s++)
+        {
+            var t = tris[s];
+            for (int i = 0; i < t.Count; i += 3)
+            {
+                float midY = (p[t[i]].y + p[t[i + 1]].y + p[t[i + 2]].y) / 3f;
+                if ((midY >= my) != upper) continue;
+
+                for (int k = 0; k < 3; k++)
+                {
+                    int src = t[i + k], dst;
+                    if (!map.TryGetValue(src, out dst))
+                    {
+                        dst = vs.Count;
+                        map[src] = dst;
+                        float lip = LipAmount(p[src], my);
+                        // 입술 한가운데를 앞으로 살짝 내민다. 타원
+                        // 테두리에서는 0 이라 입꼬리에 틈이 안 생긴다.
+                        Vector3 v = p[src];
+                        // 윗조각과 **같은 만큼만** 내민다. 한쪽만 내밀면
+                        // 다문 입에 1.8 mm 짜리 턱이 진다.
+                        if (pivToMeshOK) v.z += LipBulge * lip;
+                        vs.Add(v);
+                        us.Add(new Vector2(0.5f, 1f - lip));
+                        if (n.Count > src) ns.Add(n[src]);
+                    }
+                    outTris.Add(dst);
+                }
+                total++;
+            }
+        }
+        if (total == 0) return null;
+
+        Mesh m = new Mesh();
+        m.name = name;
+        m.SetVertices(vs);
+        if (ns.Count == vs.Count) m.SetNormals(ns);
+        m.SetUVs(0, us);
+        m.subMeshCount = 1;
+        m.SetTriangles(outTris, 0);
+        m.RecalculateBounds();
+        if (ns.Count != vs.Count) m.RecalculateNormals();
+
+        GameObject pivot = new GameObject(name);
+        pivot.transform.SetParent(headPivot, false);
+        GameObject go = new GameObject(name + "_Mesh");
+        go.transform.SetParent(pivot.transform, false);
+        go.AddComponent<MeshFilter>().sharedMesh = m;
+        go.AddComponent<MeshRenderer>().sharedMaterial = upper ? lipMatUp : lipMatLow;
+        return pivot.transform;
+    }
+
+    /// <summary>
+    /// 이 자리가 얼마나 입술인가. 1 이면 입술 한가운데, 0 이면 그냥 피부.
+    ///
+    /// 다문 선에서 멀어질수록, 그리고 뚫은 타원의 테두리에 가까워질수록
+    /// 0 으로 간다. 테두리에서 0 이라야 입꼬리가 피부로 자연스럽게
+    /// 사라지고, 앞으로 미는 양도 거기서 0 이 되어 틈이 안 생긴다.
+    /// </summary>
+    private float LipAmount(Vector3 v, float my)
+    {
+        float near = Mathf.Clamp01(1f - Mathf.Abs(v.y - my) / LipBand);
+        float ex = (v.x - mouthLocal.x) / holeHalfW;
+        float ey = (v.y - holeCenterY) / holeHalfH;
+        float inside = Mathf.Clamp01((1f - Mathf.Sqrt(ex * ex + ey * ey)) / 0.30f);
+        // near 에는 SmoothStep 을 걸지 않는다. 걸면 입술색이 꽉 차는
+        // 자리가 실선처럼 좁아져 입술이 아니라 빨간 줄이 된다.
+        return near * Mathf.SmoothStep(0f, 1f, inside);
+    }
+
+    /// <summary>
+    /// 입술 재질을 **얼굴 재질에서** 만든다. 색을 따로 적어 두면 피부와
+    /// 미묘하게 어긋나 입술이 덧붙인 스티커처럼 보인다. 얼굴 재질을
+    /// 복제하면 셰이더·거칠기까지 그대로라 빛을 똑같이 받는다.
+    ///
+    /// 색은 세로 그러데이션 한 장이 낸다 — 위쪽 끝이 피부색, 아래쪽 끝이
+    /// 입술색. 꼭짓점이 적어 둔 UV 가 그 사이를 고르게 메운다.
+    /// </summary>
+    private void MakeLipShades(SkinnedMeshRenderer head)
+    {
+        Material[] face = head != null ? head.sharedMaterials : null;
+        Material src = face != null && face.Length > 0 ? face[0] : null;
+        Color skin = src != null ? src.color : new Color(0.808f, 0.678f, 0.525f);
+        if (skin.r > 0.93f && skin.g > 0.93f && skin.b > 0.93f)
+            skin = new Color(0.808f, 0.678f, 0.525f);
+        Debug.Log("[MirrorRig] 얼굴 재질 " + skin + " / "
+                  + (src != null ? src.shader.name : "(없음)")
+                  + " / 텍스처 " + (src != null && src.mainTexture != null ? "있음" : "없음"));
+
+        // 살색에서 붉은 쪽으로만 당긴다. 초록·파랑을 내리면 탁해지지
+        // 않으면서 혈색이 돈다.
+        // 입술 색을 조금만 더 넣는다. 빨강을 올리는 게 아니라
+        // 초록·파랑을 내려야 피부와 같은 계열로 짙어진다.
+        Color deep = new Color(skin.r * 0.98f, skin.g * 0.74f, skin.b * 0.72f);
+        lipMatUp  = LipMaterial(src, skin, deep * 0.94f, "LipUp");   // 윗입술은 그늘진다
+        lipMatLow = LipMaterial(src, skin, deep, "LipLow");
+    }
+
+    private Material LipMaterial(Material src, Color skin, Color deep, string name)
+    {
+        const int N = 32;
+        Texture2D tex = new Texture2D(1, N, TextureFormat.RGBA32, false);
+        tex.name = name + "_Ramp";
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.filterMode = FilterMode.Bilinear;
+        for (int i = 0; i < N; i++)
+        {
+            // v = 0 이 입술 한가운데, v = 1 이 피부. LipAmount 가 1 - lip 를
+            // UV 로 넣으므로 방향이 이렇게 맞는다.
+            float t = i / (float)(N - 1);
+            tex.SetPixel(0, i, Color.Lerp(deep, skin, Mathf.SmoothStep(0f, 1f, t)));
+        }
+        tex.Apply();
+
+        Material m = src != null
+            ? new Material(src)
+            : ToolModels.MakeMaterial(Color.white, 0f, 0.25f);
+        m.name = name;
+        m.color = Color.white;                      // 색은 그림이 낸다
+        m.mainTexture = tex;
+        if (m.HasProperty("_BaseMap")) m.SetTexture("_BaseMap", tex);
+        if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", Color.white);
+        return m;
     }
 
     private Transform MouthPart(string name, Color color, float smoothness)
@@ -728,34 +2366,172 @@ public class MirrorRig : MonoBehaviour
         return go.transform;
     }
 
+    /// <summary>
+    /// 이 한 줄 — 받아온 틀니 모델에서 가져온다.
+    /// (poly.pizza "Teeth", Poly by Google, CC-BY)
+    ///
+    /// 전에는 상자를 가로로 늘어놓아 만들었다. 상자로는 이 모양이 안
+    /// 나온다 — 폭·길이를 자리마다 바꾸고 잇몸 유두까지 넣어 봤지만
+    /// 가까이서 보면 결국 흰 판에 톱니 자국이다. 이건 상자를 더 잘
+    /// 쌓아서 풀 문제가 아니라 모델이 있어야 하는 문제였다.
+    ///
+    /// 모델은 미리 맞춰 뒀다(scratchpad/tools/normalize_obj.py):
+    ///   - 좌우 폭 1.0, 씹는 면이 y = 0, +Z 가 앞(앞니)
+    ///   - 윗니는 y 양수, 아랫니는 y 음수
+    ///   - 이와 잇몸이 **다른 파일**이라 재질을 따로 준다. 한 파일로 두면
+    ///     Unity 의 OBJ 가져오기가 그룹을 하나로 합쳐서 이와 잇몸을
+    ///     갈라낼 수 없다.
+    /// 그래서 여기서는 localScale 에 입 크기만 넣으면 된다.
+    /// </summary>
+    private Transform ToothRow(string name, bool upper)
+    {
+        GameObject row = new GameObject(name);
+        // 아랫니는 턱에 매단다. 입을 벌리면 턱과 같이 돌아 내려가야 한다 —
+        // headPivot 에 매달아 두고 따로 내리면 치열이 턱을 뚫고 지나간다.
+        row.transform.SetParent(!upper && mouthJawLow != null ? mouthJawLow : headPivot, false);
+
+        string side = upper ? "Upper" : "Lower";
+        // 번들거림(0.72)을 0.46 으로 낮췄다. 치료등이 코앞이라 이 하나하나가
+        // 아니라 하얀 판 하나로 뭉개져 보였다 — 낱개로 읽히려면 반사보다
+        // 이 사이의 그늘이 살아야 한다.
+        Material enamel = ToolModels.MakeMaterial(new Color(0.94f, 0.93f, 0.89f), 0f, 0.62f);
+        Material gum    = ToolModels.MakeMaterial(new Color(0.66f, 0.38f, 0.38f), 0f, 0.28f);
+        AddModel(row.transform, "Models/Teeth" + side + "Enamel", enamel);
+        AddModel(row.transform, "Models/Teeth" + side + "Gum",    gum);
+        return row.transform;
+    }
+
+    /// <summary>
+    /// Resources 의 모델을 parent 밑에 그대로 붙이고 재질을 덮어쓴다.
+    ///
+    /// 재질을 덮어쓰는 이유: OBJ 와 같이 온 .mtl 은 Standard 셰이더로
+    /// 들어오는데, 이 프로젝트는 URP 를 품질 단계에만 걸어 둬서
+    /// 에디터에서는 멀쩡해 보이다가 **아이폰 빌드에서 분홍색 오류
+    /// 셰이더로 나온다.** 런타임 재질(RuntimeBase)로 통일해야 안전하다.
+    /// </summary>
+    private GameObject AddModel(Transform parent, string resource, Material mat)
+    {
+        GameObject src = Resources.Load<GameObject>(resource);
+        if (src == null)
+        {
+            Debug.LogWarning("모델을 못 찾았다: " + resource);
+            return null;
+        }
+        GameObject go = Instantiate(src, parent, false);
+        go.name = resource.Substring(resource.LastIndexOf('/') + 1);
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.identity;
+        go.transform.localScale = Vector3.one;
+        foreach (Collider c in go.GetComponentsInChildren<Collider>(true)) Kill(c);
+        if (mat != null)
+            foreach (Renderer r in go.GetComponentsInChildren<Renderer>(true))
+                r.sharedMaterial = mat;
+        else
+            Reskin(go);   // 색은 그대로 두고 셰이더만 바꿔 끼운다
+        return go;
+    }
+
+    /// <summary>
+    /// 받아온 모델의 재질을 런타임 재질로 바꿔 끼운다. 색은 그대로 가져온다.
+    ///
+    /// OBJ 와 함께 오는 .mtl 재질은 Standard 셰이더다. 이 프로젝트는 URP 를
+    /// 품질 단계에만 걸어 둬서 **에디터에서는 멀쩡해 보이는데** 아이폰
+    /// 빌드에서는 전부 분홍색 오류 셰이더로 나온다. 한 가지 색으로 덮어
+    /// 버리면 사과 꼭지 같은 두 번째 색이 날아가므로, 재질마다 색을
+    /// 읽어서 같은 색의 런타임 재질을 만든다.
+    /// </summary>
+    private static void Reskin(GameObject go)
+    {
+        // 불러온 모델을 전부 같은 0.35 로 덮어쓰면 사과든 빵이든
+        // 같은 플라스틱으로 보인다. 이름으로 갈라 반질거림만 달리 준다.
+        string n = go.name.ToLowerInvariant();
+        float smooth = 0.30f;
+        if (n.Contains("apple")) smooth = 0.58f;          // 사과 껍질은 밀랍하다
+        else if (n.Contains("gummy") || n.Contains("jelly")) smooth = 0.74f;
+        else if (n.Contains("bread")) smooth = 0.05f;      // 빵은 빛을 거의 안 튀긴다
+        else if (n.Contains("brush")) smooth = 0.34f;
+        foreach (Renderer r in go.GetComponentsInChildren<Renderer>(true))
+        {
+            Material[] src = r.sharedMaterials;
+            if (src == null) continue;
+            Material[] dst = new Material[src.Length];
+            for (int i = 0; i < src.Length; i++)
+                dst[i] = ToolModels.MakeMaterial(
+                    src[i] != null ? src[i].color : Color.gray, 0f, smooth);
+            r.sharedMaterials = dst;
+        }
+    }
+
     /// <summary>0 이면 다문 입, 1 이면 활짝 벌린 입.</summary>
     private void SetMouth(float open)
     {
-        if (mouthHole == null) return;
+        if (mouthJawLow == null) return;
         open = Mathf.Clamp01(open);
 
-        float gap = Mathf.Lerp(0.0035f, 0.026f, open);     // 벌어진 높이
-        float w   = Mathf.Lerp(0.036f, 0.043f, open);      // 벌리면 가로도 조금 늘어난다
+        // 다문 입은 **딱 붙여야** 한다. 0.3 mm 만 띄워도 턱이 0.22° 돌아가
+        // 위아래 조각이 갈라지고, 그 실금으로 방이 비쳐 입술에 하얀
+        // 점선이 그어진다. 1.5 mm 였을 때는 아예 이까지 보였다.
+        float gap = Mathf.Lerp(0f, JawOpenMax, open);        // 위아래 입술 사이
 
-        // 얼굴 표면에 걸치게 둔다. 앞으로 빼면 혹처럼 튀어나오고,
-        // 뒤로 넣으면 불투명한 머리에 가려 아예 안 보인다.
-        // 입술이 제일 뒤, 틈이 그 앞, 이가 제일 앞이라야 겹치는 순서가 맞는다.
-        mouthLips.localPosition = mouthLocal + Vector3.forward * -0.0015f;
-        mouthLips.localScale = new Vector3(w + 0.016f, gap + 0.015f, 0.012f);
+        // 턱을 경첩으로 돌린다. 축에서 입까지의 거리를 알면 "틈 gap 을
+        // 만들려면 몇 도 돌려야 하는가" 가 나온다.
+        Vector3 arm = mouthLocal - jawHinge;
+        float r = Mathf.Max(arm.magnitude, 1e-4f);
+        float deg = Mathf.Asin(Mathf.Clamp(gap / r, -1f, 1f)) * Mathf.Rad2Deg;
+        mouthJawLow.localRotation = Quaternion.Euler(deg, 0f, 0f);
 
-        mouthHole.localPosition = mouthLocal + Vector3.forward * 0.0015f;
-        mouthHole.localScale = new Vector3(w, gap, 0.011f);
+        // 구강은 **건드리지 않는다.** 꼭짓점이 이미 headPivot 절대 좌표라
+        // (구멍 테두리에서 그대로 뽑았다 — BuildCavity) 루트는 원점에
+        // 있어야 한다. 여기서 입 자리로 옮겼더니 구강이 통째로 앞으로
+        // 10.7 cm 밀려나 구멍을 안 덮었고, 입 아래로 턱받이가 비쳤다.
 
-        // 윗니는 윗입술 바로 밑에 걸린다. 다물었을 때는 보이면 안 된다.
-        bool show = open > 0.25f;
-        mouthTeeth.gameObject.SetActive(show);
+        bool show = open > 0.04f;
+        mouthTeeth.gameObject.SetActive(true);
+        mouthTeethLow.gameObject.SetActive(true);
+        mouthTongue.gameObject.SetActive(show);
+
+        // 이제 이는 **제 깊이**로 선다. 전에는 앞뒤로 0.5 cm 까지 눌러
+        // 부조로 만들어야 했다 — 얼굴에 구멍이 없어서 아치를 세우면
+        // 어금니가 머리 속으로 들어가 사라졌기 때문이다. 구강이 생겼으니
+        // 틀니를 통째로 집어넣으면 된다.
+        //
+        // 모델은 좌우 폭 1.0, 씹는 면 y = 0, +Z 가 앞(앞니)이다.
+        // x 와 z 는 같은 배율이라야 아치가 안 찌그러진다.
+        const float archW = 0.042f;     // 치열 너비
+        const float archH = 0.030f;     // 잇몸까지의 높이
+        Vector3 rowSize = new Vector3(archW, archH, archW);
+
+        // 앞니가 입술 바로 안쪽에 오게 민다. 모델의 z 원점이 아치 한가운데라
+        // 깊이의 절반만큼 뒤로 물려야 앞니가 제자리에 선다.
+        // 4 mm 였다. 그러면 앞니 끝이 입술 평면까지 나와서 다문 입에
+        // 하얀 실선이 그어졌다. 입술 두께만큼 더 물린다.
+        float frontZ = mouthSkinZ - 0.009f - archW * 0.40f;
+
+        // 윗니는 위턱이라 **안 움직인다.** 윗입술 조각도 같이 고정이라,
+        // 씹는 면을 입술선에 딱 맞추면 입을 벌려도 윗니가 그 조각 뒤에
+        // 가려서 아랫니만 보인다. 그래서 4 mm 내려
+        // 앞니 끝이 입술 아래로 나오게 한다 — 다문 입에서는 아랫입술
+        // 조각이 그 끝을 가려 준다.
+        mouthTeeth.localPosition = new Vector3(mouthLocal.x, mouthLocal.y - 0.004f, frontZ);
+        mouthTeeth.localScale = rowSize;
+
+        // 아랫니는 턱의 자식이다. 턱이 돌면 같이 돈다 — 여기서는 다문
+        // 자세의 자리만 잡아 주면 된다. 축 기준 좌표라 축을 빼 준다.
+        mouthTeethLow.localPosition =
+            new Vector3(mouthLocal.x, mouthLocal.y, frontZ) - jawHinge;
+        mouthTeethLow.localScale = rowSize;
+
         if (show)
         {
-            float th = Mathf.Min(0.0055f, gap * 0.42f);
-            mouthTeeth.localPosition = mouthLocal
-                + Vector3.forward * 0.0030f
-                + Vector3.up * (gap * 0.5f - th * 0.75f);
-            mouthTeeth.localScale = new Vector3(w * 0.74f, th, 0.010f);
+            // 혀도 턱에 얹혀 내려간다. 아랫니보다 안쪽, 구강 바닥에 깔린다.
+            mouthTongue.SetParent(mouthJawLow, false);
+            // 아랫니 안쪽에 **들어앙게** 둔다. 전에는 혀 앞끝이 앞니를
+            // 떠옣라 이 사이로 핑크색이 샐다. 치열 안쪽 반지름보다
+            // 작게, 그리고 씨는 면보다 낮게.
+            mouthTongue.localPosition =
+                new Vector3(mouthLocal.x, mouthLocal.y - 0.011f, mouthSkinZ - 0.031f)
+                - jawHinge;
+            mouthTongue.localScale = new Vector3(archW * 0.56f, 0.006f, archW * 0.58f);
         }
     }
 
@@ -792,6 +2568,7 @@ public class MirrorRig : MonoBehaviour
         public Transform root, head;
         public Quaternion facing;           // 상체를 숙인 뒤의 실제 얼굴 방향
         public Limb armL, armR, reach;      // reach = 참가자 쪽에 가까운 팔
+        public Vector3 headAt;              // 배율 1 일 때 머리뼈가 놓이는 자리
     }
 
     private static Limb MakeLimb(Transform root, string side)
@@ -958,6 +2735,18 @@ public class MirrorRig : MonoBehaviour
     private void GripAround(Limb l, Vector3 point, Vector3 axis, Vector3 forward,
                             float back, float curl, Vector3 pole)
     {
+        GripAround(l, point, axis, forward, back, curl, 0f, -1f, pole);
+    }
+
+    /// <summary>
+    /// 집게손으로 쥔다. <paramref name="fold"/> 가 0 이상이면 검지를
+    /// <paramref name="curl"/>, 엄지를 <paramref name="thumb"/> 로 모으고
+    /// 나머지 셋은 <paramref name="fold"/> 만큼 손바닥에 접는다. 음수면
+    /// 다섯 손가락을 같은 각으로 마는 주먹 — 도구를 잡을 때 쓰는 그 동작이다.
+    /// </summary>
+    private void GripAround(Limb l, Vector3 point, Vector3 axis, Vector3 forward,
+                            float back, float curl, float thumb, float fold, Vector3 pole)
+    {
         if (l == null || !l.Valid || l.palm == null) return;
         if (axis.sqrMagnitude < 1e-10f) return;
         axis = axis.normalized;
@@ -990,10 +2779,11 @@ public class MirrorRig : MonoBehaviour
         {
             AimArm(l, target, pole);
             l.wrist.rotation = hand;
-            Curl(l, curl);
+            if (fold >= 0f) Pinch(l, curl, thumb, fold);
+            else Curl(l, curl);
 
-            if (pass == 0 && l.tip != null && l.palm != null)
-                target += point - (l.palm.position + l.tip.position) * 0.5f;
+            if (pass == 0)
+                target += point - HoldPoint(l, fold >= 0f);
         }
     }
 
@@ -1018,6 +2808,49 @@ public class MirrorRig : MonoBehaviour
         if (l == null || !l.Valid || tool == null) return;
         GripAround(l, tool.TransformPoint(gripLocal), tool.TransformDirection(axisLocal),
                    forward, HandGrip, 50f, pole);
+    }
+
+    /// <summary>
+    /// 집게손. 검지와 엄지만 모으고 나머지 셋은 손바닥에 접는다.
+    ///
+    /// Curl 은 다섯 손가락을 같은 각으로 말아 주먹을 만든다. 그 고리
+    /// 한가운데에 음식을 놓으니 손등 위에 **얹어 놓은** 것처럼 보였다 —
+    /// 젤리 한 알을 주먹으로 쥐는 사람은 없다. 집는 건 검지와 엄지다.
+    /// </summary>
+    private static void Pinch(Limb l, float nip, float thumb, float fold)
+    {
+        if (l == null || l.fingers == null || l.wrist == null) return;
+
+        for (int i = 0; i < l.fingers.Length; i++)
+            if (l.fingers[i] != null) l.fingers[i].localRotation = l.restFingers[i];
+
+        Vector3 axis = l.wrist.rotation * l.curlAxis;
+        if (axis.sqrMagnitude < 1e-8f) return;
+        axis = axis.normalized;
+
+        // 뼈 차례는 MakeLimb 에서 정한 그대로다 —
+        // 0~2 검지, 3~11 중지·약지·새끼, 12~14 엄지.
+        for (int i = 0; i < l.fingers.Length; i++)
+        {
+            if (l.fingers[i] == null) continue;
+            float deg = i < 3 ? nip : (i >= 12 ? thumb : fold);
+            l.fingers[i].rotation =
+                Quaternion.AngleAxis(deg * l.curlSign, axis) * l.fingers[i].rotation;
+        }
+    }
+
+    /// <summary>
+    /// 쥔 물건이 놓여야 할 자리. 주먹이면 손가락 고리의 한가운데,
+    /// 집게손이면 검지와 엄지 사이다.
+    /// </summary>
+    private static Vector3 HoldPoint(Limb l, bool pinch)
+    {
+        if (pinch && l.fingers != null && l.fingers.Length > 14
+            && l.fingers[2] != null && l.fingers[14] != null)
+            return (l.fingers[2].position + l.fingers[14].position) * 0.5f;
+        if (l.tip != null && l.palm != null)
+            return (l.palm.position + l.tip.position) * 0.5f;
+        return l.wrist != null ? l.wrist.position : Vector3.zero;
     }
 
     /// <summary>
@@ -1071,17 +2904,14 @@ public class MirrorRig : MonoBehaviour
     }
 
     /// <summary>
-    /// 상황마다 등장인물이 다르다. 미용실은 뒤에서 깎아 주는 사람이, 치과는 옆에서
-    /// 들여다보는 의사가 있어야 한다. 식사는 제 손으로 먹으니 아무도 없다.
-    /// 셋이 전부 정면으로 혼자 서 있기만 하면 무슨 상황인지 안 읽힌다.
+    /// 상황마다 등장인물이 다르다. 치과는 옆에서 들여다보는 의사가 있어야 하고,
+    /// 식사는 제 손으로 먹으니 아무도 없다.
+    /// 정면으로 혼자 서 있기만 하면 무슨 상황인지 안 읽힌다.
     /// </summary>
     private void BuildCast()
     {
         if (charRoot == null) return;
 
-        // 바리깡은 참가자의 리그 +X 쪽 관자놀이에 닿는다. 미용사는 그쪽 뒤에 선다.
-        barber = MakeActor("Barber", new Vector3(0.22f, 0.27f, 2f * D + 0.16f), 196f, 17f,
-                           new Color(0.17f, 0.18f, 0.22f), new Color(0.06f, 0.05f, 0.05f));
         // 핸드피스는 -X 쪽에서 들어온다. 의사는 그쪽 옆에서 몸을 기울인다.
         dentist = MakeActor("Dentist", new Vector3(-0.35f, 0.21f, 2f * D - 0.05f), 98f, 15f,
                             new Color(0.87f, 0.90f, 0.93f), new Color(0.20f, 0.16f, 0.13f));
@@ -1089,13 +2919,13 @@ public class MirrorRig : MonoBehaviour
 
         collar = BuildCollar();
 
-        // 상의 원래 색을 기억해 둔다. 미용실에서만 검게 바꿨다가 되돌린다.
+        // 상의 원래 색을 기억해 둔다. 치과에서만 에이프런 색으로 바꿨다가 되돌린다.
         foreach (Renderer r in charRoot.GetComponentsInChildren<Renderer>(true))
             foreach (Material m in r.sharedMaterials)
                 if (m != null && m.name.ToLowerInvariant().Contains("lightbrown"))
                     shirtColor = m.color;
 
-        // 사과는 리그 -X 쪽에서 올라온다. 그쪽 팔을 쓴다.
+        // 음식은 리그 -X 쪽에서 올라온다. 그쪽 팔을 쓴다.
         selfArm = NearerInX(MakeLimb(charRoot, "L"), MakeLimb(charRoot, "R"));
     }
 
@@ -1139,6 +2969,7 @@ public class MirrorRig : MonoBehaviour
         Actor a = new Actor();
         a.go = go;
         a.root = go.transform;
+        a.headAt = headAt;
         a.root.localRotation = Quaternion.Euler(0f, yaw, 0f);
         a.head = FindBone(a.root, "Head");
         a.armL = MakeLimb(a.root, "L");
@@ -1298,50 +3129,104 @@ public class MirrorRig : MonoBehaviour
         root.transform.SetParent(headPivot, false);
         toolRoot = root.transform;
 
-        clipper = ToolModels.BuildClipper();
-        clipper.transform.SetParent(toolRoot, false);
-        clipper.SetActive(false);
-
         handpiece = ToolModels.BuildHandpiece();
         handpiece.transform.SetParent(toolRoot, false);
         handpiece.SetActive(false);
 
-        GameObject applePrefab = Resources.Load<GameObject>("Models/Apple");
-        if (applePrefab == null)
+        toothbrush = ToolModels.BuildToothbrush();
+        toothbrush.transform.SetParent(toolRoot, false);
+        toothbrush.SetActive(false);
+
+        // 음식은 두 가지를 미리 지어 두고 켜고 끈다. 단단한 쪽은 사과,
+        // 무른 쪽은 곰 젤리다. 둘 다 받아온 모델이다.
+        //
+        // 젤리를 사과만큼 키우면 한 알이 주먹만 해진다. 실제로도 젤리가 더 작다.
+        // 다만 3.2 cm 로는 손가락 사이에 묻혀 거울에서 점으로밖에 안 보였다.
+        // 실제 젤리보다 크지만 올린다 — 여기서 중요한 건 치수가 아니라
+        // "무엇을 먹는지 보이는 것" 이다.
+        foodHard = BuildFoodItem("FoodHard", Resources.Load<GameObject>("Models/Apple"), 0.055f);
+
+        // 젤리는 재질을 덮어쓴다. OBJ 와 같이 온 재질은 Standard 셰이더라
+        // 아이폰 빌드에서 분홍색 오류 셰이더로 나온다(AddModel 참고).
+        //
+        // 재질을 하나 만들어 들고 있는다. 한 입마다 색을 갈아 끼워야 해서
+        // 그때그때 새로 만들면 재질이 계속 쌓인다(AnimateFood 참고).
+        jellyMat = ToolModels.MakeMaterial(JellyColors[0], 0f, 0.74f);
+        GameObject bear = Instantiate(Resources.Load<GameObject>("Models/GummyBear"));
+        if (bear != null)
+            foreach (Renderer rr in bear.GetComponentsInChildren<Renderer>(true))
+                rr.sharedMaterial = jellyMat;
+        foodSoft = BuildFoodItem("FoodSoft", bear, 0.085f);
+        food = foodHard;
+    }
+
+    /// <summary>
+    /// 음식 하나를 입 한가운데에 놓을 수 있는 모양으로 감싼다.
+    ///
+    /// 모델의 원점이 한가운데라는 보장이 없어서(사과가 그렇다) 빈 오브젝트로 한 번
+    /// 감싸 중심을 맞춘다. 그래야 입 위치에 그대로 놓을 수 있다.
+    /// </summary>
+    /// <param name="height">한 입 크기로 맞출 세로 길이 (m)</param>
+    private GameObject BuildFoodItem(string name, GameObject source, float height)
+    {
+        if (source == null)
         {
-            Debug.LogWarning("[MirrorRig] Resources/Models/Apple 을 못 찾았다");
-            return;
+            Debug.LogWarning("[MirrorRig] 음식 모델을 못 찾았다 — " + name);
+            return null;
         }
 
-        // 사과의 원점이 한가운데가 아니라서, 빈 오브젝트로 한 번 감싸 중심을 맞춘다.
-        // 그래야 입 위치에 놓았을 때 입 한가운데로 온다.
-        GameObject holder = new GameObject("Food");
+        GameObject holder = new GameObject(name);
         holder.transform.SetParent(toolRoot, false);
 
-        GameObject apple = Instantiate(applePrefab);
-        apple.name = "Apple";
-        apple.transform.SetParent(holder.transform, false);
+        // Resources 에서 온 것은 프리팹이라 찍어 내야 하고, ToolModels 가 만든 것은
+        // 이미 씬에 있는 실물이라 그대로 쓴다. scene 이 유효한지로 구분된다.
+        bool fromResources = !source.scene.IsValid();
+        GameObject item = fromResources ? Instantiate(source) : source;
+        // Resources 에서 온 것은 .mtl 재질을 달고 온다. 아이폰에서 분홍색이
+        // 되지 않게 런타임 재질로 바꿔 끼운다 (Reskin 주석 참고).
+        if (fromResources) Reskin(item);
+        item.name = name + "_Model";
+        item.transform.SetParent(holder.transform, false);
 
-        // 사과 하나는 입에 비해 크다. 한 입 크기로 줄인다.
-        Bounds fb = WorldBounds(apple);
-        apple.transform.localScale = Vector3.one * (0.055f / Mathf.Max(fb.size.y, 1e-5f));
-        apple.transform.localPosition -=
-            holder.transform.InverseTransformPoint(WorldBounds(apple).center);
+        // 통째로는 입에 비해 크다. 한 입 크기로 줄인다.
+        Bounds b = WorldBounds(item);
+        item.transform.localScale = Vector3.one * (height / Mathf.Max(b.size.y, 1e-5f));
+        item.transform.localPosition -=
+            holder.transform.InverseTransformPoint(WorldBounds(item).center);
 
-        food = holder;
-        food.SetActive(false);
+        holder.SetActive(false);
+        return holder;
     }
 
     // ───────────────────────── 진행 ─────────────────────────
 
+    /// <summary>수준은 직전에 쓰던 것을 그대로 둔다.</summary>
     public void ShowScenario(Scenario s)
     {
+        ShowScenario(s, foodKind, dentalKind);
+    }
+
+    /// <summary>음식 블록 — 사과냐 젤리냐.</summary>
+    public void ShowScenario(Scenario s, FoodKind kind)
+    {
+        ShowScenario(s, kind, dentalKind);
+    }
+
+    /// <summary>치과 블록 — 드릴이냐 칫솔이냐.</summary>
+    public void ShowScenario(Scenario s, DentalKind kind)
+    {
+        ShowScenario(s, foodKind, kind);
+    }
+
+    public void ShowScenario(Scenario s, FoodKind kind, DentalKind dental)
+    {
         current = s;
+        foodKind = kind;
+        dentalKind = dental;
         elapsed = 0f;
         Contact = 0f;
-        IsPlaying = true;
 
-        // 방을 통째로 갈아 끼운다. 미용실·집·치과는 벽도 바닥도 거울도 다르다.
+        // 방을 통째로 갈아 끼운다. 집과 치과는 벽도 바닥도 거울도 다르다.
         spec = SpecFor(s);
         if (rooms != null)
             for (int i = 0; i < rooms.Length; i++)
@@ -1356,16 +3241,53 @@ public class MirrorRig : MonoBehaviour
             label.transform.localPosition =
                 new Vector3(0f, spec.centerY - (spec.Height * 0.5f + 0.085f), D - 0.02f);
 
-        if (clipper != null) clipper.SetActive(s == Scenario.Clipper);
-        if (handpiece != null) handpiece.SetActive(s == Scenario.Dental);
-        if (food != null) food.SetActive(s == Scenario.Food);
+        // 치과 도구도 둘 중 하나만 든다.
+        bool atDentist = s == Scenario.Dental;
+        if (handpiece != null)  handpiece.SetActive(atDentist && dental == DentalKind.Drill);
+        if (toothbrush != null) toothbrush.SetActive(atDentist && dental == DentalKind.Brush);
+
+        // 접시에 담아 두는 것도 조건을 따라간다.
+        bool soft = kind == FoodKind.Soft;
+        if (plateJelly != null) plateJelly.gameObject.SetActive(soft);
+        if (plateApple != null) plateApple.gameObject.SetActive(!soft);
+
+        // 음식은 둘 중 하나만 든다. 켜는 건 AnimateFood 가 한 입 주기에 맞춰 한다.
+        food = kind == FoodKind.Soft ? foodSoft : foodHard;
+        if (foodHard != null) foodHard.SetActive(false);
+        if (foodSoft != null) foodSoft.SetActive(false);
+
         SetMouth(0f);          // 치과를 보다 나가면 입이 벌어진 채로 남는다
 
+        // 거울 속 장면 확대 (DentalZoom 참고). 환자와 치과의를 **같은 배율로,
+        // 같은 축(= 입)을 중심으로** 키운다.
+        //
+        // charRoot 에 배율을 걸어도 위치 계산은 안 깨진다 — 자기 localScale 은
+        // 자기 localPosition 이 부모 좌표로 가는 길에 끼어들지 않는다. 축을
+        // 머리뼈에서 입으로 옮기는 일은 TrackViewer 가 매 프레임 한다.
+        float zoom = atDentist ? DentalZoom : 1f;
+        if (charRoot != null) charRoot.localScale = Vector3.one * zoom;
+        if (dentist != null && dentist.head != null && zoom <= 1.001f)
+        {
+            dentist.root.localScale = Vector3.one * zoom;
+            // 치과의는 머리 위치로 자리를 잡는다(MakeActor 와 같은 방식).
+            // 입을 축으로 키운 자리 = 입 + (원래 머리자리 - 입) × 배율.
+            Vector3 pivot = MouthPivot();
+            Vector3 want  = pivot + (dentist.headAt - pivot) * zoom;
+            dentist.root.localPosition +=
+                want - transform.InverseTransformPoint(dentist.head.position);
+        }
+
         // 등장인물과 소품은 상황마다 다르다.
-        if (barber != null)  barber.go.SetActive(s == Scenario.Clipper);
-        if (dentist != null) dentist.go.SetActive(s == Scenario.Dental);
-        // 미용실 보자기도 치과 에이프런도 목에 두른 천이다. 깃은 둘 다 쓴다.
-        if (collar != null) collar.gameObject.SetActive(s != Scenario.Food);
+        //
+        // 확대가 걸리면 치과의는 끈다. 거울이 입만 담을 만큼 좁아서 이 화각에는
+        // 애초에 안 들어오는데, 몸이 5배가 되면서 쉬고 있는 반대쪽 팔이
+        // 거울면을 넘어 참가자 방까지 뻗어 나왔다 — 거울 테두리 밖에 거대한
+        // 손이 떠 있었다. 도구는 환자 머리뼈에 매달려 있어 치과의가 없어도
+        // 그대로 움직이고 닿는다. 확대를 끄면(배율 1) 다시 나온다.
+        if (dentist != null)
+            dentist.go.SetActive(s == Scenario.Dental && DentalZoom <= 1.001f);
+        // 치과 에이프런. 목에 두른 천이라 깃이 같이 보인다.
+        if (collar != null) collar.gameObject.SetActive(s == Scenario.Dental);
 
         // 천은 따로 만들지 않고 상의 색을 바꾼다. 가슴 앞에 판을 세워 보니
         // 몸에 묻히거나 가슴에서 떠 보이거나 둘 중 하나였다 — 몸 두께가 자세마다
@@ -1373,23 +3295,16 @@ public class MirrorRig : MonoBehaviour
         // 색만 바뀌어도 천으로 덮인 걸로 읽힌다.
         if (charRoot != null)
         {
-            Color drape = shirtColor;
-            if (s == Scenario.Clipper)     drape = new Color(0.10f, 0.10f, 0.12f);
-            else if (s == Scenario.Dental) drape = new Color(0.56f, 0.78f, 0.84f);
+            Color drape = s == Scenario.Dental
+                ? new Color(0.56f, 0.78f, 0.84f)
+                : shirtColor;
             Tint(charRoot.gameObject, "lightbrown", drape);
         }
 
         if (selfArm != null) selfArm.Rest();
-        if (barber != null)  barber.reach.Rest();
         if (dentist != null) dentist.reach.Rest();
 
         ShowLabel(s);
-    }
-
-    public void SetPlaying(bool value)
-    {
-        IsPlaying = value;
-        if (!value) Contact = 0f;
     }
 
     private void LateUpdate()
@@ -1399,18 +3314,23 @@ public class MirrorRig : MonoBehaviour
         if (label != null && label.gameObject.activeSelf && Time.time > labelUntil)
             label.gameObject.SetActive(false);
 
-        if (current == Scenario.None || !IsPlaying) return;
+        if (current == Scenario.None) return;
         elapsed += Time.deltaTime;
         Animate();
     }
 
     private void Animate()
     {
+        // 다리는 매 프레임 다시 박는다. TrackViewer 가 사람을 통째로 밀고
+        // 머리뼈를 돌려 놓기 때문에, 한 번만 앉혀 두면 다음 프레임에 풀린다.
+        // 치과만 누운 자세다. 아무것도 안 켠 상태에서는 집 방이 보이므로
+        // 그때도 앉혀 둬야 발이 바닥에서 뜨지 않는다.
+        PoseLegs(current != Scenario.Dental);
+
         switch (current)
         {
-            case Scenario.Clipper: AnimateClipper(); break;
-            case Scenario.Dental:  AnimateDental();  break;
-            case Scenario.Food:    AnimateFood();    break;
+            case Scenario.Dental: AnimateDental(); break;
+            case Scenario.Food:   AnimateFood();   break;
         }
     }
 
@@ -1421,7 +3341,7 @@ public class MirrorRig : MonoBehaviour
     public void StepForPreview(float seconds)
     {
         TrackViewer();
-        if (current == Scenario.None) return;
+        if (current == Scenario.None) { PoseLegs(true); return; }
         elapsed = seconds;
         Animate();
     }
@@ -1455,6 +3375,26 @@ public class MirrorRig : MonoBehaviour
         Vector3 now  = transform.InverseTransformPoint(headBone.position);
         Vector3 want = new Vector3(p.x, p.y - NeckDrop, 2f * D - p.z);
         charRoot.localPosition += want - now;
+
+        // 확대가 걸려 있으면 얼굴이 머리뼈를 축으로 커져서 입이 앞으로 튀어나온다.
+        // 심하면 거울면을 뚫고 참가자 쪽으로 나온다. 축을 입으로 옮긴다 —
+        // 머리뼈에서 입까지가 배율만큼 늘어난 그만큼 사람을 뒤로 민다.
+        float z = charRoot.localScale.x;
+        if (z > 1.0001f && headPivot != null)
+        {
+            Vector3 o = transform.InverseTransformVector(
+                            headPivot.TransformVector(mouthLocal)) / z;
+            charRoot.localPosition -= o * (z - 1f);
+        }
+    }
+
+    /// <summary>
+    /// 배율 1 일 때 거울 속 입이 놓이는 자리 (리그 좌표).
+    /// 거울 속 사람은 참가자를 마주 보므로 머리뼈 로컬 +Z(얼굴 쪽)가 리그 -Z 다.
+    /// </summary>
+    private Vector3 MouthPivot()
+    {
+        return new Vector3(0f, -NeckDrop + mouthLocal.y, 2f * D - mouthLocal.z);
     }
 
     private static float Ease(float k)
@@ -1463,81 +3403,70 @@ public class MirrorRig : MonoBehaviour
         return k * k * (3f - 2f * k);
     }
 
-    private void AnimateClipper()
-    {
-        if (clipper == null) return;
-        SetMouth(0f);
-
-        Vector3 away = new Vector3(-0.22f, 0.06f, 0f);     // 옆에서 들어온다
-        float k = elapsed / ApproachTime;
-        Vector3 pos = Vector3.Lerp(templeLocal + away, templeLocal, Ease(k));
-
-        if (k >= 1f)
-        {
-            // 닿은 뒤에는 관자놀이에서 천천히 짧게 오르내린다. 세기는 건드리지 않는다 —
-            // 실제 바리깡도 머리 어디에 있든 세기가 비슷하고, 모터가 하나라
-            // 위치를 세기로 표현할 수도 없다.
-            pos += Vector3.up * (Mathf.Sin((elapsed - ApproachTime) * 2.6f) * 0.013f);
-        }
-
-        clipper.transform.localPosition = pos;
-
-        // 머리 중심보다 조금 위를 겨눈다. 정확히 중심을 보게 하면 몸통이 옆으로
-        // 수평하게 뻗어서 손에 들린 게 아니라 머리에 꽂힌 것처럼 보인다.
-        Vector3 aim = headCenterLocal + Vector3.up * (headUnit * 0.22f);
-        clipper.transform.localRotation =
-            Quaternion.LookRotation((aim - pos).normalized, Vector3.up);
-
-        // 미용사가 쥐고 있다. 바리깡은 원점이 날이고 몸통이 -Z 쪽으로 15도 들린 채
-        // 뻗어 있어서, 손은 그 몸통 중간을 잡는다.
-        if (barber != null)
-        {
-            RelaxOther(barber);
-            // 팔꿈치는 아래·바깥으로 꺾인다. pole 은 팔꿈치의 **반대쪽**을 가리킨다.
-            HoldTool(barber.reach, clipper.transform,
-                     new Vector3(0f, 0.022f, -0.095f),
-                     new Vector3(0f, 0.26f, -0.97f), ElbowPole(barber));
-        }
-
-        Contact = k >= 1f ? 1f : 0f;
-    }
-
     private void AnimateDental()
     {
-        if (handpiece == null) return;
+        bool brush = dentalKind == DentalKind.Brush;
+        GameObject tool = brush ? toothbrush : handpiece;
+        if (tool == null) return;
 
-        // 치과의가 위에서 몸을 숙이고 있으므로 드릴도 위에서 내려와야 한다.
-        // 아래에서 올리면 팔뚝이 드릴을 가로질러 지나가 쥔 게 아닌 것처럼 보인다.
-        // 너무 높이 올리면 손이 눈을 가린다. 광대뼈 옆 정도에서 들어온다.
-        Vector3 away = new Vector3(0.22f, 0.07f, 0.13f);   // 위 옆에서 비스듬히
+        // 도구가 물러나는 방향. 치과의가 옆에서 몸을 숙이고 있으므로 옆 위에서
+        // 비스듬히 들어온다. 아래에서 올리면 팔뚝이 도구를 가로질러 지나가
+        // 쥔 게 아닌 것처럼 보인다.
+        //
+        // 두 가지가 이 값을 묶는다. (1) 거울 속 장면이 DentalZoom 배로 커져
+        // 있으므로, 로컬 거리를 그만큼 나눠야 실제로 움직이는 거리가 사람
+        // 크기에 맞는다. (2) z 성분(참가자 쪽)을 크게 주면 안 된다 — 4배로
+        // 커진 도구가 뒤로 빠지면서 거울면(z = D)을 뚫고 참가자 방 쪽으로
+        // 튀어나온다. 그래서 거의 옆으로 빠지게 눕혔다.
+        Vector3 away = new Vector3(0.30f, 0.10f, 0.05f) / DentalZoom;
         float k = elapsed / ApproachTime;
         Vector3 pos = Vector3.Lerp(mouthLocal + away, mouthLocal, Ease(k));
         bool touching = k >= 1f;
 
         if (touching)
         {
-            // 치과의는 계속 대고 있지 않고 댔다 뗐다 한다. 뗀 동안은 진동도 꺼진다.
-            float cycle = Mathf.Repeat(elapsed - ApproachTime, 3.2f);
-            if (cycle > 2.1f)
+            float s = elapsed - ApproachTime;
+
+            if (brush)
             {
-                float lift = Mathf.Sin((cycle - 2.1f) / 1.1f * Mathf.PI);
-                pos += away.normalized * (lift * 0.025f);
-                touching = lift < 0.25f;
+                // 칫솔은 떼지 않고 문지른다. 드릴처럼 댔다 뗐다 하면 칫솔질이 아니라
+                // 쿡쿡 찌르는 걸로 보인다. 좌우로 크게, 위아래로 잘게 — 실제로
+                // 전동칫솔을 치열을 따라 옮길 때 나오는 움직임이다.
+                pos += Vector3.right * (Mathf.Sin(s * 2.2f) * 0.018f)
+                     + Vector3.up    * (Mathf.Sin(s * 13f)  * 0.0035f);
+            }
+            else
+            {
+                // 치과의는 계속 대고 있지 않고 댔다 뗐다 한다. 뗀 동안은 진동도 꺼진다.
+                float cycle = Mathf.Repeat(s, 3.2f);
+                if (cycle > 2.1f)
+                {
+                    float lift = Mathf.Sin((cycle - 2.1f) / 1.1f * Mathf.PI);
+                    pos += away.normalized * (lift * 0.025f);
+                    touching = lift < 0.25f;
+                }
             }
         }
 
-        handpiece.transform.localPosition = pos;
-        handpiece.transform.localRotation = Quaternion.LookRotation(-away.normalized, Vector3.up);
+        tool.transform.localPosition = pos;
+        tool.transform.localRotation = Quaternion.LookRotation(-away.normalized, Vector3.up);
 
-        // 치과는 처음부터 끝까지 벌리고 있는다. 드릴이 들어오기 전에 미리 벌린다.
-        SetMouth(Mathf.Max(Ease(elapsed / (ApproachTime * 0.6f)), 0.95f * Mathf.Clamp01(k)));
+        // 치과는 처음부터 끝까지 벌리고 있는다. 도구가 들어오기 전에 미리 벌린다.
+        // 칫솔은 드릴만큼 크게 벌릴 일이 없다 — 반쯤 벌리고 문지른다.
+        float open = Mathf.Max(Ease(elapsed / (ApproachTime * 0.6f)),
+                               0.95f * Mathf.Clamp01(k));
+        SetMouth(brush ? open * 0.62f : open);
 
         if (dentist != null)
         {
             RelaxOther(dentist);
-            HoldTool(dentist.reach, handpiece.transform,
-                     new Vector3(0f, 0.008f, -0.090f),
-                     new Vector3(0f, 0.10f, -0.99f), ElbowPole(dentist));
+            // 칫솔은 몸통이 굵고 곧아서 더 뒤를 잡아야 손이 입을 가리지 않는다.
+            HoldTool(dentist.reach, tool.transform,
+                     brush ? new Vector3(0f, 0f, -0.075f)
+                           : new Vector3(0f, 0.008f, -0.090f),
+                     brush ? new Vector3(0f, 0f, -1f)
+                           : new Vector3(0f, 0.10f, -0.99f),
+                     ElbowPole(dentist));
         }
 
         Contact = touching ? 1f : 0f;
@@ -1547,48 +3476,106 @@ public class MirrorRig : MonoBehaviour
     {
         if (food == null) return;
 
-        const float bite = 3.0f;                            // 한 입 주기
-        const float hold = 0.28f;                           // 입술에 닿아 있는 순간
-        const float chew = 1.0f;                            // 씹는 시간
-        float t = Mathf.Repeat(elapsed, bite);
-        Vector3 away = new Vector3(0.05f, -0.26f, 0.14f);   // 아래에서 올라온다
+        bool soft = foodKind == FoodKind.Soft;
 
-        // 사과의 원점은 한가운데라, 입술 지점에 그대로 놓으면 절반이 얼굴에 박힌다.
-        // 반지름만큼 앞으로 빼서 입술에 닿게 한다 (0.065 m 짜리로 줄여 뒀다).
-        // 손이 아래에서 올라오므로 사과를 입술 한가운데에 두면 손이 코까지 올라온다.
+        // 무른 것은 입술에 천천히 눌리며 들어가고 오래, 작게 씹힌다.
+        // 단단한 것은 한 번에 딱 베어 물리고 짧고 크게 씹힌다.
+        // 진동 쪽 조각 수(ScenarioHaptics.BuildCrunch)와 짝이 맞아야
+        // 보이는 것과 느껴지는 것이 어긋나지 않는다.
+        const float onPlate = 0.9f;          // 접시에 놓인 채 기다리는 동안
+        float hold = soft ? 0.45f : 0.28f;   // 입술에 닿아 있는 순간
+        float chew = soft ? 1.50f : 1.00f;   // 씹는 시간
+        float chewRate  = soft ? 8f    : 14f;    // 오물거리는 속도
+        float chewDepth = soft ? 0.14f : 0.22f;  // 오물거리는 폭
+        float bite = onPlate + ApproachTime + hold + chew + 0.6f;   // 한 입 주기
+
+        float t = Mathf.Repeat(elapsed, bite);
+
+        // 집어 드는 젤리는 한 입마다 다음 색이다. 접시에 무지개로 놓여
+        // 있는데 집어 드는 것만 늘 빨강이면 같은 알을 계속 집는 것으로 보인다.
+        if (soft && jellyMat != null)
+        {
+            int hue = Mathf.FloorToInt(elapsed / bite) % JellyColors.Length;
+            if (hue != jellyHue)
+            {
+                jellyHue = hue;
+                jellyMat.color = JellyColors[hue];
+            }
+        }
+
+        // 음식이 놓인 접시 자리. **거울 속** 상이므로 z 를 뒤집어 잡는다.
+        //
+        // 이 점은 방에 붙어 있어야 한다. 도구처럼 머리에 매달린 좌표로 두면
+        // 고개를 돌릴 때 접시 위의 음식이 같이 따라 돌아 버린다. 그래서 리그
+        // 좌표에서 월드로 올렸다가 toolRoot 로 다시 내린다.
+        // BuildHome 의 Plate 와 같은 x·z 를 써야 음식이 접시 위에 놓인다.
+        //
+        // y 는 -0.40 으로 박아 뒀었다. 상판은 -0.335 라 음식이 접시를 뚫고
+        // 상 **속에** 6 cm 들어가 있었다 — 접시 위에서 기다리는 구간이 통째로
+        // 안 보였다는 뜻이다. 음식의 원점은 한가운데니까(BuildFoodItem),
+        // 접시 바닥에 올려놓으려면 거기에 반높이를 더한다.
+        float plateFloor = tableTopY + 0.010f;
+        Vector3 plateRig = new Vector3(
+            -0.13f, plateFloor + (soft ? 0.085f : 0.055f) * 0.5f, 2f * D - (D - 0.25f));
+        Vector3 plateLocal = toolRoot.InverseTransformPoint(transform.TransformPoint(plateRig));
+
+        // 음식의 원점은 한가운데라, 입술 지점에 그대로 놓으면 절반이 얼굴에 박힌다.
+        // 반지름만큼 앞으로 빼서 입술에 닿게 한다.
+        // 손이 아래에서 올라오므로 음식을 입술 한가운데에 두면 손이 코까지 올라온다.
         Vector3 rest = mouthLocal + Vector3.forward * 0.040f - Vector3.up * 0.008f;
 
-        if (t < ApproachTime)
+        if (t < onPlate)
         {
+            // 아직 접시 위에 있다. 손은 내려와 있고 입도 다물려 있다.
+            // 이 구간이 있어야 "책상 위의 것을 집어서" 가 눈에 보인다 —
+            // 없으면 음식이 허공에서 생겨나 입으로 날아가는 것으로 보인다.
+            food.SetActive(true);
+            food.transform.localPosition = plateLocal;
+            food.transform.localRotation = Quaternion.Euler(0f, elapsed * (soft ? 22f : 40f), 0f);
+            SetMouth(0f);
+            Contact = 0f;
+            if (selfArm != null) selfArm.Rest();
+            return;
+        }
+
+        float u = t - onPlate;
+
+        if (u < ApproachTime)
+        {
+            // 집어서 입으로 가져간다.
             food.SetActive(true);
             food.transform.localPosition =
-                Vector3.Lerp(rest + away, rest, Ease(t / ApproachTime));
-            SetMouth(Ease(t / ApproachTime) * 0.9f);      // 올라오는 동안 벌린다
+                Vector3.Lerp(plateLocal, rest, Ease(u / ApproachTime));
+            // 치과에 맞춰 최대 벌림을 키웠더니(SetMouth 참고) 음식 쪽은 밥 먹는
+            // 입이 아니라 비명 지르는 입이 됐다. 음식은 그 절반쯤이면 된다.
+            SetMouth(Ease(u / ApproachTime) * 0.55f);     // 올라오는 동안 벌린다
             Contact = 0f;
         }
-        else if (t < ApproachTime + hold)
+        else if (u < ApproachTime + hold)
         {
             // 입술에 닿아 있는 순간. 여기를 건너뛰면 정작 베어 무는 장면이 안 보인다 —
-            // 사과가 다 올라오자마자 사라져 버린다.
+            // 음식이 다 올라오자마자 사라져 버린다.
             food.SetActive(true);
             food.transform.localPosition = rest;
-            SetMouth(Mathf.Lerp(0.90f, 0.35f, (t - ApproachTime) / hold));   // 물어 내린다
+            SetMouth(Mathf.Lerp(0.55f, 0.22f, (u - ApproachTime) / hold));   // 물어 내린다
             Contact = 1f;
         }
         else
         {
-            // 베어 물었다. 사과는 사라지고, 씹는 동안 진동이 난다.
+            // 베어 물었다. 음식은 사라지고, 씹는 동안 진동이 난다.
             food.SetActive(false);
-            float c = t - ApproachTime - hold;
+            float c = u - ApproachTime - hold;
             bool chewing = c < chew;
             // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 눈으로도 맞아떨어진다.
-            SetMouth(chewing ? 0.30f + 0.22f * Mathf.Sin(c * 14f) : 0f);
+            SetMouth(chewing ? 0.22f + chewDepth * Mathf.Sin(c * chewRate) : 0f);
             Contact = chewing ? 1f : 0f;
         }
 
-        food.transform.localRotation = Quaternion.Euler(0f, elapsed * 40f, 0f);
+        // 무른 것은 천천히 돈다. 젤리가 사과처럼 핑핑 돌면 단단해 보인다.
+        food.transform.localRotation =
+            Quaternion.Euler(0f, elapsed * (soft ? 22f : 40f), 0f);
 
-        // 남이 먹여 주는 게 아니라 제 손으로 먹는다. 사과가 보이는 동안만 팔을 올린다.
+        // 남이 먹여 주는 게 아니라 제 손으로 먹는다. 음식이 보이는 동안만 팔을 올린다.
         if (selfArm != null)
         {
             if (food.activeSelf)
@@ -1604,8 +3591,11 @@ public class MirrorRig : MonoBehaviour
                 // -up 을 주면 팔꿈치가 들려서 아래팔이 수평으로 가로지른다 —
                 // 사과를 옆에서 들이미는 모양이 돼 버린다. 이 팔은 리그 -X 쪽에
                 // 있으므로 팔꿈치가 바깥(-X)으로 빠지게 pole 을 +X 로 기울인다.
+                // 주먹이 아니라 **집게손**이다. 다섯 손가락을 같은 각으로 말면
+                // 음식이 그 고리 한가운데 들어가서, 거울에서는 손등 위에 얹어
+                // 놓은 것처럼 보였다. 젤리 한 알은 검지와 엄지로 집는다.
                 GripAround(selfArm, food.transform.position,
-                           toolRoot.forward, Vector3.zero, 0f, 44f,
+                           toolRoot.forward, Vector3.zero, 0f, 58f, 62f, 95f,
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();
@@ -1648,6 +3638,47 @@ public class MirrorRig : MonoBehaviour
         }
         else Debug.LogWarning("[MirrorRig] 기본 폰트를 못 찾아 안내 글자가 안 보인다");
 
+        // 글자에 **외곽선**을 두른다.
+        //
+        // 흰 글자만 띄우면 배경이 밝을 때 사라진다. 치과 화면은 아래가 흰
+        // 기기 패널이라 「DENTAL DRILL」이 반쪽만 보였고, 조명을 밝힌
+        // 뒤로 더 심해졌다.
+        //
+        // 처음엔 뒤에 어두운 판을 깔았다. 그런데 TextMesh 는 한 번 그려
+        // 보기 전에는 경계 상자를 안 알려 줘서 판 크기를 글자 수로
+        // 짐작해야 했고, 세로로 계속 어긋났다. 같은 글자를 어두운 색으로
+        // 네 방향에 격자 넣어 깔면 크기를 재지 않고도 **글자 모양에**
+        // 정확히 붙는다. 자막이 밝은 화면 위에서도 읽히는 원리다.
+        float em = label.fontSize * label.characterSize / 10f;
+        float off = em * 0.075f;
+        Vector2[] dirs = {
+            new Vector2(-1f, 0f), new Vector2(1f, 0f),
+            new Vector2(0f, -1f), new Vector2(0f, 1f),
+        };
+        labelEdge = new TextMesh[dirs.Length];
+        for (int i = 0; i < dirs.Length; i++)
+        {
+            GameObject eg = new GameObject("LabelEdge" + i);
+            eg.transform.SetParent(go.transform, false);
+            // 살짝 뒤로 밀어야 흰 글자가 위에 그려진다.
+            eg.transform.localPosition =
+                new Vector3(dirs[i].x * off, dirs[i].y * off, 0.0006f);
+            TextMesh t = eg.AddComponent<TextMesh>();
+            t.anchor = label.anchor;
+            t.alignment = label.alignment;
+            t.fontSize = label.fontSize;
+            t.characterSize = label.characterSize;
+            t.color = new Color(0.03f, 0.03f, 0.05f);
+            if (f != null)
+            {
+                t.font = f;
+                eg.GetComponent<MeshRenderer>().sharedMaterial = f.material;
+            }
+            eg.GetComponent<MeshRenderer>().shadowCastingMode =
+                UnityEngine.Rendering.ShadowCastingMode.Off;
+            labelEdge[i] = t;
+        }
+
         go.SetActive(false);
     }
 
@@ -1658,10 +3689,15 @@ public class MirrorRig : MonoBehaviour
         string text;
         switch (s)
         {
-            case Scenario.Clipper: text = "HAIR CLIPPER"; break;
-            case Scenario.Food:    text = "EATING";       break;
-            case Scenario.Dental:  text = "DENTAL DRILL"; break;
-            default:               text = "";             break;
+            case Scenario.Food:
+                text = foodKind == FoodKind.Soft ? "EATING  (JELLY)" : "EATING  (APPLE)";
+                break;
+            case Scenario.Dental:
+                text = dentalKind == DentalKind.Brush ? "TOOTHBRUSH" : "DENTAL DRILL";
+                break;
+            default:
+                text = "";
+                break;
         }
 
         // 한때 여기에 ToolModels.BaseShaderName 을 같이 찍었다. 폰에서 화면이
@@ -1670,6 +3706,9 @@ public class MirrorRig : MonoBehaviour
         // 그 프로퍼티를 다시 여기에 붙여 보면 된다.
         label.text = text;
         label.gameObject.SetActive(text.Length > 0);
+        if (labelEdge != null)
+            foreach (TextMesh t in labelEdge)
+                if (t != null) t.text = text;
         labelUntil = Time.time + 2f;
     }
 

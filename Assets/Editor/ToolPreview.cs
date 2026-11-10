@@ -29,13 +29,17 @@ public static class ToolPreview
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         SetupEnvironment();
 
-        GameObject clipper = ToolModels.BuildClipper();
-        Shoot(clipper, "clipper.png", new Vector3(0.75f, 0.45f, 0.95f));
-        Object.DestroyImmediate(clipper);
+        GameObject jelly = ToolModels.BuildJelly();
+        Shoot(jelly, "jelly.png", new Vector3(0.75f, 0.45f, 0.95f));
+        Object.DestroyImmediate(jelly);
 
         GameObject piece = ToolModels.BuildHandpiece();
         Shoot(piece, "handpiece.png", new Vector3(0.75f, 0.40f, 0.95f));
         Object.DestroyImmediate(piece);
+
+        GameObject brush = ToolModels.BuildToothbrush();
+        Shoot(brush, "toothbrush.png", new Vector3(0.75f, 0.40f, 0.95f));
+        Object.DestroyImmediate(brush);
 
         MirrorShots();
 
@@ -98,6 +102,12 @@ public static class ToolPreview
         RenderTexture rt = new RenderTexture(Width, Height, 24, RenderTextureFormat.ARGB32);
         rt.antiAliasing = 8;
         cam.targetTexture = rt;
+        // **두 번 그린다.** 재질을 막 만든 직후의 첫 렌더는 조각이 전부 첫
+        // 재질 색으로 나온다 — 젤리 곰의 그라데이션이 통째로 한 색이 돼서
+        // 한참 헤맸다. 같은 재질이 장면 안(MirrorShots)에서는 멀쩡히 나오는데,
+        // 거기는 만든 뒤로 이미 몇 번 그려진 뒤라 그렇다. 버리는 한 장이
+        // 그 차이를 메운다.
+        cam.Render();
         cam.Render();
 
         RenderTexture prev = RenderTexture.active;
@@ -183,30 +193,52 @@ public static class ToolPreview
         rig.StepForPreview(0f);
         ShootFrom(eye, look, "mirror_idle.png", 75f);
 
-        rig.ShowScenario(MirrorRig.Scenario.Clipper);
+        // 무른 음식. 단단한 쪽과 나란히 놓고 봐야 두 조건이 눈으로 구분되는지 알 수 있다.
+        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Soft);
         viewerGo.transform.rotation = look;
-        rig.StepForPreview(3.0f);                 // 닿아서 밀고 있는 중
-        ShootFrom(eye, look, "mirror_clipper.png", 75f);
+        rig.StepForPreview(1.6f);                 // 젤리를 집어 올리는 중
+        ShootFrom(eye, look, "mirror_food_soft.png", 75f);
 
-        // 진단용 — 거울 속으로 들어가 미용사를 옆에서 본다.
-        // 거울 정면에서는 팔이 서로 겹쳐 보여 자세를 판단할 수 없다.
-        CastShot(rig, new Vector3(1.05f, 0.30f, 0.62f), new Vector3(0.24f, 0.10f, 1.02f),
-                 "cast_barber.png");
+        // 음식이 아직 접시에 놓여 있는 순간. 책상에서 집어 먹는 그림이
+        // 성립하려면 이 구간이 제대로 보여야 한다.
+        rig.StepForPreview(0.4f);
+        ShootFrom(eye, look, "mirror_food_plate.png", 75f);
 
         // 치과 거울은 머리 위에 있다. 참가자가 올려다보는 각도로 맞춰 찍어야
         // 실제로 보일 그림이 나온다.
         Quaternion upward = Quaternion.Euler(-35f, 0f, 0f);
-        rig.ShowScenario(MirrorRig.Scenario.Dental);
+        rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
         viewerGo.transform.rotation = upward;
         rig.StepForPreview(1.8f);                 // 드릴이 입에 닿은 직후
         ShootFrom(eye, upward, "mirror_dental.png", 75f);
         CastShot(rig, new Vector3(0.62f, 0.46f, 0.52f), new Vector3(-0.30f, 0.12f, 0.88f),
                  "cast_dentist.png");
+        // 입만 바싹 당겨서. 거울 너머가 아니라 거울 속 머리 바로 앞에서 본다 —
+        // 이가 낱개로 읽히는지는 이렇게 봐야 판단이 된다.
+        CastShot(rig, new Vector3(0f, 0.02f, 0.58f), new Vector3(0f, -0.07f, 0.90f),
+                 "mouth_closeup.png");
 
-        rig.ShowScenario(MirrorRig.Scenario.Food);
+        // 전동칫솔 쪽. 드릴과 나란히 놓고 봐야 두 수준이 구분되는지 알 수 있다.
+        rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Brush);
+        viewerGo.transform.rotation = upward;
+        rig.StepForPreview(2.4f);                 // 문지르는 중
+        ShootFrom(eye, upward, "mirror_dental_brush.png", 75f);
+
+        rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
+        viewerGo.transform.rotation = upward;
+        rig.StepForPreview(1.8f);
+
+        // 치과에서 턱을 당겼을 때. 이 방은 35도 젖혀져 있어서 조금만 내려다봐도
+        // 시선이 바닥·끝벽으로 떨어지는데, 전에는 거기가 민무늬 회색 면이었다.
+        Quaternion chinDown = Quaternion.Euler(15f, 0f, 0f);
+        viewerGo.transform.rotation = chinDown;
+        rig.StepForPreview(2.0f);
+        ShootFrom(eye, chinDown, "mirror_dental_down.png", 75f);
+
+        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Hard);
         viewerGo.transform.rotation = look;
         rig.StepForPreview(1.3f);                 // 사과를 베어 무는 순간
-        ShootFrom(eye, look, "mirror_food.png", 75f);
+        ShootFrom(eye, look, "mirror_food_hard.png", 75f);
 
         // 고개를 숙이면 거울에 제 몸이 보이는지. 집 거울이 전신인 이유가 이거다.
         Quaternion downward = Quaternion.Euler(27f, 0f, 0f);
@@ -216,7 +248,7 @@ public static class ToolPreview
 
         // 머리를 돌렸을 때 거울 속 머리가 따라오는지
         viewerGo.transform.rotation = Quaternion.Euler(8f, 22f, 0f);
-        rig.ShowScenario(MirrorRig.Scenario.Clipper);
+        rig.ShowScenario(MirrorRig.Scenario.Dental);
         rig.StepForPreview(3.0f);
         ShootFrom(eye, viewerGo.transform.rotation, "mirror_turned.png", 75f);
 

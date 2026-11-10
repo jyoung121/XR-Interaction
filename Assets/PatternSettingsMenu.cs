@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Globalization;
 using UnityEngine;
 
@@ -17,33 +16,31 @@ using UnityEngine;
 /// </summary>
 public class PatternSettingsMenu : MonoBehaviour
 {
-    public enum SettingsPage { Home, PatternPreview, ControllerSetup, MirrorSceneSelect, PcHapticLink }
-
     public bool Visible { get; set; }
     public bool Done { get; private set; }
+    public bool RunPatternTest { get; private set; }
     public bool RunMirrorScene { get; private set; }
-    public bool StartExperiment { get; private set; }
-    public MirrorRig.Scenario SelectedMirrorScenario { get; private set; }
-    public SettingsPage Page { get; private set; }
 
     private ExperimentController controller;
-    private HapticLinkReceiver hapticLink;
     private VibrationPattern selected = VibrationPattern.SinglePulse;
     private Vector2 scroll;
     private string error = "";
 
     private string envDuration, envSample, envModulation;
     private string stepMs, gapMs, highAmp, lowAmp, pulseMs, repeatMs;
-    private string previewRepeatCount = "1";
     private string minInterval, maxInterval, near, far;
     private float sharpness;             // 0~1. iOS 전용 — 안드로이드는 무시한다
-    private Coroutine previewRoutine;
+
+    // 시나리오 확인용 (파일럿). 바리깡·치과는 지속 진동이라 단발 Preview 로는 들을 수 없다.
+    private bool buzzing;
+    private bool loadDip;
+    private float buzzSeconds;
+    private float buzzSharpness;         // 버즈를 시작할 때 쓴 sharpness
+    private int crunchSeed = 1;
 
     public void Initialize(ExperimentController experiment)
     {
         controller = experiment;
-        hapticLink = GetComponent<HapticLinkReceiver>();
-        if (hapticLink == null) hapticLink = gameObject.AddComponent<HapticLinkReceiver>();
         RefreshFromController();
     }
 
@@ -53,17 +50,9 @@ public class PatternSettingsMenu : MonoBehaviour
         StopBuzz();
         RefreshFromController();
         Done = false;
+        RunPatternTest = false;
         RunMirrorScene = false;
-        StartExperiment = false;
-        SelectedMirrorScenario = MirrorRig.Scenario.None;
-        Page = SettingsPage.Home;
         Visible = true;
-    }
-
-    public void BeginMirrorSelection()
-    {
-        Begin();
-        Page = SettingsPage.MirrorSceneSelect;
     }
 
     public void ShowError(string message)
@@ -94,9 +83,51 @@ public class PatternSettingsMenu : MonoBehaviour
         error = "";
     }
 
+    /// <summary>
+    /// 지속 버즈를 돌린다. 바리깡·치과는 끊기지 않는 진동이라 단발 Preview 로는
+    /// 들어볼 수 없어서, 파일럿에서 기준 패턴을 정하려면 이게 있어야 한다.
+    ///
+    /// SetContinuous 는 첫 호출에만 sharpness 를 넘기고 그 뒤에는 세기만 갱신한다.
+    /// 그래서 돌아가는 중에 sharpness 를 바꿔도 안 먹는다. 바리깡과 치과를 가르는 축이
+    /// 바로 sharpness 이므로, 값이 바뀌면 재생기를 다시 띄워 준다.
+    /// </summary>
+    private void Update()
+    {
+        if (!buzzing) return;
+
+        if (!Visible || controller == null) { StopBuzz(); return; }
+
+        if (!Mathf.Approximately(buzzSharpness, sharpness))
+        {
+            HapticManager.StopContinuous();
+            HapticManager.Sharpness = Mathf.Clamp01(sharpness);
+            buzzSharpness = sharpness;
+        }
+
+        buzzSeconds += Time.deltaTime;
+
+        int peak;
+        if (!Read(highAmp, 1, 255, out peak)) peak = 200;
+
+        float load = loadDip ? ScenarioHaptics.ClipperLoad(buzzSeconds) : 1f;
+        HapticManager.SetContinuous(Mathf.Clamp(Mathf.RoundToInt(peak * load), 1, 255));
+    }
+
+    private void StartBuzz()
+    {
+        HapticManager.StopWaveform();
+        HapticManager.Sharpness = Mathf.Clamp01(sharpness);
+        buzzSharpness = sharpness;
+        buzzSeconds = 0f;
+        buzzing = true;
+    }
+
     private void StopBuzz()
     {
-        StopPreviewPlayback();
+        if (!buzzing) return;
+        buzzing = false;
+        buzzSeconds = 0f;
+        HapticManager.StopContinuous();
     }
 
     private void OnDisable()
@@ -124,63 +155,13 @@ public class PatternSettingsMenu : MonoBehaviour
         GUI.Box(new Rect(0, 0, width, height), "");
         GUILayout.BeginArea(new Rect(24, 14, width - 48, height - 28));
 
-        DrawHeader();
+        GUILayout.Label("Haptic pattern settings");
+        GUILayout.Label("Change a number, tap Preview, feel it. No rebuild needed.");
+
         scroll = GUILayout.BeginScrollView(scroll, GUILayout.ExpandHeight(true));
-        switch (Page)
-        {
-            case SettingsPage.PatternPreview: DrawPatternPreview(); break;
-            case SettingsPage.ControllerSetup: DrawControllerSetup(); break;
-            case SettingsPage.MirrorSceneSelect: DrawMirrorSceneSelect(); break;
-            case SettingsPage.PcHapticLink: DrawPcHapticLink(); break;
-            default: DrawHome(); break;
-        }
-        GUILayout.EndScrollView();
 
-        if (!string.IsNullOrEmpty(error)) GUILayout.Label(error);
-        if (Page != SettingsPage.Home && GUILayout.Button("Back", GUILayout.Height(44)))
-        {
-            StopBuzz();
-            if (hapticLink != null) hapticLink.StopListening();
-            Page = SettingsPage.Home;
-            scroll = Vector2.zero;
-        }
-
-        GUILayout.EndArea();
-
-        GUI.skin.label.fontSize = oldLabel;
-        GUI.skin.button.fontSize = oldButton;
-        GUI.skin.textField.fontSize = oldField;
-        GUI.matrix = oldMatrix;
-    }
-
-    private void DrawHeader()
-    {
-        GUILayout.Label("XR Haptic Pilot");
-        GUILayout.Label(Page == SettingsPage.Home ? "Settings and test tools" : Page.ToString());
-    }
-
-    private void DrawHome()
-    {
-        GUILayout.Space(12);
-        if (GUILayout.Button("Preview Pattern", GUILayout.Height(54))) OpenPage(SettingsPage.PatternPreview);
-        if (GUILayout.Button("Controller Setup", GUILayout.Height(54))) OpenPage(SettingsPage.ControllerSetup);
-        if (GUILayout.Button("Mirror Scene", GUILayout.Height(54))) OpenPage(SettingsPage.MirrorSceneSelect);
-        if (GUILayout.Button("Test Haptic Directly on PC", GUILayout.Height(54))) OpenPage(SettingsPage.PcHapticLink);
-
-        GUILayout.Space(18);
-        GUILayout.Label("Automatic startup vibration tests and Compare all 10 are disabled.");
-        if (GUILayout.Button("Start Experiment", GUILayout.Height(58)) && Apply())
-        {
-            StopBuzz();
-            StartExperiment = true;
-            Done = true;
-        }
-    }
-
-    private void DrawPatternPreview()
-    {
-        GUILayout.Label("Choose one of the 10 patterns, edit its parameters, then preview it.");
-        GUILayout.Space(8);
+        GUILayout.Space(10);
+        GUILayout.Label("Pattern to preview");
         GUILayout.BeginHorizontal();
         Choice("Pulse", VibrationPattern.SinglePulse);
         Choice("Ramp up/down", VibrationPattern.RampUpDown);
@@ -199,103 +180,117 @@ public class PatternSettingsMenu : MonoBehaviour
         GUILayout.EndHorizontal();
 
         GUILayout.Space(12);
-        GUILayout.BeginHorizontal();
-        if (GUILayout.Button("Play this pattern", GUILayout.Height(48))) Preview();
-        GUILayout.Space(12);
-        GUILayout.Label("Repeat count  1-100", GUILayout.Width(180));
-        previewRepeatCount = GUILayout.TextField(
-            previewRepeatCount, GUILayout.Width(90), GUILayout.Height(40));
-        GUILayout.EndHorizontal();
-
-        GUILayout.Space(12);
+        GUILayout.Label("Envelope shapes (sine / triangle / sawtooth / square / decay / damped)");
         Field("Envelope duration (ms)  20-2000", ref envDuration);
         Field("Sample step (ms)  10-100", ref envSample);
         Field("Modulation (Hz)  0.5-50", ref envModulation);
+        GUILayout.Label("Usable ceiling is 1000 / (2 x sample step): 25Hz at 20ms, 50Hz at 10ms.");
+        GUILayout.Label("duration x Hz / 1000 = cycles.  200ms x 5Hz = 1 cycle (one swell).");
+        GUILayout.Label("600ms x 15Hz = 9 cycles, which feels like a rhythm instead.");
+
+        GUILayout.Space(12);
+        GUILayout.Label("Step shapes (ramp / bounce / wobble)");
         Field("Wave segment (ms)  1-2000", ref stepMs);
         Field("Silent gap (ms)  1-2000", ref gapMs);
+
+        GUILayout.Space(12);
+        GUILayout.Label("Strength and timing");
         Field("Peak strength  1-255", ref highAmp);
         Field("Low strength  1-255", ref lowAmp);
         Field("Pulse duration (ms)  1-2000", ref pulseMs);
-        Field("Post-pattern gap (ms)  20-5000", ref repeatMs);
+        Field("Preview repeat (ms)  100-5000", ref repeatMs);
+
+        GUILayout.Space(12);
+        GUILayout.Label("Sharpness  (iPhone only - Android ignores it)");
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Sharpness  " + sharpness.ToString("0.00"), GUILayout.Width(170));
+        if (GUILayout.Button("-", GUILayout.Width(48), GUILayout.Height(34)))
+            sharpness = Mathf.Clamp01(Mathf.Round((sharpness - 0.05f) * 100f) / 100f);
+        sharpness = GUILayout.HorizontalSlider(sharpness, 0f, 1f, GUILayout.Width(180));
+        if (GUILayout.Button("+", GUILayout.Width(48), GUILayout.Height(34)))
+            sharpness = Mathf.Clamp01(Mathf.Round((sharpness + 0.05f) * 100f) / 100f);
+        GUILayout.EndHorizontal();
+        GUILayout.Label("0 = round and organic, 1 = crisp and precise. Apple does NOT call this");
+        GUILayout.Label("frequency, and it also changes how strong the buzz feels - so it is not");
+        GUILayout.Label("independent of the strength boxes above. Peak output sits near 0.7, not 1.");
+        GUILayout.Label("Report the number itself, not a Hz value.");
+
+        GUILayout.Space(12);
+        GUILayout.Label("Scenario check  (pilot)");
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(buzzing ? "Stop buzz" : "Hold buzz  (clipper / dental)",
+                             GUILayout.Height(44)))
+        {
+            if (buzzing) StopBuzz();
+            else if (Apply()) StartBuzz();
+        }
+        if (GUILayout.Button(loadDip ? "[x] load dip" : "[ ] load dip",
+                             GUILayout.Width(160), GUILayout.Height(44)))
+            loadDip = !loadDip;
+        GUILayout.EndHorizontal();
+
+        if (GUILayout.Button("Crunch once  (eating)", GUILayout.Height(44)))
+        {
+            if (Apply())
+            {
+                StopBuzz();
+                int peak;
+                if (!Read(highAmp, 1, 255, out peak)) peak = 200;
+                crunchSeed++;
+                ScenarioHaptics.PlayCrunch(4, peak, crunchSeed);
+            }
+        }
+        GUILayout.Label("Buzz uses Peak strength + Sharpness, and keeps running until you stop it.");
+        GUILayout.Label("Clipper: sharpness 0.10-0.25, load dip ON.   Dental: sharpness 1.0, dip OFF.");
+        GUILayout.Label("Crunch is random each press. Current seed " + crunchSeed + " - write it down");
+        GUILayout.Label("when one feels right, so the same bite can be rebuilt later.");
+
+        GUILayout.Space(12);
+        GUILayout.Label("Experiment (case 2 interval, case 3 strength)");
+        Field("Minimum interval (ms)  1-10000", ref minInterval);
+        Field("Maximum interval (ms)  1-10000", ref maxInterval);
+        Field("Strength near target  1-255", ref near);
+        Field("Strength far from target  1-255", ref far);
+
+        GUILayout.Space(12);
+        GUILayout.Label("Haptics: " + HapticManager.Diagnostics);
+
+        GUILayout.EndScrollView();
+
+        if (!string.IsNullOrEmpty(error)) GUILayout.Label(error);
+
+        if (GUILayout.Button("Preview this pattern", GUILayout.Height(44))) Preview();
+
+        if (GUILayout.Button("Mirror scene  (clipper / eating / dental)", GUILayout.Height(48)))
+        {
+            if (Apply())
+            {
+                StopBuzz();
+                RunMirrorScene = true;
+                RunPatternTest = false;
+                Done = true;
+            }
+        }
 
         GUILayout.BeginHorizontal();
-        GUILayout.Label("Sharpness (iOS)  " + sharpness.ToString("0.00"), GUILayout.Width(220));
-        sharpness = GUILayout.HorizontalSlider(sharpness, 0f, 1f, GUILayout.Width(260));
+        if (GUILayout.Button("Compare all 10", GUILayout.Height(48)))
+        {
+            if (Apply()) { StopBuzz(); RunPatternTest = true; RunMirrorScene = false; Done = true; }
+        }
+        if (GUILayout.Button("Start experiment", GUILayout.Height(48)))
+        {
+            if (Apply()) { StopBuzz(); RunPatternTest = false; RunMirrorScene = false; Done = true; }
+        }
         GUILayout.EndHorizontal();
-        GUILayout.Label("Android ignores sharpness. Intensity uses the 1-255 amplitude fields above.");
-        GUILayout.Label("Haptics: " + HapticManager.Diagnostics);
+        GUILayout.Label("'Start experiment' still launches the OLD search task - not this study.");
+
+        GUILayout.EndArea();
+
+        GUI.skin.label.fontSize = oldLabel;
+        GUI.skin.button.fontSize = oldButton;
+        GUI.skin.textField.fontSize = oldField;
+        GUI.matrix = oldMatrix;
     }
-
-    private void DrawControllerSetup()
-    {
-        ControllerConnectionDiagnostics d = ControllerConnectionDiagnostics.Instance;
-        GUILayout.Label(d != null && d.Connected ? "Controller: CONNECTED" : "Controller: NOT CONNECTED");
-        GUILayout.Space(6);
-        GUILayout.Label(d != null ? d.DeviceSummary : "Diagnostics service is starting...");
-        if (d == null) return;
-
-        Vector2 stick = d.StickValue;
-        GUILayout.Label($"Left stick: ({stick.x:F2}, {stick.y:F2})");
-        GUILayout.Label($"South [{Mark(d.SouthPressed)}]   North [{Mark(d.NorthPressed)}]   " +
-                        $"West [{Mark(d.WestPressed)}]   East [{Mark(d.EastPressed)}]");
-        GUILayout.Space(10);
-        GUILayout.Label("Recent controller input");
-        foreach (string entry in d.RecentLogs) GUILayout.Label(entry);
-        GUILayout.Space(10);
-        GUILayout.Label("Android mapping: South=play/pause, West=previous, North=next, East=exit.");
-        GUILayout.Label("Only leftStick Vector2 is used; its synthetic up/down/left/right children are ignored.");
-    }
-
-    private void DrawMirrorSceneSelect()
-    {
-        GUILayout.Label("Choose one scene. The controller changes playback, pattern, and strength inside it.");
-        GUILayout.Space(12);
-        if (GUILayout.Button("Hair Clipper", GUILayout.Height(58))) StartMirror(MirrorRig.Scenario.Clipper);
-        if (GUILayout.Button("Eating", GUILayout.Height(58))) StartMirror(MirrorRig.Scenario.Food);
-        if (GUILayout.Button("Dental Drill", GUILayout.Height(58))) StartMirror(MirrorRig.Scenario.Dental);
-        GUILayout.Space(10);
-        GUILayout.Label("South: play/pause   West/North: pattern -/+   East: exit");
-        GUILayout.Label("Left stick up/down: strength +/- 5");
-        GUILayout.Label("Left stick left/right: post-pattern gap -/+ 20 ms");
-    }
-
-    private void DrawPcHapticLink()
-    {
-        GUILayout.Label("PC Haptic Link");
-        GUILayout.Label(hapticLink == null ? "Receiver unavailable" : hapticLink.Status);
-        GUILayout.Label(hapticLink != null && hapticLink.Connected ? "PC: CONNECTED" : "PC: waiting for a connection");
-        GUILayout.Space(8);
-        GUILayout.Label("ANDROID (USB): enable USB debugging, then press ADB Forward in Unity.");
-        GUILayout.Label("IPHONE (Wi-Fi): turn on Personal Hotspot and join the PC to it.");
-        GUILayout.Label("Then set Host in Unity to 172.20.10.1 (or the address above).");
-        GUILayout.Space(4);
-        GUILayout.Label("In Unity: Tools > Haptic Waveform Designer, then Play on Phone.");
-        GUILayout.Label("The receiver stops when you leave this page.");
-        // 이 화면의 글자는 반드시 ASCII 여야 한다 — 내장 글꼴에 한글 글리프가 없어
-        // 한글은 빈 칸으로 보인다.
-    }
-
-    private void OpenPage(SettingsPage page)
-    {
-        if (hapticLink != null && Page == SettingsPage.PcHapticLink)
-            hapticLink.StopListening();
-        Page = page;
-        if (hapticLink != null && Page == SettingsPage.PcHapticLink)
-            hapticLink.StartListening();
-        scroll = Vector2.zero;
-        error = "";
-    }
-
-    private void StartMirror(MirrorRig.Scenario scenario)
-    {
-        if (!Apply()) return;
-        StopBuzz();
-        SelectedMirrorScenario = scenario;
-        RunMirrorScene = true;
-        Done = true;
-    }
-
-    private static string Mark(bool value) { return value ? "ON" : "--"; }
 
     private void Choice(string label, VibrationPattern value)
     {
@@ -325,7 +320,7 @@ public class PatternSettingsMenu : MonoBehaviour
             !Read(highAmp, 1, 255, out high) ||
             !Read(lowAmp, 1, 255, out low) || low > high ||
             !Read(pulseMs, 1, 2000, out pulse) ||
-            !Read(repeatMs, 20, 5000, out repeat) ||
+            !Read(repeatMs, 100, 5000, out repeat) ||
             !Read(minInterval, 1, 10000, out lo) ||
             !Read(maxInterval, 1, 10000, out hi) || hi < lo ||
             !Read(near, 1, 255, out n) ||
@@ -361,49 +356,13 @@ public class PatternSettingsMenu : MonoBehaviour
     private void Preview()
     {
         if (!Apply()) return;
-        int count;
-        if (!Read(previewRepeatCount, 1, 100, out count))
-        {
-            error = "Repeat count must be an integer from 1 to 100.";
-            return;
-        }
 
-        StopPreviewPlayback();
-        previewRoutine = StartCoroutine(PreviewRepeated(count));
-    }
-
-    private IEnumerator PreviewRepeated(int count)
-    {
-        long patternDurationMs = HapticManager.GetPatternDurationMs(selected,
-            controller.pulseDurationMs, controller.waveStepMs, controller.waveGapMs,
+        HapticManager.StopWaveform();
+        HapticManager.PlayPattern(selected, controller.pulseDurationMs,
+            controller.waveStepMs, controller.waveGapMs,
+            controller.waveHighAmplitude, controller.waveLowAmplitude, 255,
             controller.envelopeDurationMs, controller.envelopeSampleMs,
             controller.envelopeModulationHz);
-
-        for (int i = 0; i < count; i++)
-        {
-            HapticManager.PlayPattern(selected, controller.pulseDurationMs,
-                controller.waveStepMs, controller.waveGapMs,
-                controller.waveHighAmplitude, controller.waveLowAmplitude, 255,
-                controller.envelopeDurationMs, controller.envelopeSampleMs,
-                controller.envelopeModulationHz);
-
-            if (i + 1 < count)
-                yield return new WaitForSecondsRealtime(
-                    (patternDurationMs + controller.patternRepeatMs) / 1000f);
-        }
-
-        previewRoutine = null;
-    }
-
-    private void StopPreviewPlayback()
-    {
-        if (previewRoutine != null)
-        {
-            StopCoroutine(previewRoutine);
-            previewRoutine = null;
-        }
-        HapticManager.StopWaveform();
-        HapticManager.StopContinuous();
     }
 
     private static bool Read(string value, int minimum, int maximum, out int number)
