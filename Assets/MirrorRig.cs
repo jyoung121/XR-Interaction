@@ -3854,12 +3854,17 @@ public class MirrorRig : MonoBehaviour
             // 무는 중인지 씹는 중인지 분간이 안 된다.
             bool inHand = !soft && biteStage < BiteStages;
             food.SetActive(inHand);
-            // 많이 내려야 한다. 4.5 cm 만 내렸더니 주먹이 입과 사과를
-            // 통째로 덮어서, 베어 문 자리가 보이는 픽셀이 거의 없었다.
-            // 턱 아래까지 내리면 사과가 옷 앞에 통째로 드러난다.
+            // 아래로만 내리면 모자란다. 손을 재 보니 손목이 입보다 2 cm
+            // **위**에 있었다 (입 y 0.02, 손목 y 0.04). 가운데에 둔 채로
+            // 내리면 주먹이 입을 따라 내려올 뿐이라 얼굴을 계속 덮는다.
+            // 어깨가 x +0.15 에 있으니 그쪽으로 빼면 손이 얼굴 밖으로
+            // 나가고, 덤으로 팔을 덜 뻗게 돼 어깨보다 18 cm 앞으로
+            // 튀어나와 있던 팔꿈치도 몸쪽으로 들어온다.
             if (inHand)
                 food.transform.localPosition = Vector3.Lerp(rest,
-                    rest - Vector3.up * 0.105f + Vector3.forward * 0.030f,
+                    rest + Vector3.right * 0.13f
+                         - Vector3.up * 0.18f
+                         + Vector3.forward * 0.03f,
                     Ease(Mathf.Clamp01(c / Mathf.Max(chew, 1e-3f))));
 
             // 씩는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
@@ -3877,6 +3882,9 @@ public class MirrorRig : MonoBehaviour
                 // 사과는 제자리에서 돌고 있어서, 사과 좌표로 손 자리를 잡으면 손도 같이 돈다.
                 // 머리 축(toolRoot) 기준으로 사과의 아래·바깥쪽을 잡아야 자리가 고정된다.
                 // 손목을 입술 높이에 두면 손바닥이 얼굴을 통째로 가린다 — 턱 아래로 내린다.
+                // 자리는 눈으로 맞추지 말고 재서 맞춘다. 머리 축 좌표로 찍어 보면
+                // 입이 (0, 0.02, 0.12), 어깨가 (0.15, -0.14, -0.01) 이라 손목이
+                // 어디쯤 있어야 얼굴 밖인지가 바로 나온다 (AnimateFood 의 씹는 자리).
                 // 감싸는 축은 앞뒤로 둔다. 가로축으로 두면 손가락이 위아래로 말려서
                 // 손바닥이 거울을 정면으로 보고, 넓적한 손이 얼굴을 가려 버린다.
                 // 앞뒤축이면 손이 옆에서 들어와 모로 보이므로 얼굴이 살아 있다.
@@ -3888,8 +3896,11 @@ public class MirrorRig : MonoBehaviour
                 // 주먹이 아니라 **집게손**이다. 다섯 손가락을 같은 각으로 말면
                 // 음식이 그 고리 한가운데 들어가서, 거울에서는 손등 위에 얹어
                 // 놓은 것처럼 보였다. 젤리 한 알은 검지와 엄지로 집는다.
+                // 손이 **아래에서** 들어오게 방향을 박아 준다. 비워 두면
+                // 어깨에서 사과로 가는 선을 쓰는데, 그러면 손이 사과보다
+                // 위에 서서 손가락이 입 위로 늘어진다.
                 GripAround(selfArm, food.transform.position,
-                           toolRoot.forward, Vector3.zero, 0f, 58f, 62f, 95f,
+                           toolRoot.forward, toolRoot.up, 0f, 58f, 62f, 95f,
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();

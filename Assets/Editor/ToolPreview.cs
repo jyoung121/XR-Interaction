@@ -248,6 +248,8 @@ public static class ToolPreview
         rig.StepForPreview(BiteCycle + BiteAt);
         rig.StepForPreview(BiteCycle * 2f + BiteAt);
         ShootFrom(eye, look, "mirror_food_bitten.png", 75f);
+        rig.StepForPreview(BiteCycle * 2f + BiteAt + 1.2f);
+        ShootFrom(eye, look, "mirror_food_chew.png", 75f);
 
         // 고개를 숙이면 거울에 제 몸이 보이는지. 집 거울이 전신인 이유가 이거다.
         Quaternion downward = Quaternion.Euler(27f, 0f, 0f);
