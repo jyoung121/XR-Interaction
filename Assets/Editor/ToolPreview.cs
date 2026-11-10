@@ -196,7 +196,9 @@ public static class ToolPreview
         // 무른 음식. 단단한 쪽과 나란히 놓고 봐야 두 조건이 눈으로 구분되는지 알 수 있다.
         rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Soft);
         viewerGo.transform.rotation = look;
-        rig.StepForPreview(1.6f);                 // 젤리를 집어 올리는 중
+        // 무른 것도 한 입 주기가 6.6 초다. 1.6 초는 아직 접시 위라
+        // 집어 올리는 장면이 안 찍혔다. 입에 닿는 순간으로 옮긴다.
+        rig.StepForPreview(1.4f + 1.2f + 0.3f);
         ShootFrom(eye, look, "mirror_food_soft.png", 75f);
 
         // 음식이 아직 접시에 놓여 있는 순간. 책상에서 집어 먹는 그림이
@@ -239,7 +241,7 @@ public static class ToolPreview
         viewerGo.transform.rotation = look;
         // 한 입 주기는 5.9 초고, 깨무는 순간은 주기 시작에서 3.1 초다.
         // StepForPreview 는 시각을 **박아 넣는** 것이라 세 입째 모양을
-        // 보려면 깨무는 순간을 하나하나 밟아 줄여야 한다 — 한 번에
+        // 보려면 깨무는 순간을 하나하나 밟아 줘야 한다 — 한 번에
         // 건너뛰면 한 입만 깨문 것으로 나온다.
         const float BiteCycle = 5.9f;
         const float BiteAt = 3.1f + 0.5f;
