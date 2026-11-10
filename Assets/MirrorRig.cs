@@ -899,19 +899,24 @@ public class MirrorRig : MonoBehaviour
 
         // 사과는 젤리보다 훨씬 굵어서 다섯 알을 같은 자리에 놓으면 서로
         // 파고든다. 세 알만 놓고 반지름을 조금 줄인다.
+        //
+        // 5.5 cm 는 자두만 했다. 7.5 cm 로 키운다 (손에 드는 쪽도 같이 —
+        // BuildFoodItem 의 FoodHard). 알이 굵어진 만큼 세 알을 놓는
+        // 원도 넓혀야 한다. 반지름 r 인 정삼각형의 변은 1.73 r 이므로,
+        // 7.5 cm 짜리가 안 겹치려면 r 이 4.3 cm 는 넘어야 한다.
         for (int i = 0; i < 3; i++)
         {
             float a = i * (Mathf.PI * 2f / 3f) + 0.6f;
-            Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * 0.042f,
+            Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * 0.050f,
                                      tableTop + 0.010f,
-                                     D - 0.25f + Mathf.Sin(a) * 0.042f);
+                                     D - 0.25f + Mathf.Sin(a) * 0.050f);
             // 재질을 null 로 주면 모델이 달고 온 색(빨간 몸통 + 초록 꼭지)을
             // 그대로 쓰되 셰이더만 런타임 재질로 바뀐다 (AddModel 참고).
             BothModel(plateApple, "Models/Apple", null,
                       at, a * Mathf.Rad2Deg + 40f,
-                      Vector3.one * 0.055f, "Apple" + i);
+                      Vector3.one * 0.075f, "Apple" + i);
             ContactShadow(plateApple, at + new Vector3(0f, 0.0005f, 0f),
-                          0.050f, 0.050f, plateColor, "AppleShadow" + i);
+                          0.068f, 0.068f, plateColor, "AppleShadow" + i);
         }
 
         // 상 위의 컵 — 상이 비어 있으면 식탁으로 안 읽힌다.
@@ -3151,7 +3156,7 @@ public class MirrorRig : MonoBehaviour
         // 다만 3.2 cm 로는 손가락 사이에 묻혀 거울에서 점으로밖에 안 보였다.
         // 실제 젤리보다 크지만 올린다 — 여기서 중요한 건 치수가 아니라
         // "무엇을 먹는지 보이는 것" 이다.
-        foodHard = BuildFoodItem("FoodHard", Resources.Load<GameObject>("Models/Apple"), 0.055f);
+        foodHard = BuildFoodItem("FoodHard", Resources.Load<GameObject>("Models/Apple"), 0.075f);
         // 크기를 맞춘 뒤에 깨문 단계별 메시를 미리 만들어 둔다.
         PrepareAppleBites(foodHard);
 
@@ -3330,8 +3335,8 @@ public class MirrorRig : MonoBehaviour
 
     /// <summary>
     /// 몇 입째 깨문 자리가 메시 좌표에서 어느 쪽을 보는가 (도, Y 축 둘레).
-    /// 메시를 파는 쪽과 사과를 돌려 놓는 쪽이 **같은 값**을 봐야 패인
-    /// 자리가 거울을 향한다.
+    /// 메시를 파는 쪽(`BiteApple`)과 사과를 돌려 놓는 쪽(`FoodSpin`)이
+    /// **같은 값**을 봐야 패인 자리가 뜻한 데를 향한다.
     /// </summary>
     private static float BiteAngle(int bites)
     {
@@ -3364,11 +3369,18 @@ public class MirrorRig : MonoBehaviour
             // 보였다. 한 개면 정점마다 제 광선 위에서 한 번만 움직인다.
             int k = bites;
             float ang = BiteAngle(k) * Mathf.Deg2Rad;
+            // 깊이가 아니라 **너비**를 키운다. 전엔 반지름을 0.42 → 0.93
+            // 으로 늘렸더니 세 입째에 패인 바닥이 중심에서 0.17 까지
+            // 들어가, 남은 껍질이 얇아지고 서로 뚫고 나와 사과가 빨간
+            // 파편처럼 보였다. 바닥은 0.5 쯤에 붙들어 두고 입만 넓힌다
+            // — 한 입이 50°, 세 입이 72° 쯤 된다.
             Vector3 c = mid
                       + new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang))
-                        * (rad * (0.92f + 0.06f * k))
-                      + Vector3.up * (rad * -0.05f);
-            float r = rad * (0.42f + 0.17f * k);
+                        * (rad * (0.93f + 0.05f * k))
+                      // 허리 높이에 파면 쥔 손가락이 그 앞을 가린다.
+                      // 조금 위에 파야 주먹 위로 단면이 드러난다.
+                      + Vector3.up * (rad * 0.18f);
+            float r = rad * (0.32f + 0.11f * k);
 
             for (int i = 0; i < v.Count; i++)
             {
@@ -3386,13 +3398,24 @@ public class MirrorRig : MonoBehaviour
                 if (disc < 0f) continue;
                 float t = (pq - Mathf.Sqrt(disc)) / pp;
                 if (t <= 0f || t >= 1f) continue;
-                v[i] = mid + p * t;
-                gone[i] = true;
+
+                // 테두리에서는 **덜** 당긴다. 안팎을 딱 잘라 당기면 구에
+                // 아슬아슬하게 걸친 정점은 광선이 거의 스치듯 들어가
+                // 한참 안쪽으로 끌려가고, 안 끌린 이웃과 사이가 길게
+                // 늘어나 가장자리가 찢긴 것처럼 보인다. 구 안쪽으로
+                // 얼마나 들어왔는지에 따라 섞으면 테두리가 둥글게 돈다.
+                float deep = (r - (v[i] - c).magnitude) / (r * 0.35f);
+                float w = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(deep));
+                v[i] = Vector3.Lerp(v[i], mid + p * t, w);
+                // 과육 판정은 **헐겁게**. 0.75 로 잡았더니 과육이 한 입에
+                // 28 면만 남아 하얀 단면이 아예 안 나왔다. 조금이라도
+                // 끌려 들어왔으면 패인 자리로 친다.
+                gone[i] = w > 0.25f;
             }
         }
 
         // 파인 자리만으로는 부족하다. 사과는 거울 속에서 엄지만 하게
-        // 보이는데, 20° 짜리 홍은 그 크기에서 몇 픽셀이라 안 읽힌다.
+        // 보이는데, 20° 짜리 홈은 그 크기에서 몇 픽셀이라 안 읽힌다.
         // 한 입마다 전체를 8.5 % 씩 줄여야 줄어드는 게 눈에 보인다.
         if (bites > 0)
         {
@@ -3719,19 +3742,29 @@ public class MirrorRig : MonoBehaviour
     /// 아직 온전한 것은 돌려서 보여 준다. 무른 것은 더 천천히 — 젤리가
     /// 사과처럼 핑핑 돌면 단단해 보인다.
     ///
-    /// 한 입 깨문 사과는 **패인 쪽을 거울로 돌려 놓는다**. 계속 돌게
-    /// 두면 애써 파 놓은 자리가 뒤로 숨는다. 실제로 그랬다 — 과육을
-    /// 자홍색으로 칠해 놓고 찍었는데 한 점도 안 나왔다. 사과는 거울에서
-    /// 가로 35 픽셀이라 패인 자리가 정면을 볼 때만 겨우 읽힌다. 손에 든
-    /// 사과를 빙글빙글 돌려 가며 먹지도 않으니 멈춰 세우는 쪽이 오히려
-    /// 자연스럽다. 조금만 흔들어 둔다.
+    /// 깨문 사과는 패인 쪽이 <paramref name="toMouth"/> 를 따라 돈다.
+    /// 1 이면 입 쪽(-Z), 0 이면 거울 쪽(+Z).
+    ///
+    /// **베어 무는 쪽은 입 쪽이어야 한다.** 한동안 패인 자리를 늘 거울로
+    /// 돌려 놨는데, 그러면 사과 뒤통수를 물면서 앞쪽이 패이는 셈이라
+    /// 말이 안 된다. 그렇다고 입 쪽에 고정해 두면 패인 자리가 영영 안
+    /// 보인다 — 애써 파 놓고 한 점도 안 보였던 적이 실제로 있다.
+    ///
+    /// 그래서 **돌린다**. 입으로 가져가는 동안 패인 쪽을 입으로 돌리고,
+    /// 씹으려고 손을 내리는 동안 도로 거울 쪽으로 돌린다. 사람이 사과를
+    /// 먹을 때 실제로 하는 짓이기도 하다 — 한 입 베고 손을 내리면서
+    /// 베어 문 자리를 들여다본다.
     /// </summary>
-    private Quaternion FoodSpin(bool soft)
+    private Quaternion FoodSpin(bool soft, float toMouth)
     {
         if (soft || biteStage <= 0)
             return Quaternion.Euler(0f, elapsed * (soft ? 22f : 26f), 0f);
+
+        float out0 = -BiteAngle(biteStage);        // 패인 쪽이 거울을 본다
+        float in1  = 180f - BiteAngle(biteStage);  // 패인 쪽이 입을 본다
         return Quaternion.Euler(
-            0f, -BiteAngle(biteStage) + Mathf.Sin(elapsed * 1.1f) * 7f, 0f);
+            0f, Mathf.Lerp(out0, in1, Mathf.Clamp01(toMouth))
+                + Mathf.Sin(elapsed * 1.1f) * 5f, 0f);
     }
 
     private void AnimateFood()
@@ -3784,13 +3817,15 @@ public class MirrorRig : MonoBehaviour
         // 접시 바닥에 올려놓으려면 거기에 반높이를 더한다.
         float plateFloor = tableTopY + 0.010f;
         Vector3 plateRig = new Vector3(
-            -0.13f, plateFloor + (soft ? 0.085f : 0.055f) * 0.5f, 2f * D - (D - 0.25f));
+            -0.13f, plateFloor + (soft ? 0.085f : 0.075f) * 0.5f, 2f * D - (D - 0.25f));
         Vector3 plateLocal = toolRoot.InverseTransformPoint(transform.TransformPoint(plateRig));
 
         // 음식의 원점은 한가운데라, 입술 지점에 그대로 놓으면 절반이 얼굴에 박힌다.
         // 반지름만큼 앞으로 빼서 입술에 닿게 한다.
         // 손이 아래에서 올라오므로 음식을 입술 한가운데에 두면 손이 코까지 올라온다.
-        Vector3 rest = mouthLocal + Vector3.forward * 0.040f - Vector3.up * 0.008f;
+        Vector3 rest = mouthLocal
+                     + Vector3.forward * (soft ? 0.040f : 0.050f)
+                     - Vector3.up * 0.008f;
 
         if (t < onPlate)
         {
@@ -3803,7 +3838,9 @@ public class MirrorRig : MonoBehaviour
             if (!soft && biteStage >= BiteStages) { biteStage = 0; SetBiteStage(0); }
             food.SetActive(true);
             food.transform.localPosition = plateLocal;
-            food.transform.localRotation = FoodSpin(soft);
+            // 접시에서 기다릴 땐 패인 쪽을 거울로 둔다. 어차피 아무
+            // 쪽이나 될 자리고, 몇 입 먹었는지 눈에 보이는 쪽이 낫다.
+            food.transform.localRotation = FoodSpin(soft, 0f);
             SetMouth(0f);
             Contact = 0f;
             if (selfArm != null) selfArm.Rest();
@@ -3812,12 +3849,17 @@ public class MirrorRig : MonoBehaviour
 
         float u = t - onPlate;
 
+        // 패인 쪽이 입을 보는 정도. 입으로 올리는 동안 돌려서 대고,
+        // 씹으려고 내리는 동안 도로 거울 쪽으로 돌린다 (FoodSpin).
+        float toMouth;
+
         if (u < ApproachTime)
         {
             // 집어서 입으로 가져간다.
             food.SetActive(true);
             food.transform.localPosition =
                 Vector3.Lerp(plateLocal, rest, Ease(u / ApproachTime));
+            toMouth = Ease(u / ApproachTime);
             // 치과에 맞춰 최대 벌림을 키웠더니(SetMouth 참고) 음식 쪽은 밥 먹는
             // 입이 아니라 비명 지르는 입이 됐다. 음식은 그 절반쯤이면 된다.
             SetMouth(Ease(u / ApproachTime) * 0.55f);     // 올라오는 동안 벌린다
@@ -3831,10 +3873,10 @@ public class MirrorRig : MonoBehaviour
             food.transform.localPosition = rest;
             SetMouth(Mathf.Lerp(0.55f, 0.22f, (u - ApproachTime) / hold));   // 물어 내린다
             Contact = 1f;
+            toMouth = 1f;   // 패인 쪽이 입에 닿아 있다
         }
         else
         {
-            // 베어 물었다. 음식은 사라지고, 씹는 동안 진동이 난다.
             // 베어 물었다.
             float c = u - ApproachTime - hold;
             bool chewing = c < chew;
@@ -3867,12 +3909,16 @@ public class MirrorRig : MonoBehaviour
                          + Vector3.forward * 0.03f,
                     Ease(Mathf.Clamp01(c / Mathf.Max(chew, 1e-3f))));
 
-            // 씩는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
+            // 손을 내리면서 베어 문 자리를 들여다본다 — 패인 쪽이
+            // 입에서 거울 쪽으로 돌아 나온다.
+            toMouth = 1f - Ease(Mathf.Clamp01(c / Mathf.Max(chew, 1e-3f)));
+
+            // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
             SetMouth(chewing ? 0.22f + chewDepth * Mathf.Sin(c * chewRate) : 0f);
             Contact = chewing ? 1f : 0f;
         }
 
-        food.transform.localRotation = FoodSpin(soft);
+        food.transform.localRotation = FoodSpin(soft, toMouth);
 
         // 남이 먹여 주는 게 아니라 제 손으로 먹는다. 음식이 보이는 동안만 팔을 올린다.
         if (selfArm != null)
@@ -3899,8 +3945,13 @@ public class MirrorRig : MonoBehaviour
                 // 손이 **아래에서** 들어오게 방향을 박아 준다. 비워 두면
                 // 어깨에서 사과로 가는 선을 쓰는데, 그러면 손이 사과보다
                 // 위에 서서 손가락이 입 위로 늘어진다.
+                // 손가락 각은 쥐는 것의 굵기를 따라간다. 접는 각이 고리
+                // 크기를 정하는데, 사과를 7.5 cm 로 키웠더니 5.5 cm 에
+                // 맞춰 둔 각으로는 손가락이 사과를 뚫고 지나갔다.
+                // 젤리 한 알은 그대로 바싹 집는다.
                 GripAround(selfArm, food.transform.position,
-                           toolRoot.forward, toolRoot.up, 0f, 58f, 62f, 95f,
+                           toolRoot.forward, toolRoot.up, 0f,
+                           soft ? 58f : 42f, soft ? 62f : 46f, soft ? 95f : 78f,
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();
