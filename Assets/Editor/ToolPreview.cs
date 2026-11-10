@@ -37,7 +37,16 @@ public static class ToolPreview
         Shoot(piece, "handpiece.png", new Vector3(0.75f, 0.40f, 0.95f));
         Object.DestroyImmediate(piece);
 
-        GameObject brush = ToolModels.BuildToothbrush();
+        // 칫솔은 받아온 모델을 쓴다 (MirrorRig.BuildBrush). 여기서 쌓아
+        // 만든 쪽을 찍으면 썸네일만 실제 장면과 달라진다.
+        GameObject brushSrc = Resources.Load<GameObject>("Models/Toothbrush");
+        GameObject brush;
+        if (brushSrc != null)
+        {
+            brush = Object.Instantiate(brushSrc);
+            brush.transform.localScale = Vector3.one * 0.19f;
+        }
+        else brush = ToolModels.BuildToothbrush();
         Shoot(brush, "toothbrush.png", new Vector3(0.75f, 0.40f, 0.95f));
         Object.DestroyImmediate(brush);
 

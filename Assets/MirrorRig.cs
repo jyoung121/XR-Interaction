@@ -3145,7 +3145,7 @@ public class MirrorRig : MonoBehaviour
         handpiece.transform.SetParent(toolRoot, false);
         handpiece.SetActive(false);
 
-        toothbrush = ToolModels.BuildToothbrush();
+        toothbrush = BuildBrush();
         toothbrush.transform.SetParent(toolRoot, false);
         toothbrush.SetActive(false);
 
@@ -3172,6 +3172,44 @@ public class MirrorRig : MonoBehaviour
                 rr.sharedMaterial = jellyMat;
         foodSoft = BuildFoodItem("FoodSoft", bear, 0.085f);
         food = foodHard;
+    }
+
+    /// <summary>
+    /// 칫솔. 받아온 모델을 쓰고, 없으면 기본 도형으로 쌓은 것으로 돌아간다.
+    ///
+    /// 쌓아 만든 칫솔은 솔이 정육면체 아홉 개라 거울에서 지우개처럼 보였다.
+    /// 받아온 모델은 솔이 줄줄이 심겨 있고 머리도 둥글다.
+    ///
+    /// `Toothbrush.obj` 는 이미 도구 규약으로 정규화해 뒀다 — 원점이 솔
+    /// 끝(닿는 지점), +Z 가 입으로 들어가는 쪽, 솔은 +Y, 전체 길이 1.
+    /// 그래서 여기서는 길이만 미터로 준다. 솔이 손잡이와 **직각**이라
+    /// 옆에서 들어와 윗니를 닦는 자세가 된다 — 쌓아 만든 쪽은 솔이 앞을
+    /// 보고 있어서 이를 쿡 찌르는 모양이었다.
+    /// </summary>
+    private GameObject BuildBrush()
+    {
+        // 19 cm. 입이 가로 4.4 cm 니까(holeHalfW) 이 세상은 거의 실물
+        // 크기다 — 칫솔도 실물 길이로 둔다. 쌓아 만든 것은 11.8 cm 에
+        // 머리가 1.8 cm 라 비율이 만화였다.
+        const float BrushLen = 0.19f;
+
+        GameObject src = Resources.Load<GameObject>("Models/Toothbrush");
+        if (src == null)
+        {
+            Debug.LogWarning("[MirrorRig] 칫솔 모델을 못 찾았다 — 기본 도형으로 짓는다");
+            return ToolModels.BuildToothbrush();
+        }
+
+        GameObject holder = new GameObject("Toothbrush");
+        GameObject item = Instantiate(src);
+        item.name = "Toothbrush_Model";
+        item.transform.SetParent(holder.transform, false);
+        item.transform.localPosition = Vector3.zero;
+        item.transform.localRotation = Quaternion.identity;
+        item.transform.localScale = Vector3.one * BrushLen;
+        foreach (Collider c in item.GetComponentsInChildren<Collider>(true)) Kill(c);
+        Reskin(item);
+        return holder;
     }
 
     /// <summary>
@@ -3712,6 +3750,12 @@ public class MirrorRig : MonoBehaviour
             }
         }
 
+        // 칫솔은 솔이 손잡이와 직각이라 머리가 **옆으로 눕는다**. 닿는
+        // 지점을 입 한가운데(mouthLocal)에 그대로 두면 머리가 입술 앞에
+        // 떠서 아랫입술을 덮는다 — mouthLocal 은 살갗보다 9 mm 앞이다.
+        // 솔 끝이 윗니에 닿도록 조금 올리고 안으로 민다.
+        if (brush) pos += new Vector3(0f, 0.005f, -0.006f);
+
         tool.transform.localPosition = pos;
         tool.transform.localRotation = Quaternion.LookRotation(-away.normalized, Vector3.up);
 
@@ -3724,9 +3768,11 @@ public class MirrorRig : MonoBehaviour
         if (dentist != null)
         {
             RelaxOther(dentist);
-            // 칫솔은 몸통이 굵고 곧아서 더 뒤를 잡아야 손이 입을 가리지 않는다.
+            // 칫솔은 몸통이 곧고 길어서 더 뒤를 잡아야 손이 입을 가리지
+            // 않는다. 받아온 모델로 바꾸며 11.8 → 19 cm 가 됐으므로
+            // 잡는 자리도 같은 비율(손잡이의 60 % 쯤)로 물려 뒀다.
             HoldTool(dentist.reach, tool.transform,
-                     brush ? new Vector3(0f, 0f, -0.075f)
+                     brush ? new Vector3(0f, -0.008f, -0.115f)
                            : new Vector3(0f, 0.008f, -0.090f),
                      brush ? new Vector3(0f, 0f, -1f)
                            : new Vector3(0f, 0.10f, -0.99f),

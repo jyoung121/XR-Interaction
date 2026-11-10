@@ -103,6 +103,7 @@ Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
 | `Syringe.obj` | Syringe | J-Toastie |
 | `Scalpel.obj` | Scalpel | Poly by Google |
 | `LabDesk.obj` | Lab Desk | Colonel Cthulu |
+| `Toothbrush.obj` | Toothbrush | dook (Poly by Google) |
 
 `Person.fbx` 는 Quaternius, CC0 로 **얼굴까지 그대로 둔다.** 뼈대가 있는
 모델이고 팔 IK·다리 자세·고개 돌리기가 전부 거기 걸려 있어서, 바꾸면 그게
@@ -249,6 +250,21 @@ Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
   - `GripAround` 의 `forward` 를 비워 두면 **어깨에서 음식으로 가는
     선**을 쓴다. 그러면 손이 음식보다 위에 서서 손가락이 입 위로
     늘어진다. `toolRoot.up` 을 박아서 손이 아래에서 들어오게 한다
+- **칫솔은 받아온 모델로 바꿨다**(`MirrorRig.BuildBrush`). 쌓아 만든
+  칫솔은 솔이 정육면체 아홉 개라 거울에서 지우개처럼 보였다. 받아온
+  모델은 솔이 줄줄이 심겨 있고 목이 가늘어진다
+  - `Toothbrush.obj` 는 **도구 규약으로 정규화해 뒀다** — 원점이 솔 끝,
+    +Z 가 입으로 들어가는 쪽, 솔은 +Y, 전체 길이 1. 코드에서는 길이만
+    미터(0.19)로 준다
+  - 솔이 손잡이와 **직각**이라 머리가 옆으로 눕는다. 쌓아 만든 쪽은 솔이
+    앞을 보고 있어서 이를 쿡 찌르는 모양이었는데, 이제 옆에서 들어와
+    윗니를 닦는 자세가 된다
+  - 그래서 닿는 지점을 `mouthLocal` 에 그대로 두면 안 된다. 그 점은
+    살갗보다 9 mm 앞이라, 머리가 입술 앞에 떠서 아랫입술을 덮는다.
+    칫솔만 조금 올리고 안으로 민다 (`AnimateDental`)
+  - 길이가 11.8 → 19 cm 가 됐으므로 잡는 자리도 같은 비율로 물렸다.
+    쌓아 만든 쪽은 머리 1.8 cm 에 길이 11.8 cm 라 비율이 만화였다 —
+    실제 칫솔은 머리가 길이의 6 % 쯤이다
 - **진짜 그림자.** 방마다 방향광 `KeyLight` 를 하나 둔다. 가짜 원반
   그림자(`ContactShadow`)는 `FakeContactShadows = false` 로 꺼 뒀다 —
   코드는 남겨 뒀으니 폰에서 그림자 값이 모자라면 다시 켜면 된다
