@@ -325,7 +325,7 @@ public class MirrorRig : MonoBehaviour
     // 입술 — 다문 선에서 피부로 그러데이션으로 건너간다 (JawPiece).
     private Material lipMatUp, lipMatLow;
     private TextMesh[] labelEdge;    // 안내 글자의 어두운 외곽선
-    private const bool FakeContactShadows = false;  // 가짜 원반 그림자
+    private const bool FakeContactShadows = true;   // 가짜 원반 그림자
     // 깨무는 순간을 한 번만 세려고 둔다. 몇 입에 걸쳐 먹는지는 음식마다
     // 다르므로(FoodSpec.bites) 단계 수는 여기 두지 않는다.
     private int biteCycle = -1;
@@ -1153,14 +1153,17 @@ public class MirrorRig : MonoBehaviour
     private void ContactShadow(Transform root, Vector3 pos, float wx, float wz,
                                Color surface, string name)
     {
-        // 진짜 그림자가 생긴 뒤로는 **안 깔긴다.**
+        // **다시 깐다.** 한동안 꺼 두었는데 그 근거가 사라졌다.
         //
-        // 키라이트(방향광)는 비스듬히 내리쫬니 그림자가 한쪽으로
-        // 누워진다. 그 위에 물건 밑마다 동근 원반을 깔아 두면 빛 방향과
-        // 안 맞아서 그림자가 아니라 때처럼 보인다.
+        // 껐던 이유는 이랬다: 키라이트(방향광)가 비스듬히 내리쬐어
+        // 진짜 그림자가 한쪽으로 누워 있는데, 그 위에 물건 밑마다 둥근
+        // 원반을 깔면 빛 방향과 안 맞아 그림자가 아니라 때처럼 보였다.
         //
-        // 남겨 두는 이유는 이 방법이 언제든 다시 필요해질 수 있어서다 —
-        // 폰에서 그림자 값이 모자라면 이 스위치만 다시 켜면 된다.
+        // 그런데 그 뒤 8e705eb 에서 방향광 그림자를 껐다 (아티팩트만
+        // 나왔다). 그래서 진짜도 가짜도 없는 채로 남았고, 접시가
+        // 식탁에, 사과가 접시에, 화분이 바닥에 안 닿아 보였다.
+        // 그림자를 끈 쪽이 만든 구멍이니 이쪽을 도로 켠다.
+
         if (!FakeContactShadows) return;
 
         Material m = ToolModels.MakeMaterial(
