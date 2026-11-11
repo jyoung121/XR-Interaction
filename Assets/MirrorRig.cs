@@ -241,6 +241,23 @@ public class MirrorRig : MonoBehaviour
     // 사과에서 0.55 를 벌렸다가 0.22 로 물어 내렸으니 그 비율을 그대로 쓴다.
     private const float ChewBase = 0.40f;
 
+    // 눈꺼풀을 눈보다 이만큼 앞에 띄운다. 덜 띄우면 두 면이 같은 자리를
+    // 다퉈 얼룩덜룩해지고(z-fighting), 더 띄우면 눈이 쑥 들어가 보인다.
+    private const float LidLift = 0.0015f;
+    // 눈보다 이만큼 크게 떠서 눈 가장자리가 삐져나오지 않게 한다.
+    private const float LidGrow = 1.14f;
+    // 뜬 눈에 남겨 두는 눈꺼풀. 0 으로 두면 눈 위가 허전한데, 조금
+    // 남기면 쌍꺼풀 선으로 읽힌다.
+    private const float LidOpen = 0.07f;
+    // 한 번 깜빡이는 데 걸리는 시간 (s)
+    private const float BlinkDur = 0.22f;
+
+    // 눈썹을 찡그릴 때 내려오는 거리 (m). 사람 눈썹은 5 mm 쯤 움직인다.
+    private const float BrowDrop = 0.005f;
+    // 볼이 부푸는 거리 (m). 4 mm 로 넓게 폈더니 볼이 부푼 게 아니라
+    // **머리가 커 보였다.** 좁게 모으고 조금 키운다.
+    private const float CheekPuff = 0.006f;
+
     // 한 입 주기에서 음식에 상관없이 같은 두 구간.
     private const float OnPlate = 1.4f;    // 접시에 놓인 채 기다리는 동안
     private const float AfterBite = 0.9f;  // 삼키고 잠시 쉬는 동안
@@ -282,7 +299,26 @@ public class MirrorRig : MonoBehaviour
     // 깨무는 순간을 한 번만 세려고 둔다. 몇 입에 걸쳐 먹는지는 음식마다
     // 다르므로(FoodSpec.bites) 단계 수는 여기 두지 않는다.
     private int biteCycle = -1;
-    private float mouthOpen;          // 지금 벌어진 정도. 소리 쪽이 본다
+    private float mouthOpen;
+
+    // 눈꺼풀 두 짝 (0 = 왼쪽, x<0). 모델에 눈 뼈도 블렌드셰이프도 없어서
+    // 눈 앞면을 떠다 살색으로 덮어 만들었다 — BuildEyes 참고.
+    private readonly Transform[] eyeLid = new Transform[2];
+    // 깜빡임 시계. elapsed 와 따로 가는 이유는, 아무 상황도 안 켠 거울
+    // 앞에서도 사람은 눈을 깜빡여야 하기 때문이다. elapsed 는 상황이
+    // 켜져 있는 동안만 흐른다.
+    private float faceTime;
+
+    // 눈썹과 볼은 얼굴 살이라 떼어 낼 수가 없다. 머리 메시를 한 장
+    // 복사해 두고 그 꼭짓점을 직접 민다 (BuildFlex).
+    private Mesh flexMesh;              // 갈아 끼운 머리 메시
+    private Vector3[] flexRest;         // 밀기 전 꼭짓점
+    private Vector3[] flexNow;          // 밀어 넣을 꼭짓점
+    private int[] flexIdx;              // 움직이는 꼭짓점만
+    private Vector3[] flexDir;          // 그 꼭짓점이 갈 방향 (메시 좌표)
+    private float[] flexBrow;           // 눈썹다움 0~1
+    private float[] flexCheek;          // 볼다움 0~1
+    private float flexLastBrow = -9f, flexLastCheek = -9f;          // 지금 벌어진 정도. 소리 쪽이 본다
     private const float LipBulge = 0.0018f;  // 입술을 앞으로 내미는 양
     private Quaternion pivToMesh = Quaternion.identity;  // headPivot → 원본 메시 좌표
     private bool pivToMeshOK;
@@ -415,6 +451,33 @@ public class MirrorRig : MonoBehaviour
     /// 넘겨주면, 보이는 턱과 들리는 소리가 어긋날 길이 없다.
     /// </summary>
     public float MouthOpen { get { return mouthOpen; } }
+
+    /// <summary>
+    /// 거울 속 사람의 두 눈 한가운데 (리그 좌표).
+    ///
+    /// 미리보기가 눈을 가까이서 찍을 때 쓴다. 숫자를 저쪽에 적어 두면
+    /// 안 된다 — 치과에서는 리그가 통째로 젖혀지고 사람이 눕기 때문에,
+    /// 세워 놓고 잰 좌표가 거기서는 턱 속을 가리킨다. 실제로 그렇게
+    /// 찍어서 얼굴이 아니라 턱 안쪽이 나왔다.
+    ///
+    /// 비율은 Editor/FaceProbe 로 잰 값이다 (눈 한가운데가 목관절에서
+    /// 위로 0.365, 앞으로 0.459 — 머리 길이를 1 로 봤을 때).
+    /// </summary>
+    public Vector3 EyeSpot { get { return FaceAt(0f, 0f); } }
+
+    /// <summary>눈을 정면 20 cm 앞에서 볼 카메라 자리 (리그 좌표).</summary>
+    public Vector3 EyeCam { get { return FaceAt(0f, 0.20f); } }
+
+    /// <summary>얼굴 위의 한 점 (리그 좌표).</summary>
+    /// <param name="up">눈에서 위로 (m). 음수면 입 쪽</param>
+    /// <param name="ahead">얼굴에서 앞으로 (m)</param>
+    public Vector3 FaceAt(float up, float ahead)
+    {
+        if (headPivot == null) return Vector3.zero;
+        return transform.InverseTransformPoint(
+            headPivot.TransformPoint(
+                new Vector3(0f, headUnit * 0.365f + up, headUnit * 0.459f + ahead)));
+    }
 
     /// <summary>
     /// 씹기 시작한 뒤 <paramref name="c"/> 초에 턱이 얼마나 벌어져 있는가.
@@ -1512,7 +1575,373 @@ public class MirrorRig : MonoBehaviour
         // 이와 잇몸은 받아온 틀니 모델이다 (ToothRow 참고).
         mouthTeeth    = ToothRow("TeethUp",  true);
         mouthTeethLow = ToothRow("TeethLow", false);
+        BuildEyes(person);
         SetMouth(0f);
+    }
+
+    /// <summary>
+    /// 눈꺼풀. **눈의 앞면을 그대로 떠서** 살색으로 덮는다.
+    ///
+    /// 이 모델에는 눈을 움직일 뼈도 블렌드셰이프도 없다 (Editor/FaceProbe
+    /// 로 찍어 확인했다). 대신 눈과 눈썹이 각각 **따로 선 서브메시**라
+    /// 그 삼각형만 집어낼 수 있다. 그래서 눈 모양을 베껴 1.5 mm 앞에
+    /// 살색으로 띄운다 — 눈꺼풀의 윤곽이 곧 눈의 윤곽이라 어긋날 수가
+    /// 없고, 이 모델은 텍스처 없이 재질 색 하나로 칠해져 있어서
+    /// (FaceProbe: "텍스처 (없음)") 살색만 가져오면 이음매도 안 보인다.
+    ///
+    /// 감는 것은 **위 모서리를 축으로 세로로 눌러서** 한다. 눈꺼풀이
+    /// 위에서 내려오는 것이니 축도 위에 있어야 한다. 아래에 두면 눈이
+    /// 밑에서 차오른다.
+    ///
+    /// 재질은 **이름으로 못 찾는다.** Standardize 가 받아온 재질을 전부
+    /// 갈아 끼우면서 이름이 날아가기 때문이다. 그래서 원본 프리팹에서
+    /// 몇 번째 서브메시가 눈인지만 읽어 오고, 색은 살아 있는 쪽에서
+    /// 가져온다 — Reskin 이 색은 그대로 들고 간다.
+    /// </summary>
+    private void BuildEyes(GameObject person)
+    {
+        SkinnedMeshRenderer head = HeadSkin(person);
+        if (head == null || head.sharedMesh == null || headPivot == null) return;
+
+        int eyeSub = SubMeshNamed("Eye");
+        if (eyeSub < 0 || eyeSub >= head.sharedMesh.subMeshCount)
+        {
+            Debug.LogWarning("[MirrorRig] 눈 서브메시를 못 찾아 눈꺼풀을 못 만들었다");
+            return;
+        }
+
+        // 살색. 머리 재질 가운데 **가장 밝은 것**이 피부다 (살 0.81 >
+        // 머리카락 0.29 > 눈썹 0.24 > 눈 0.19). 이름이 날아가도 이건 남는다.
+        Material[] mats = head.sharedMaterials;
+        Color skin = new Color(0.81f, 0.68f, 0.53f);
+        float best = -1f;
+        foreach (Material m in mats)
+        {
+            if (m == null) continue;
+            float lum = m.color.r + m.color.g + m.color.b;
+            if (lum > best) { best = lum; skin = m.color; }
+        }
+
+        // CarveMouth 와 같은 변환 — 구운 자세를 headPivot 좌표로 옮긴다.
+        Mesh src = head.sharedMesh;
+        Mesh baked = new Mesh();
+        head.BakeMesh(baked, true);
+        Vector3[] bv = baked.vertices;
+        if (bv.Length != src.vertexCount) { Destroy(baked); return; }
+
+        Transform rt = head.transform;
+        Vector3[] P = new Vector3[bv.Length];
+        for (int i = 0; i < bv.Length; i++)
+            P[i] = headPivot.InverseTransformPoint(rt.TransformPoint(bv[i]));
+
+        int[] tri = src.GetTriangles(eyeSub);
+        Material lidMat = ToolModels.MakeMaterial(skin, 0f, 0.12f);
+        Material glintMat = ToolModels.MakeGlow(new Color(0.95f, 0.97f, 1f));
+
+        for (int side = 0; side < 2; side++)
+            eyeLid[side] = OneLid(side == 0, P, tri, lidMat, glintMat);
+
+        BuildFlex(head, P, SubMeshNamed("Eyebrows"));
+
+        // 지은 눈꺼풀은 아직 localScale 이 1 이라 **감은 눈**이다.
+        // 한 번 불러서 떠 둔다.
+        UpdateFace();
+        Kill(baked);
+    }
+
+    /// <summary>한쪽 눈꺼풀. 앞을 보는 삼각형만 쓴다.</summary>
+    private Transform OneLid(bool left, Vector3[] P, int[] tri,
+                             Material lidMat, Material glintMat)
+    {
+        var keep = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < tri.Length; i += 3)
+        {
+            Vector3 a = P[tri[i]], b = P[tri[i + 1]], c = P[tri[i + 2]];
+            Vector3 mid = (a + b + c) / 3f;
+            if ((mid.x < 0f) != left) continue;
+
+            // 뒤통수 쪽을 보는 면은 버린다. 눈알은 공이라 절반이 뒤를
+            // 보는데, 그것까지 떠다 덮으면 눈꺼풀이 머리 속으로 들어간다.
+            if (Vector3.Cross(b - a, c - a).z <= 0f) continue;
+            keep.Add(i);
+        }
+        if (keep.Count == 0) return null;
+
+        // 쓸 꼭짓점의 한가운데와 맨 위. 축을 맨 위에 둬야 위에서 내려온다.
+        var map = new System.Collections.Generic.Dictionary<int, int>();
+        Vector3 c0 = Vector3.zero;
+        float topY = -1e9f, frontZ = -1e9f;
+        int n = 0;
+        foreach (int i in keep)
+            for (int k = 0; k < 3; k++)
+            {
+                Vector3 v = P[tri[i + k]];
+                c0 += v; n++;
+                if (v.y > topY) topY = v.y;
+                if (v.z > frontZ) frontZ = v.z;
+            }
+        c0 /= n;
+
+        Vector3 hinge = new Vector3(c0.x, topY, c0.z);
+        var vs = new System.Collections.Generic.List<Vector3>();
+        var ts = new System.Collections.Generic.List<int>();
+        foreach (int i in keep)
+            for (int k = 0; k < 3; k++)
+            {
+                int srcIdx = tri[i + k], dst;
+                if (!map.TryGetValue(srcIdx, out dst))
+                {
+                    dst = vs.Count;
+                    map[srcIdx] = dst;
+                    // 눈 한가운데를 기준으로 좌우·위아래만 키우고, 앞으로
+                    // 1.5 mm 민다. 깊이는 안 키운다 — 키우면 뒤쪽이 머리
+                    // 밖으로 빠져나온다.
+                    Vector3 v = P[srcIdx];
+                    v.x = c0.x + (v.x - c0.x) * LidGrow;
+                    v.y = c0.y + (v.y - c0.y) * LidGrow;
+                    v.z += LidLift;
+                    vs.Add(v - hinge);
+                }
+                ts.Add(dst);
+            }
+
+        Mesh m = new Mesh();
+        m.name = left ? "EyeLid.L" : "EyeLid.R";
+        m.SetVertices(vs);
+        m.SetTriangles(ts, 0);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+
+        GameObject pivot = new GameObject(m.name);
+        pivot.transform.SetParent(headPivot, false);
+        pivot.transform.localPosition = hinge;
+
+        GameObject go = new GameObject(m.name + "_Mesh");
+        go.transform.SetParent(pivot.transform, false);
+        go.AddComponent<MeshFilter>().sharedMesh = m;
+        go.AddComponent<MeshRenderer>().sharedMaterial = lidMat;
+
+        // 눈에 빛점 하나. 이게 없으면 까만 구슬이라 눈이 죽어 보인다.
+        // 눈꺼풀보다 **뒤에** 둬야 감았을 때 같이 가려진다.
+        // 공으로 만든다. 쿼드로 했더니 아무것도 안 보였는데, 유니티
+        // 기본 Quad 는 제 -Z 를 보고 있어서 얼굴 쪽으로 돌아앉아 있었다.
+        // 공은 어느 쪽을 봐도 같아서 그 실수를 할 수가 없다.
+        Prim(headPivot, PrimitiveType.Sphere, glintMat,
+             new Vector3(c0.x - Mathf.Sign(c0.x) * 0.003f, c0.y + 0.003f, frontZ),
+             Quaternion.identity, Vector3.one * 0.0045f,
+             left ? "EyeGlint.L" : "EyeGlint.R");
+
+        return pivot.transform;
+    }
+
+    /// <summary>
+    /// 눈썹과 볼을 밀 준비. 머리 메시를 한 장 복사해 두고, 어느 꼭짓점이
+    /// 얼마나 따라 움직일지를 미리 재 둔다.
+    ///
+    /// 눈썹은 **제 서브메시**라 어느 꼭짓점인지가 분명하다. 볼은 그냥
+    /// 살이라 자리로 고른다 — 입꼬리 바깥 위쪽에 공 하나를 놓고 그 안을
+    /// 부드럽게 집는다.
+    ///
+    /// 스킨드 메시라 꼭짓점이 바인드포즈 좌표에 있다. headPivot 기준으로
+    /// 밀고 싶은 방향을 그 좌표로 옮기는 행렬을 한 번 구해 둔다 — 머리가
+    /// 돌아가도 둘이 같이 도니 상수다.
+    /// </summary>
+    private void BuildFlex(SkinnedMeshRenderer head, Vector3[] P, int browSub)
+    {
+        Mesh src = head.sharedMesh;
+        if (src == null || browSub < 0) return;
+
+        Transform[] bones = head.bones;
+        int headIdx = -1;
+        for (int i = 0; i < bones.Length; i++)
+            if (bones[i] == headBone) { headIdx = i; break; }
+        if (headIdx < 0)
+        {
+            Debug.LogWarning("[MirrorRig] 머리뼈가 스킨에 없다 — 눈썹·볼을 못 민다");
+            return;
+        }
+
+        // 메시 좌표 → headPivot 좌표로 가는 변환. **회전만 떼어 쓰면
+        // 안 된다.** 처음에 Quaternion 으로 받았더니 얼굴이 접시처럼
+        // 터졌다 — 이 FBX 는 메시 꼭짓점이 월드와 다른 단위라, 바인드
+        // 행렬에 배율이 같이 들어 있고 회전만 뽑으면 그게 날아간다.
+        // 4 mm 를 밀었는데 5 cm 가 나간 이유가 그것이었다.
+        Matrix4x4 meshToPiv = headPivot.worldToLocalMatrix
+                            * headBone.localToWorldMatrix * src.bindposes[headIdx];
+        Matrix4x4 pivToMesh = meshToPiv.inverse;
+
+        // 맞는 변환인지 **확인하고** 쓴다. 이게 틀리면 얼굴이 조용히
+        // 망가지는 게 아니라 터지므로, 터뜨리기 전에 잡는다.
+        Vector3 chk = meshToPiv.MultiplyPoint3x4(src.vertices[0]) - P[0];
+        if (chk.magnitude > 0.002f)
+        {
+            Debug.LogWarning("[MirrorRig] 메시↔머리 변환이 안 맞는다 ("
+                             + (chk.magnitude * 1000f).ToString("F1")
+                             + " mm) — 눈썹·볼을 안 움직인다");
+            return;
+        }
+
+        flexMesh = Object.Instantiate(src);
+        flexMesh.name = src.name + "_Flex";
+        head.sharedMesh = flexMesh;
+        flexRest = flexMesh.vertices;
+        flexNow = (Vector3[])flexRest.Clone();
+
+        // 눈썹 꼭짓점
+        var brow = new System.Collections.Generic.HashSet<int>();
+        foreach (int i in src.GetTriangles(browSub)) brow.Add(i);
+
+        // 볼은 입 양옆 위쪽. 입이 (0, mouthLocal.y, mouthSkinZ) 근처에
+        // 있으니 거기서 좌우로 벌리고 조금 올린다.
+        float cx = headUnit * 0.26f;
+        Vector3 cheekL = new Vector3(-cx, mouthLocal.y + headUnit * 0.07f, mouthSkinZ * 0.90f);
+        float reach = headUnit * 0.13f;
+
+        var idx = new System.Collections.Generic.List<int>();
+        var dir = new System.Collections.Generic.List<Vector3>();
+        var wb = new System.Collections.Generic.List<float>();
+        var wc = new System.Collections.Generic.List<float>();
+
+        for (int i = 0; i < flexRest.Length; i++)
+        {
+            float b = brow.Contains(i) ? 1f : 0f;
+
+            Vector3 p = P[i];
+            Vector3 c = new Vector3(cheekL.x * (p.x < 0f ? 1f : -1f), cheekL.y, cheekL.z);
+            float d = Vector3.Distance(p, c);
+            float ch = Mathf.SmoothStep(1f, 0f, Mathf.Clamp01(d / reach));
+            // 얼굴 앞쪽만. 뒤통수가 같이 부풀면 머리가 커진다.
+            if (p.z < headUnit * 0.15f) ch = 0f;
+
+            if (b <= 0f && ch <= 0.01f) continue;
+
+            idx.Add(i);
+            wb.Add(b);
+            wc.Add(ch);
+            // 눈썹은 아래로, 볼은 밖으로(옆·앞). 둘 다 headPivot 기준이라
+            // 메시 좌표로 돌려서 적어 둔다.
+            Vector3 want = b > 0f
+                         ? Vector3.down
+                         : new Vector3(Mathf.Sign(p.x) * 0.72f, 0.12f, 0.68f).normalized;
+            // 길이까지 같이 옮긴다. 여기서 정규화하면 배율이 도로 날아간다.
+            dir.Add(pivToMesh.MultiplyVector(want));
+        }
+
+        flexIdx = idx.ToArray();
+        flexDir = dir.ToArray();
+        flexBrow = wb.ToArray();
+        flexCheek = wc.ToArray();
+        Debug.Log("[MirrorRig] 움직이는 얼굴 꼭짓점 " + flexIdx.Length
+                  + " (눈썹 " + brow.Count + ")");
+    }
+
+    /// <summary>
+    /// 눈썹과 볼을 민다. brow 1 이면 잔뜩 찡그린 얼굴, cheek 1 이면
+    /// 볼이 가득 부푼 얼굴.
+    ///
+    /// 값이 거의 안 바뀌었으면 넘긴다. 꼭짓점 3282 개를 매 프레임
+    /// 올려 보내면 폰에서 초당 2 MB 가 그냥 나간다.
+    /// </summary>
+    private void SetFlex(float brow, float cheek)
+    {
+        if (flexMesh == null || flexIdx == null) return;
+        if (Mathf.Abs(brow - flexLastBrow) < 0.01f
+            && Mathf.Abs(cheek - flexLastCheek) < 0.01f) return;
+        flexLastBrow = brow;
+        flexLastCheek = cheek;
+
+        for (int k = 0; k < flexIdx.Length; k++)
+        {
+            int i = flexIdx[k];
+            float amt = flexBrow[k] * brow * BrowDrop + flexCheek[k] * cheek * CheekPuff;
+            flexNow[i] = flexRest[i] + flexDir[k] * amt;
+        }
+        flexMesh.vertices = flexNow;
+    }
+
+    /// <summary>머리 스킨 렌더러.</summary>
+    private static SkinnedMeshRenderer HeadSkin(GameObject person)
+    {
+        foreach (SkinnedMeshRenderer r in person.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            if (r.name.IndexOf("Head", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return r;
+        return null;
+    }
+
+    /// <summary>
+    /// 원본 프리팹에서 그 이름의 재질이 몇 번째 서브메시인지 읽는다.
+    /// 살아 있는 쪽은 Standardize 가 재질을 갈아 끼워 이름이 없다.
+    /// </summary>
+    private static int SubMeshNamed(string want)
+    {
+        GameObject prefab = Resources.Load<GameObject>("Models/Person");
+        if (prefab == null) return -1;
+        SkinnedMeshRenderer head = HeadSkin(prefab);
+        if (head == null) return -1;
+
+        Material[] mats = head.sharedMaterials;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            // "Eye" 를 찾을 때 "Eyebrows" 가 걸리면 안 되므로 꼭 맞을 때만.
+            if (mats[i] != null
+                && string.Equals(mats[i].name, want,
+                                 System.StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// 눈을 깜빡인다. 0 이면 뜬 눈, 1 이면 감은 눈.
+    ///
+    /// 시각을 넣으면 답이 나오는 식으로 짰다 — 다음 깜빡일 때를 들고
+    /// 있지 않는다. 미리보기가 시각을 건너뛰며 찍기 때문에
+    /// (StepForPreview), 상태를 들고 있으면 찍을 때마다 다른 그림이 나온다.
+    /// </summary>
+    private static float BlinkAt(float t, bool tense)
+    {
+        // 사람은 보통 3~4 초에 한 번 깜빡이고, 긴장하면 잦아진다.
+        // 치과에서 더 자주 깜빡이는 건 세 진동 패턴에서 **똑같다** —
+        // 패턴을 알려 주는 단서가 되면 안 된다.
+        float period = tense ? 2.3f : 4.2f;
+        int k = Mathf.FloorToInt(t / period);
+        float at = k * period + Hash01(k) * (period - BlinkDur);
+        float u = (t - at) / BlinkDur;
+        if (u < 0f || u > 1f) return 0f;
+
+        // 감는 게 뜨는 것보다 빠르다. 사람 눈이 그렇다.
+        return u < 0.35f ? Ease(u / 0.35f) : Ease(1f - (u - 0.35f) / 0.65f);
+    }
+
+    /// <summary>k 번째 깜빡임을 0~1 사이 아무 값으로. 돌릴 때마다 같다.</summary>
+    private static float Hash01(int k)
+    {
+        float v = Mathf.Sin(k * 12.9898f) * 43758.5453f;
+        return v - Mathf.Floor(v);
+    }
+
+    /// <summary>얼굴에서 매 프레임 움직이는 것들.</summary>
+    private void UpdateFace()
+    {
+        float y = Mathf.Lerp(LidOpen, 1f,
+                             BlinkAt(faceTime, current == Scenario.Dental));
+        for (int i = 0; i < 2; i++)
+            if (eyeLid[i] != null) eyeLid[i].localScale = new Vector3(1f, y, 1f);
+
+        // 눈썹은 **도구가 닿아 있는 동안** 찡그린다. 기계가 이를 갈고
+        // 있는데 표정이 그대로면 그 얼굴이 내 얼굴로 안 읽힌다.
+        //
+        // Contact 는 세 진동 패턴에서 **똑같다.** 그래야 한다 — 눈썹이
+        // 패턴마다 다르게 움직이면, "진동이 진짜 같았나" 를 묻는 자리에서
+        // 사람들이 눈썹을 보고 답하게 된다. 소리에 걸어 둔 규칙과 같다.
+        float brow = current == Scenario.Dental ? Contact : Contact * 0.35f;
+
+        // 볼은 씹을 때 부푼다. 턱이 다물릴수록 가득 찬다 — 입을 벌린
+        // 순간에 볼이 불룩하면 음식이 밖에 나와 있는 꼴이다.
+        float cheek = current == Scenario.Food
+                    ? Contact * (1f - Mathf.Clamp01(mouthOpen / 0.35f))
+                    : 0f;
+        SetFlex(brow, cheek);
     }
     /// <summary>
     /// 구강 안쪽 벽. **뚫은 구멍의 테두리를 그대로 뒤로 늘여서** 만든다.
@@ -3947,6 +4376,11 @@ public class MirrorRig : MonoBehaviour
         if (label != null && label.gameObject.activeSelf && Time.time > labelUntil)
             label.gameObject.SetActive(false);
 
+        // 상황을 안 켠 거울 앞에서도 사람은 눈을 깜빡인다. elapsed 는
+        // 상황이 켜진 동안만 흐르므로 얼굴은 제 시계로 돈다.
+        faceTime += Time.deltaTime;
+        UpdateFace();
+
         if (current == Scenario.None) return;
         elapsed += Time.deltaTime;
         Animate();
@@ -3974,6 +4408,8 @@ public class MirrorRig : MonoBehaviour
     public void StepForPreview(float seconds)
     {
         TrackViewer();
+        faceTime = seconds;
+        UpdateFace();
         if (current == Scenario.None) { PoseLegs(true); return; }
         elapsed = seconds;
         Animate();

@@ -202,6 +202,19 @@ public static class ToolPreview
         rig.StepForPreview(0f);
         ShootFrom(eye, look, "mirror_idle.png", 75f);
 
+        // 눈. 뜬 것과 감은 것을 한 장씩 — 눈꺼풀이 눈을 덮는지, 뜬 눈에
+        // 남긴 선이 쌍꺼풀로 보이는지는 둘을 나란히 놔야 판단이 된다.
+        //
+        // 감기는 순간은 어림하지 않고 맞춘다. MirrorRig.BlinkAt 에서
+        // 0 번째 깜빡임이 t=0 에 시작하고 0.35 × BlinkDur(0.22) =
+        // 0.077 초에 가장 많이 감긴다. 카메라도 리그에서 받는다
+        // (EyeCam/EyeSpot) — 눈 좌표를 여기 적어 두면 사람이 눕는
+        // 치과에서 쓸 수 없고, 모델을 바꾸면 바로 어긋난다.
+        rig.StepForPreview(1.60f);
+        CastShot(rig, rig.EyeCam, rig.EyeSpot, "eyes_open.png");
+        rig.StepForPreview(0.077f);
+        CastShot(rig, rig.EyeCam, rig.EyeSpot, "eyes_shut.png");
+
         // 음식 다섯 가지를 다 찍는다. 조건이 거울에서 서로 구분되는지는
         // 나란히 놓고 봐야만 알 수 있다 — 두 가지일 때도 그랬고, 다섯이
         // 되면 "이게 고기인지 푸딩인지" 가 훨씬 아슬아슬하다.
@@ -248,6 +261,13 @@ public static class ToolPreview
         CastShot(rig, new Vector3(0f, 0.02f, 0.58f), new Vector3(0f, -0.07f, 0.90f),
                  "mouth_closeup.png");
 
+        // 치과에서는 얼굴 클로즈업을 **안 찍는다.** 여기서 찍어 봐야
+        // 쓸 데가 없다 — 참가자가 누워서 머리 위 거울을 올려다보는
+        // 구도라, 거울에 들어오는 것은 턱·코밑·입뿐이고 눈과 눈썹은
+        // 아예 화면 밖이다 (mirror_dental.png 를 확대해 확인했다).
+        // 그래서 깜빡임도 찡그림도 치과 조건에서는 보이지 않는다.
+        // 보이게 하려면 거울 각도부터 바꿔야 한다.
+
         // 전동칫솔 쪽. 드릴과 나란히 놓고 봐야 두 수준이 구분되는지 알 수 있다.
         rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Brush);
         viewerGo.transform.rotation = upward;
@@ -277,6 +297,25 @@ public static class ToolPreview
         ShootFrom(eye, look, "mirror_food_bitten.png", 75f);
         rig.StepForPreview(BiteCycle * 2f + BiteAt + 1.2f);
         ShootFrom(eye, look, "mirror_food_chew.png", 75f);
+
+        // 얼굴 세 장을 **같은 카메라로** 찍는다. 볼이 부푸는지, 눈썹이
+        // 내려오는지는 한 장만 봐서는 절대 모른다 — 움직임이 mm 단위라
+        // 나란히 놓고 비교해야 보인다.
+        //
+        // 찍는 순간을 어림하지 않는다. 씹는 동안 턱은
+        // open×ChewBase + depth×sin(c×rate) 로 흔들리니(사과 rate 12),
+        // sin 이 -1 인 c = (3π/2)/12 = 0.393 초에 가장 많이 다물리고
+        // +1 인 c = (π/2)/12 = 0.131 초에 가장 많이 벌어진다. BiteAt 이
+        // 곧 씹기 시작하는 시각이다.
+        Vector3 fcam = rig.FaceAt(-0.03f, 0.26f), fat = rig.FaceAt(-0.03f, 0f);
+        float chewFrom = BiteCycle * 2f + BiteAt;
+
+        rig.StepForPreview(BiteCycle * 2f + 0.4f);     // 아직 접시 위 — 닿기 전
+        CastShot(rig, fcam, fat, "face_rest.png");
+        rig.StepForPreview(chewFrom + 0.393f);         // 가장 다문 순간
+        CastShot(rig, fcam, fat, "face_chew.png");
+        rig.StepForPreview(chewFrom + 0.131f);         // 가장 벌린 순간
+        CastShot(rig, fcam, fat, "face_bite.png");
 
         // 고개를 숙이면 거울에 제 몸이 보이는지. 집 거울이 전신인 이유가 이거다.
         Quaternion downward = Quaternion.Euler(27f, 0f, 0f);

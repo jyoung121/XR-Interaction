@@ -89,6 +89,36 @@ public static class ToolModels
         return Mat(color, metallic, smoothness, tex);
     }
 
+    /// <summary>
+    /// 받는 빛과 상관없이 제 색으로 빛나는 재질.
+    ///
+    /// 눈에 찍는 빛점에 쓴다. 처음엔 반질거리는 흰 면으로 만들었는데
+    /// **까맣게 나왔다** — 눈이 눈썹 밑 그늘에 들어가 있고, 이 프로젝트엔
+    /// 반사 프로브가 없어서 반질거리는 면에 비칠 것이 아무것도 없다.
+    /// 빛점은 빛을 **받는** 것이 아니라 **내는** 것으로 다뤄야 맞는다.
+    /// </summary>
+    public static Material MakeGlow(Color color)
+    {
+        Shader sh = Shader.Find("Universal Render Pipeline/Unlit");
+        if (sh == null) sh = Shader.Find("Unlit/Color");
+        if (sh == null)
+        {
+            // 라이트 셰이더밖에 없으면 발광으로 흉내 낸다.
+            Material lit = Mat(color, 0f, 0f);
+            if (lit.HasProperty("_EmissionColor"))
+            {
+                lit.EnableKeyword("_EMISSION");
+                lit.SetColor("_EmissionColor", color);
+            }
+            return lit;
+        }
+
+        Material m = new Material(sh);
+        m.color = color;
+        if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", color);
+        return m;
+    }
+
     private static Material Mat(Color color, float metallic, float smoothness,
                                 Texture tex = null)
     {
