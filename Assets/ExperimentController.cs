@@ -508,6 +508,11 @@ public class ExperimentController : MonoBehaviour
             yield break;
         }
 
+        // 소리는 진동과 **같은 자리에서** 켜고 끈다(ApplyContactHaptics).
+        // 따로 돌리면 드릴 소리가 나는데 진동은 안 오는 순간이 생기고,
+        // 참가자는 그 어긋남을 "진동이 가짜 같다" 로 적는다.
+        ScenarioAudio.Attach(headCamera);
+
         // 바리깡을 빼고 치과와 음식 두 상황으로 간다. 음식은 11/11 에 두
         // 수준에서 다섯 가지로 늘렸으므로(MirrorRig.FoodKind) 블록은 일곱이다.
         //
@@ -564,6 +569,7 @@ public class ExperimentController : MonoBehaviour
 
         HapticManager.StopContinuous();
         HapticManager.StopWaveform();
+        ScenarioAudio.Detach();
         scenarioBuzzing = false;
         rig.Dispose();
     }
@@ -575,6 +581,7 @@ public class ExperimentController : MonoBehaviour
         // 멈춰 두지 않으면 앞 시나리오의 날카로움이 그대로 남는다.
         HapticManager.StopContinuous();
         HapticManager.StopWaveform();
+        ScenarioAudio.SetLoop(ScenarioAudio.Loop.None, 0f);
         scenarioBuzzing = false;
 
         // 파일럿에서 맞출 값의 출발점. 치과 드릴은 날카롭고, 전동칫솔은 같은 전동
@@ -612,8 +619,15 @@ public class ExperimentController : MonoBehaviour
                     1, Mathf.RoundToInt(waveHighAmplitude * rig.FoodPeakScale));
 
                 ScenarioHaptics.PlayCrunch(rig.FoodFragments, peak, crunchSeed);
+                // **같은 세 값**을 소리 쪽에도 넘긴다. 그래야 조각이 터지는
+                // 시각과 세기가 글자 그대로 같아진다 (ScenarioAudio 주석).
+                ScenarioAudio.PlayCrunch(rig.FoodFragments, peak, crunchSeed,
+                                         rig.FoodBrightness);
             }
             scenarioBuzzing = touching;
+            // 음식에는 이어지는 소리가 없다. 깨무는 순간에만 난다 —
+            // 진동도 거기서만 울린다.
+            ScenarioAudio.SetLoop(ScenarioAudio.Loop.None, 0f);
             return;
         }
 
@@ -628,6 +642,24 @@ public class ExperimentController : MonoBehaviour
             HapticManager.StopContinuous();
             scenarioBuzzing = false;
         }
+
+        // 소리도 닿아 있는 동안만. 드릴은 댔다 뗐다 하므로 뗀 동안은
+        // 소리도 같이 멎는다 — 진동이 멎는 바로 그 순간이다.
+        bool brush = rig.CurrentDental == MirrorRig.DentalKind.Brush;
+        float level = 0f;
+        if (touching)
+        {
+            // 칫솔은 솔이 좌우로 쓸리는 박자에 맞춰 커졌다 작아진다.
+            // 2.2 Hz 는 보이는 움직임과 같은 값이다(MirrorRig.AnimateDental).
+            // 일정한 세기로 두면 모터만 돌고 솔은 안 움직이는 소리가 된다.
+            level = brush
+                ? 0.55f + 0.20f * Mathf.Sin(rig.Seconds * 2.2f)
+                : 0.80f;
+        }
+        ScenarioAudio.SetLoop(
+            !touching ? ScenarioAudio.Loop.None
+                      : brush ? ScenarioAudio.Loop.Brush : ScenarioAudio.Loop.Drill,
+            level);
     }
 
     private IEnumerator StopXR()

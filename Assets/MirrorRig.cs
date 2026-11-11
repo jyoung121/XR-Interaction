@@ -66,6 +66,7 @@ public class MirrorRig : MonoBehaviour
         public float fold;
         public int frags;        // 진동 조각 수 (ScenarioHaptics.BuildCrunch)
         public float peak;       // 진동 세기 배율 (0~1)
+        public float bright;     // 깨지는 소리의 밝기 (0 둔한 퍽 ~ 1 유리 쨍)
         public float pSize;      // 접시에 담은 알의 크기 (m)
         public int pCount;       // 접시에 담은 알 수
         public float pRing;      // 알들을 놓는 원의 반지름 (m)
@@ -93,7 +94,7 @@ public class MirrorRig : MonoBehaviour
                        hold = 0.50f, chew = 1.90f, rate = 12f, depth = 0.20f,
                        open = 0.55f, spin = 26f, tilt = 0f, smooth = 0.58f,
                        grip = 0f, curl = 42f, thumb = 46f, fold = 78f,
-                       frags = 3, peak = 1.00f,
+                       frags = 3, peak = 1.00f, bright = 0.70f,
                        pSize = 0.075f, pCount = 3, pRing = 0.050f,
                        pYaw = 40f },
 
@@ -109,7 +110,7 @@ public class MirrorRig : MonoBehaviour
                        hold = 0.70f, chew = 2.40f, rate = 8f, depth = 0.14f,
                        open = 0.45f, spin = 22f, tilt = 0f, smooth = 0.74f,
                        grip = 0f, curl = 63f, thumb = 67f, fold = 101f,
-                       frags = 2, peak = 0.55f,
+                       frags = 2, peak = 0.55f, bright = 0.25f,
                        pSize = 0.058f, pCount = 5, pRing = 0.042f,
                        pYaw = 150f },
 
@@ -124,7 +125,7 @@ public class MirrorRig : MonoBehaviour
                        hold = 0.60f, chew = 3.40f, rate = 6f, depth = 0.17f,
                        open = 0.60f, spin = 18f, tilt = 90f, smooth = 0.26f,
                        grip = 0.023f, curl = 40f, thumb = 44f, fold = 74f,
-                       frags = 2, peak = 0.70f,
+                       frags = 2, peak = 0.70f, bright = 0.18f,
                        pSize = 0.080f, pCount = 3, pRing = 0.052f,
                        pYaw = 90f },
 
@@ -136,7 +137,7 @@ public class MirrorRig : MonoBehaviour
                        hold = 0.80f, chew = 1.10f, rate = 5f, depth = 0.09f,
                        open = 0.45f, spin = 14f, tilt = 0f, smooth = 0.55f,
                        grip = 0.024f, curl = 46f, thumb = 50f, fold = 80f,
-                       frags = 1, peak = 0.30f,
+                       frags = 1, peak = 0.30f, bright = 0.08f,
                        pSize = 0.065f, pCount = 4, pRing = 0.048f,
                        pYaw = 0f },
 
@@ -155,7 +156,7 @@ public class MirrorRig : MonoBehaviour
                        hold = 0.35f, chew = 1.50f, rate = 14f, depth = 0.12f,
                        open = 0.32f, spin = 40f, tilt = 90f, smooth = 0.86f,
                        grip = 0.026f, curl = 44f, thumb = 48f, fold = 78f,
-                       frags = 4, peak = 1.00f,
+                       frags = 4, peak = 1.00f, bright = 1.00f,
                        pSize = 0.052f, pCount = 5, pRing = 0.045f,
                        pYaw = 0f },
     };
@@ -378,10 +379,31 @@ public class MirrorRig : MonoBehaviour
     /// 다섯 가지가 되면 보이는 씹기와 느껴지는 씹기가 두 파일에서 따로
     /// 굴러가는데, 이 연구가 재려는 건 바로 그 둘이 맞는지다.
     /// </summary>
-    public int FoodFragments { get { return SpecOf(foodKind).frags; } }
+    public int FoodFragments { get { return FragmentsOf(foodKind); } }
+
+    /// <summary>음식 표를 종류로 바로 묻는다. 미리보기(AudioPreview)가 쓴다.</summary>
+    public static int FragmentsOf(FoodKind k) { return SpecOf(k).frags; }
+    public static float PeakScaleOf(FoodKind k) { return SpecOf(k).peak; }
+    public static float BrightnessOf(FoodKind k) { return SpecOf(k).bright; }
 
     /// <summary>지금 음식의 진동 세기 배율 (0~1). 세기의 윗값에 곱한다.</summary>
-    public float FoodPeakScale { get { return SpecOf(foodKind).peak; } }
+    public float FoodPeakScale { get { return PeakScaleOf(foodKind); } }
+
+    /// <summary>
+    /// 지금 음식이 깨지는 소리의 밝기 (0~1). ScenarioAudio.PlayCrunch 에 넘긴다.
+    ///
+    /// 진동 값과 같은 줄에 둔 이유는 같다 — 사탕이 유리처럼 쨍 하고 푸딩이
+    /// 둔하게 퍽 하는 건 조각 수·세기와 **같은 축**의 이야기라, 한 군데서
+    /// 같이 움직여야 소리와 진동이 어긋나지 않는다.
+    /// </summary>
+    public float FoodBrightness { get { return BrightnessOf(foodKind); } }
+
+    /// <summary>
+    /// 지금 시나리오에 들어온 뒤 흐른 시간 (s). 소리 쪽이 보이는 움직임과
+    /// 위상을 맞추는 데 쓴다 — 칫솔 소리는 솔이 좌우로 쓸리는 박자에 맞춰
+    /// 커졌다 작아져야 한다 (AnimateDental 의 2.2 Hz).
+    /// </summary>
+    public float Seconds { get { return elapsed; } }
 
     /// <summary>
     /// 한 입 주기의 길이 (s). 음식마다 다르다 — 질긴 고기가 7.5 초로 가장

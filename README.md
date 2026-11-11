@@ -92,6 +92,7 @@ SDK / NDK / JDK 까지 빠짐없이 설치해야 한다. 조각이 빠져 있으
 Assets/MirrorRig.cs               방·거울·등장인물·도구를 런타임에 세운다 (핵심)
 Assets/ToolModels.cs              드릴·전동칫솔·젤리 모델, 런타임 재질
 Assets/ScenarioHaptics.cs         상황별 진동 패턴
+Assets/ScenarioAudio.cs           상황별 소리 — 파일 없이 코드로 합성한다
 Assets/HapticManager.cs           Android/iOS 공통 진동 창구
 Assets/AndroidVibrationManager.cs Android VibrationEffect
 Assets/Plugins/iOS/CardboardHaptics.mm   iOS CoreHaptics
@@ -99,6 +100,7 @@ Assets/Resources/Models/          받아온 모델들 — 아래 "모델 출처"
 Assets/Resources/Materials/RuntimeBase.mat   런타임 재질이 쓸 URP 셰이더
 Assets/Editor/CIBuild.cs          명령줄 빌드 진입점
 Assets/Editor/ToolPreview.cs      빌드 전에 오프스크린으로 찍어 확인
+Assets/Editor/AudioPreview.cs     합성한 소리를 WAV 로 뽑아 들어 보기
 Assets/Editor/IOSBuildPostProcess.cs     CoreHaptics 프레임워크 연결
 Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
 ```
@@ -153,6 +155,57 @@ Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
 셰이더(분홍색)로 나온다. 이 프로젝트는 URP 를 품질 단계에만 걸어 둬서
 에디터에서는 이 차이가 드러나지 않는다.
 
+## 소리
+
+11/11 에 넣었다. 그 전까지는 **완전히 무음**이었다 — 카메라에 Unity 가
+기본으로 달아 주는 `AudioListener` 만 있고 들을 것이 없었다.
+
+**파일을 받아오지 않고 코드로 합성한다**(`ScenarioAudio`). 방·사람·도구는
+받아온 모델이지만 소리는 사정이 다르다. 쓸 만한 치과 드릴 녹음은 거의 다
+출처·라이선스가 불분명하고, 발표 자료에 출처를 적어야 하는 건 모델과
+똑같다. 합성하면 출처가 그 파일 한 장이고, 빌드도 안 무거워지고, 무엇보다
+값을 돌릴 수 있다. 메시도 햅틱 파형도 이미 다 코드로 만들고 있다.
+
+| 소리 | 만드는 법 | 언제 |
+|---|---|---|
+| 치과 드릴 | 4700 Hz 휘파람 + 배음/아래음 + 2.5~9 kHz 공기 쉭 | 닿아 있는 동안 |
+| 칫솔 | 260 Hz 모터와 배음 여섯 + 0.8~5 kHz 솔 긁힘 | 닿아 있는 동안 |
+| 깨물기 | 짧은 잡음 터짐 여러 개 | 깨무는 순간 한 번 |
+
+세 가지를 지키고 있다.
+
+- **깨무는 소리와 진동은 같은 묘사에서 나온다.** `ScenarioHaptics.BuildCrunch`
+  가 뱉은 `timings`/`amplitudes` 를 소리 쪽이 그대로 받아 그린다. 조각이
+  터지는 시각과 세기가 글자 그대로 같은 값이라 어긋날 수가 없다. 음식마다
+  다른 건 밝기 하나뿐이고(`FoodSpec.bright`) 그것도 같은 표에 있다 —
+  사탕이 유리처럼 쨍(1.00), 푸딩이 둔하게 퍽(0.08)
+- **씹는 동안은 일부러 조용하다.** 깨무는 순간에만 나고 뒤이어 오물거리는
+  1~3 초는 소리가 없다. 진동도 거기서는 안 울린다. 여기에 씹는 소리를
+  깔면 진동이 짝지을 것이 없는 단서가 하나 더 생겨서, "진동이 맞았는가"
+  를 묻는 자리에 "소리가 그럴듯했는가" 가 섞여 든다
+- **세 패턴 사이에서 소리는 똑같다.** 소리는 상황과 음식만 보고 정해지고
+  진동 패턴은 안 본다. 그래야 세 패턴의 차이가 진동의 차이로 남는다.
+  무음 조건이 필요하면 `ScenarioAudio.Enabled` 를 끈다
+
+이어지는 소리는 1 초를 만들어 돌려 쓰는데, **잡음을 정수 Hz 사인의 더미로
+쌓는다.** 흰 잡음을 1 초로 잘라 돌리면 이음매에서 파형이 뚝 끊겨 1 초마다
+"틱" 소리가 난다. 정수 Hz 는 1 초에 딱 떨어지므로 꼬리와 머리의 위상이
+저절로 맞고, 위상만 제각각으로 흩으면 귀에는 잡음으로 들린다.
+
+> 뽑아 둔 WAV 로 확인했다. 드릴은 가장 센 성분이 4700 Hz, 칫솔은 260 Hz 로
+> 의도대로 나왔고, 이음매의 샘플 단차는 그 소리의 보통 이웃 단차 분포
+> 안에 들어간다 (드릴 95 분위, 칫솔 54 분위) — 즉 돌려도 틱 소리가 없다.
+> **아이폰에서 실제로 들어 본 것은 아직 아니다.**
+
+소리를 들어 보려면:
+
+```bash
+"/c/Program Files/Unity/Hub/Editor/6000.6.7f1/Editor/Unity.exe" -batchmode -quit -projectPath "C:\UnityProjects\CardboardHaptic" -executeMethod AudioPreview.Dump -logFile "C:\UnityProjects\audio_dump.log"
+```
+
+`C:\UnityProjects\preview\audio\` 에 WAV 로 떨어진다. 에디터에서는
+메뉴 `Tools > 소리 미리듣기 뽑기`.
+
 ## 현재 상태 (2026-11-11)
 
 일곱 조건의 방·거울·등장인물·도구 구현을 마쳤다. 에디터 오프스크린
@@ -192,6 +245,8 @@ Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
   짜리 조각에 반지름 3 cm 짜리 구를 들이대면 구멍이 뚫린다. 어차피
   이 크기에서 읽히는 단서는 패인 자리가 아니라 **줄어드는 크기**라
   (아래 11/10 항목), 고기는 한 입마다 같은 비율로 작아지기만 한다
+- **소리를 넣었다.** 치과 드릴·칫솔 모터·깨무는 소리 — 전까지는 완전히
+  무음이었다. 자세한 건 아래 "소리" 참고
 - **블록이 일곱이 됐다**(`ExperimentController`). 순서는 섞지 않고
   단단한 쪽(사탕)에서 무른 쪽(푸딩)으로 내려간다 — 파일럿에서 실험자가
   값을 맞추는 단계라 느낌이 한 방향으로 움직이는 게 눈에 보여야 한다.
@@ -382,6 +437,10 @@ Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
   (현재는 예전 탐색 실험의 20열 형식)
 - 메뉴의 `Start experiment` 가 아직 예전 탐색 실험으로 연결돼 있다
 - 새 주제에 맞는 선행 연구 다시 정리
+- 소리를 **아이폰에서 들어 보기.** 합성 값은 WAV 로 확인했지만, 폰 스피커는
+  저음이 거의 안 나와서 칫솔(260 Hz)이 깡통처럼 들릴 수 있다. 이어폰을
+  쓸지도 정해야 한다 — 쓰면 소리가 선명해지는 대신 바깥 소리가 막혀서
+  진동이 더 크게 느껴진다
 
 ## 일정
 
