@@ -3784,14 +3784,30 @@ public class MirrorRig : MonoBehaviour
                 b = Vector3.Distance(l.lower.position, l.wrist.position);
             }
         }
-        Vector3 to = target - l.upper.position;
-        if (to.sqrMagnitude < 1e-8f || a < 1e-5f) return;
+        TwoBone(l.upper, l.lower, l.wrist, target, pole);
+    }
 
-        // 팔이 닿는 범위로 잘라낸다. 안 자르면 acos 인자가 범위를 벗어나 팔이 뒤집힌다.
-        float d = Mathf.Clamp(to.magnitude, Mathf.Abs(a - b) + 1e-3f, a + b - 1e-3f);
+    /// <summary>
+    /// 뼈 두 개를 굽혀 끝을 목표에 놓는다. a→b→c 사슬이고, 가운데
+    /// 관절(b)은 <paramref name="pole"/> 쪽으로 굽는다.
+    ///
+    /// 팔에 쓰려고 쓴 것인데 엄지도 마디가 둘이라 그대로 맞는다.
+    /// </summary>
+    private static void TwoBone(Transform a, Transform b, Transform c,
+                                Vector3 target, Vector3 pole)
+    {
+        if (a == null || b == null || c == null) return;
+
+        float la = Vector3.Distance(a.position, b.position);
+        float lb = Vector3.Distance(b.position, c.position);
+        Vector3 to = target - a.position;
+        if (to.sqrMagnitude < 1e-10f || la < 1e-5f) return;
+
+        // 닿는 범위로 잘라낸다. 안 자르면 acos 인자가 범위를 벗어나 뒤집힌다.
+        float d = Mathf.Clamp(to.magnitude, Mathf.Abs(la - lb) + 1e-4f, la + lb - 1e-4f);
         Vector3 dir = to.normalized;
 
-        float cos = Mathf.Clamp((a * a + d * d - b * b) / (2f * a * d), -1f, 1f);
+        float cos = Mathf.Clamp((la * la + d * d - lb * lb) / (2f * la * d), -1f, 1f);
         float ang = Mathf.Acos(cos) * Mathf.Rad2Deg;
 
         Vector3 axis = Vector3.Cross(dir, pole);
@@ -3799,9 +3815,9 @@ public class MirrorRig : MonoBehaviour
         if (axis.sqrMagnitude < 1e-8f) return;
         axis.Normalize();
 
-        PointBone(l.upper, l.lower, Quaternion.AngleAxis(-ang, axis) * dir);
-        // 위팔을 돌리면 아래팔도 따라 움직인 뒤다. 여기서 다시 재야 손목이 제자리에 온다.
-        PointBone(l.lower, l.wrist, target - l.lower.position);
+        PointBone(a, b, Quaternion.AngleAxis(-ang, axis) * dir);
+        // 첫 뼈를 돌리면 둘째도 따라 움직인 뒤다. 여기서 다시 재야 끝이 제자리에 온다.
+        PointBone(b, c, target - b.position);
     }
 
     /// <summary>
@@ -3867,7 +3883,7 @@ public class MirrorRig : MonoBehaviour
             AimArm(l, target, pole);
             l.wrist.rotation = hand;
             if (fold >= 0f) Pinch(l, curl, thumb, fold);
-            else Curl(l, curl);
+            else { Curl(l, curl); ThumbTo(l, point, axis); }
 
             if (pass < 2)
                 target += point - HoldPoint(l, fold >= 0f);
@@ -3895,6 +3911,50 @@ public class MirrorRig : MonoBehaviour
         if (l == null || !l.Valid || tool == null) return;
         GripAround(l, tool.TransformPoint(gripLocal), tool.TransformDirection(axisLocal),
                    forward, HandGrip, 50f, pole);
+    }
+
+    /// <summary>
+    /// 주먹을 쥘 때 엄지를 자루에 붙인다.
+    ///
+    /// <see cref="Curl"/> 은 다섯 손가락을 **한 축으로** 만다. 네
+    /// 손가락은 그 축이 맞지만 엄지는 맞세우는 방향이라 같은 축으로
+    /// 말면 손바닥 쪽으로만 간다 — 재 보니 자루 축에서 밑동이 7.4 cm,
+    /// 끝이 9.1 cm 로 **갈수록 멀어지고 있었다** (네 손가락은 1.9~3.4 cm).
+    ///
+    /// 각을 고르는 대신 겨눈다. 엄지도 마디가 둘이라 팔에 쓰던
+    /// <see cref="TwoBone"/> 이 그대로 맞는다. 닿을 자리는 네 손가락
+    /// 끝이 자루에서 떨어진 그 거리다 — 엄지만 더 들어가면 자루를
+    /// 뚫고, 덜 들어가면 혼자 떠 있다.
+    /// </summary>
+    private static void ThumbTo(Limb l, Vector3 point, Vector3 axis)
+    {
+        if (l == null || l.fingers == null || l.fingers.Length < 15) return;
+        Transform t1 = l.fingers[12], t2 = l.fingers[13], t3 = l.fingers[14];
+        if (t1 == null || t2 == null || t3 == null || l.tip == null) return;
+
+        // 자루 한가운데에서 엄지가 있는 쪽. 손가락 끝은 반대쪽을 감고
+        // 있으니, 엄지는 제자리에서 곧장 다가가면 맞물린다.
+        Vector3 side = Vector3.ProjectOnPlane(t1.position - point, axis);
+        if (side.sqrMagnitude < 1e-10f) return;
+
+        float r = Vector3.ProjectOnPlane(l.tip.position - point, axis).magnitude;
+        Vector3 goal = point + side.normalized * r;
+
+        // **손허리뼈는 조금만 돈다.** 세 마디 다 IK 에 맡겼더니 손허리뼈가
+        // 70도를 돌았고(재 봤다), 거기 매달린 엄지두덩 살이 통째로 끌려와
+        // 손이 자루를 덮는 넓적한 판이 됐다. 사람 엄지도 손허리뼈는 그만큼
+        // 안 꺾인다. 35도에서 끊고 나머지는 마디 둘이 맡는다.
+        Vector3 cur = t2.position - t1.position;
+        Vector3 want = goal - t1.position;
+        if (cur.sqrMagnitude < 1e-10f || want.sqrMagnitude < 1e-10f) return;
+        PointBone(t1, t2, Vector3.RotateTowards(cur.normalized, want.normalized,
+                                                35f * Mathf.Deg2Rad, 0f));
+
+        // 남은 두 마디로 자루에 닿는다. 가운데 관절은 자루 바깥으로
+        // 불룩해야 쥔 모양이 된다. 안 닿으면 TwoBone 이 알아서 쭉 편다.
+        Transform end = t3.childCount > 0 ? t3.GetChild(0) : null;
+        if (end != null) TwoBone(t2, t3, end, goal, side.normalized);
+        else PointBone(t2, t3, goal - t2.position);
     }
 
     /// <summary>
@@ -3973,7 +4033,14 @@ public class MirrorRig : MonoBehaviour
             sb.Append("  ").Append(n2.PadRight(10)).Append(v.ToString("F4")).Append("\n");
         };
         P2("Wrist", l.wrist); P2("Middle1", l.palm); P2("Middle2", l.mid); P2("Middle3", l.tip);
-        if (l.fingers != null && l.fingers.Length > 14) P2("Thumb3", l.fingers[14]);
+        if (l.fingers != null && l.fingers.Length > 14)
+        {
+            P2("Thumb1", l.fingers[12]);
+            P2("Thumb2", l.fingers[13]);
+            P2("Thumb3", l.fingers[14]);
+            P2("Index2", l.fingers[0]);
+            P2("Index4", l.fingers[2]);
+        }
         sb.Append("  grip(목표)  ").Append(GripOn(near == nearBrush).ToString("F4")).Append("\n");
         Vector3 c;
         if (l.palm != null && l.mid != null && l.tip != null
