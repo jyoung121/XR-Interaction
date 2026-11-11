@@ -487,6 +487,8 @@ public class ExperimentController : MonoBehaviour
 
     private bool scenarioBuzzing;
     private int crunchSeed;
+    private float prevMouth;      // 지난 프레임의 입 벌림 — 닫히는 속도를 잰다
+    private float chewLevel;      // 씹는 소리의 세기. 빨리 오르고 천천히 꺼진다
 
     /// <summary>
     /// 거울 방을 띄우고 세 시나리오를 차례로 보여 준다.
@@ -583,6 +585,8 @@ public class ExperimentController : MonoBehaviour
         HapticManager.StopWaveform();
         ScenarioAudio.SetLoop(ScenarioAudio.Loop.None, 0f);
         scenarioBuzzing = false;
+        prevMouth = 0f;
+        chewLevel = 0f;
 
         // 파일럿에서 맞출 값의 출발점. 치과 드릴은 날카롭고, 전동칫솔은 같은 전동
         // 공구여도 훨씬 둔하다 — 이 차이가 두 수준을 가르는 지점이라 값도 갈라 둔다.
@@ -625,9 +629,22 @@ public class ExperimentController : MonoBehaviour
                                          rig.FoodBrightness);
             }
             scenarioBuzzing = touching;
-            // 음식에는 이어지는 소리가 없다. 깨무는 순간에만 난다 —
-            // 진동도 거기서만 울린다.
-            ScenarioAudio.SetLoop(ScenarioAudio.Loop.None, 0f);
+
+            // 씹는 소리. 보이는 턱이 닫히는 속도가 세기가 된다 —
+            // 식은 ScenarioAudio.ChewLevel 한 군데에만 있다.
+            //
+            // 입에 닿아 있지 않은 동안(접시에 놓인 채, 손으로 가져가는
+            // 중)은 0 을 먹여 꺼지게 한다. 클립을 Stop 하지는 않는다 —
+            // 한 주기에 네 번씩 켜고 끄면 그때마다 처음으로 되감겨
+            // 이음매에서 틱 소리가 난다.
+            float mouth = touching ? rig.MouthOpen : 0f;
+            chewLevel = touching
+                      ? ScenarioAudio.ChewLevel(chewLevel, mouth, prevMouth,
+                                                Time.deltaTime)
+                      : 0f;
+            prevMouth = mouth;
+            ScenarioAudio.SetLoop(ScenarioAudio.Loop.Chew, chewLevel,
+                                  rig.FoodBrightness);
             return;
         }
 

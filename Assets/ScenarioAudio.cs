@@ -21,10 +21,18 @@ using UnityEngine;
 ///             글자 그대로 같은 값이라, 들리는 것과 느껴지는 것이 어긋날
 ///             수가 없다. 이 연구가 재려는 게 바로 그 어긋남이다.
 ///
-/// **씹는 동안은 일부러 조용하다.** 깨무는 순간에만 소리가 나고, 그 뒤
-/// 오물거리는 1~3 초는 소리가 없다. 진동도 거기서는 안 울리기 때문이다.
-/// 여기에 씹는 소리를 깔면 진동이 짝지을 것이 없는 단서가 하나 더 생겨서,
-/// "진동이 맞았는가" 를 묻는 자리에 "소리가 그럴듯했는가" 가 섞여 든다.
+/// **씹는 동안에도 소리가 난다.** 깨무는 순간의 터짐 뒤로, 오물거리는
+/// 1~3 초 동안 턱이 닫힐 때마다 둔한 소리가 따라붙는다. 세기는
+/// MirrorRig.MouthOpen 이 **닫히는 속도**에서 그대로 나온다 — 보이는
+/// 턱이 빨리 닫힐수록 크다. 음식마다 오물거리는 속도와 폭이 다르니
+/// (FoodSpec.rate/depth) 소리의 박자와 크기도 저절로 갈린다.
+///
+/// 한 번 조용하게 뒀다가 되돌린 자리다. 씹는 소리는 진동이 짝지을 것이
+/// 없는 단서라 — 그 1~3 초 동안 진동은 안 울린다 — "진동이 맞았는가" 를
+/// 묻는 자리에 "소리가 그럴듯했는가" 가 섞여 들 수 있다. 다만 소리가
+/// 세 패턴에서 **똑같으므로** 패턴 사이의 비교는 여전히 진동 차이만
+/// 남는다. 섞이는 건 조건 안의 절대 점수지 패턴 간 차이가 아니다.
+/// 무음으로 되돌리려면 SetLoop 에 Chew 를 안 주면 된다.
 ///
 /// 세 패턴(베이스라인 / 설계 / 맞춤화) 사이에서 소리는 **똑같다.** 소리는
 /// 상황과 음식만 보고 정해지고 진동 패턴은 안 본다 — 그래야 세 패턴의
@@ -33,7 +41,7 @@ using UnityEngine;
 public static class ScenarioAudio
 {
     /// <summary>지금 이어서 낼 소리.</summary>
-    public enum Loop { None, Drill, Brush }
+    public enum Loop { None, Drill, Brush, Chew }
 
     /// <summary>무음 조건을 만들 때 끈다.</summary>
     public static bool Enabled = true;
@@ -49,6 +57,11 @@ public static class ScenarioAudio
     private static AudioSource shotSrc;   // 깨무는 소리
     private static AudioClip drillClip, brushClip;
     private static Loop now = Loop.None;
+
+    // 씹는 소리는 음식마다 다르다. 다섯 가지뿐이라 밝기로 적바림해 둔다.
+    private static readonly System.Collections.Generic.Dictionary<float, AudioClip>
+        chewClips = new System.Collections.Generic.Dictionary<float, AudioClip>();
+    private static float nowBright = -1f;
 
     // ───────────────────────── 붙이고 떼기 ─────────────────────────
 
@@ -83,6 +96,7 @@ public static class ScenarioAudio
     public static void Detach()
     {
         now = Loop.None;
+        nowBright = -1f;
         if (loopSrc != null) Object.Destroy(loopSrc.gameObject);
         loopSrc = null;
         shotSrc = null;
@@ -94,21 +108,28 @@ public static class ScenarioAudio
     /// 이어지는 소리를 켜고 끈다. 매 프레임 불러도 된다 — 같은 소리를 다시
     /// 주면 세기만 바꾸고 재생은 안 끊는다.
     /// </summary>
-    public static void SetLoop(Loop kind, float volume)
+    /// <param name="bright">Chew 일 때만 쓴다 — 음식 표의 FoodSpec.bright</param>
+    public static void SetLoop(Loop kind, float volume, float bright = 0f)
     {
         if (loopSrc == null) return;
         if (!Enabled) kind = Loop.None;
 
-        if (kind != now)
+        // 씹는 소리는 음식마다 클립이 다르므로 밝기가 바뀌어도 갈아 끼운다.
+        bool swap = kind != now
+                 || (kind == Loop.Chew && !Mathf.Approximately(bright, nowBright));
+        if (swap)
         {
             now = kind;
+            nowBright = bright;
             if (kind == Loop.None)
             {
                 loopSrc.Stop();
             }
             else
             {
-                loopSrc.clip = kind == Loop.Drill ? Drill : Brush;
+                loopSrc.clip = kind == Loop.Drill ? Drill
+                             : kind == Loop.Brush ? Brush
+                             : ChewBed(bright);
                 loopSrc.Play();
             }
         }
@@ -196,6 +217,71 @@ public static class ScenarioAudio
         AddNoise(b, 800, 5000, 120, 0.26f, rng);
 
         return Clip("Toothbrush", b);
+    }
+
+    /// <summary>
+    /// 씹는 소리의 세기를 턱이 **닫히는 속도**에서 뽑는다.
+    ///
+    /// 세기만 여기서 정하고 박자는 안 정한다. 오물거리는 속도는 음식마다
+    /// 다른데(FoodSpec.rate 5~14), 같은 식을 두 군데 적으면 한쪽만 고쳤을
+    /// 때 입은 다물리는데 소리는 딴 데서 난다. 보이는 턱이 지금 어디
+    /// 있는지만 받아 오면 어긋날 길이 없다.
+    ///
+    /// 입이 **열리는** 동안은 조용하다. 씹을 때 소리가 나는 건 무는 쪽이지
+    /// 벌리는 쪽이 아니다. 올라갈 땐 곧바로 올리고 내려올 땐 천천히
+    /// 떨어뜨린다 — 프레임마다 날값을 그대로 쓰면 세기가 톱니처럼 튀어서
+    /// 지직거린다.
+    /// </summary>
+    /// <param name="level">지난 프레임의 세기</param>
+    /// <param name="open">지금 입 벌림 (MirrorRig.MouthOpen)</param>
+    /// <param name="prevOpen">지난 프레임의 입 벌림</param>
+    public static float ChewLevel(float level, float open, float prevOpen, float dt)
+    {
+        dt = Mathf.Max(dt, 1e-4f);
+
+        // 다섯 중 사과가 가장 빨리 닫힌다 — 초당 2.4 쯤(depth 0.20 ×
+        // rate 12). 거기가 0.42 가 되게 맞췄다. 푸딩은 0.45 라 0.08 로,
+        // 거의 안 들린다 — 혀로 뭉개는 것이니 그게 맞다.
+        float closing = Mathf.Max(0f, (prevOpen - open) / dt);
+        float want = Mathf.Clamp01(closing * 0.35f) * 0.5f;
+
+        return Mathf.Max(want, level * Mathf.Exp(-25f * dt));
+    }
+
+    /// <summary>씹는 바탕 소리를 밖에서 들어 보려고 (AudioPreview).</summary>
+    public static AudioClip ChewBedOf(float bright) { return ChewBed(bright); }
+
+    /// <summary>
+    /// 씹는 바탕 소리. 턱이 닫힐 때마다 세기를 올려 쓸 **고른 소리**다.
+    ///
+    /// 터짐을 미리 박아 두지 않는 게 요점이다. 오물거리는 박자는 음식마다
+    /// 다르고(FoodSpec.rate 5~14) 클립에 박아 두면 보이는 턱과 어긋난다.
+    /// 고른 바탕을 깔아 두고 **보이는 턱이 닫히는 속도로 세기를 주면**
+    /// 박자가 저절로 맞는다 (ExperimentController.ApplyContactHaptics).
+    ///
+    /// 소리는 입 안에서 나는 것이라 둔하다. 깨무는 터짐이 2.6 kHz 위를
+    /// 쓰는 데 비해 여기는 거의 다 1.5 kHz 아래다 — 볼과 턱뼈를 거쳐
+    /// 들리는 소리에 높은 쪽이 남아 있으면 입 밖에서 나는 소리가 된다.
+    /// </summary>
+    private static AudioClip ChewBed(float bright)
+    {
+        AudioClip got;
+        if (chewClips.TryGetValue(bright, out got) && got != null) return got;
+
+        float[] b = new float[LoopLen];
+        System.Random rng = new System.Random(911 + Mathf.RoundToInt(bright * 100f));
+
+        // 살이 눌리는 둔한 소리. 밝은 음식일수록 바스락거리는 쪽이 는다.
+        AddNoise(b, 120, 700, 90, 0.40f, rng);
+        AddNoise(b, 700, 2200, 90, 0.14f + 0.26f * Mathf.Clamp01(bright), rng);
+
+        // 턱뼈를 타고 오는 낮은 울림. 이게 없으면 종이 구기는 소리가 된다.
+        AddSine(b, 95, 0.10f, 0f);
+        AddSine(b, 143, 0.06f, 0.4f);
+
+        got = Clip("Chew", b);
+        chewClips[bright] = got;
+        return got;
     }
 
     /// <summary>

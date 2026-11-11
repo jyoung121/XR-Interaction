@@ -282,6 +282,7 @@ public class MirrorRig : MonoBehaviour
     // 깨무는 순간을 한 번만 세려고 둔다. 몇 입에 걸쳐 먹는지는 음식마다
     // 다르므로(FoodSpec.bites) 단계 수는 여기 두지 않는다.
     private int biteCycle = -1;
+    private float mouthOpen;          // 지금 벌어진 정도. 소리 쪽이 본다
     private const float LipBulge = 0.0018f;  // 입술을 앞으로 내미는 양
     private Quaternion pivToMesh = Quaternion.identity;  // headPivot → 원본 메시 좌표
     private bool pivToMeshOK;
@@ -404,6 +405,33 @@ public class MirrorRig : MonoBehaviour
     /// 커졌다 작아져야 한다 (AnimateDental 의 2.2 Hz).
     /// </summary>
     public float Seconds { get { return elapsed; } }
+
+    /// <summary>
+    /// 지금 입이 얼마나 벌어져 있는가 (0 다문 입 ~ 1 활짝).
+    ///
+    /// 소리 쪽이 쓴다. 씹는 소리는 턱이 **닫히는 순간**에 나야 하는데,
+    /// 그 박자는 음식마다 다르고(FoodSpec.rate) 구간마다도 다르다.
+    /// 소리 쪽에서 같은 식을 다시 세우는 대신 턱이 지금 어디 있는지를
+    /// 넘겨주면, 보이는 턱과 들리는 소리가 어긋날 길이 없다.
+    /// </summary>
+    public float MouthOpen { get { return mouthOpen; } }
+
+    /// <summary>
+    /// 씹기 시작한 뒤 <paramref name="c"/> 초에 턱이 얼마나 벌어져 있는가.
+    ///
+    /// 돌아가는 중에는 쓰지 않는다 — AnimateFood 가 쓰고, 소리를 미리
+    /// 들어 보는 AudioPreview 가 쓴다. 미리듣기가 제 나름의 박자를 꾸며
+    /// 쓰면 WAV 는 그럴듯한데 폰에서는 다르게 들리므로, 거울이 턱을
+    /// 움직이는 바로 그 식을 빌려 쓰게 한다.
+    /// </summary>
+    public static float ChewJawOf(FoodKind k, float c)
+    {
+        FoodSpec fs = SpecOf(k);
+        return Mathf.Clamp01(fs.open * ChewBase + fs.depth * Mathf.Sin(c * fs.rate));
+    }
+
+    /// <summary>오물거리는 시간 (s). 푸딩 1.1 초 ~ 고기 3.4 초.</summary>
+    public static float ChewSecondsOf(FoodKind k) { return SpecOf(k).chew; }
 
     /// <summary>
     /// 한 입 주기의 길이 (s). 음식마다 다르다 — 질긴 고기가 7.5 초로 가장
@@ -2691,6 +2719,7 @@ public class MirrorRig : MonoBehaviour
     {
         if (mouthJawLow == null) return;
         open = Mathf.Clamp01(open);
+        mouthOpen = open;
 
         // 다문 입은 **딱 붙여야** 한다. 0.3 mm 만 띄워도 턱이 0.22° 돌아가
         // 위아래 조각이 갈라지고, 그 실금으로 방이 비쳐 입술에 하얀
@@ -4280,9 +4309,7 @@ public class MirrorRig : MonoBehaviour
             toMouth = 1f - Ease(Mathf.Clamp01(c / Mathf.Max(fs.chew, 1e-3f)));
 
             // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
-            SetMouth(chewing
-                     ? fs.open * ChewBase + fs.depth * Mathf.Sin(c * fs.rate)
-                     : 0f);
+            SetMouth(chewing ? ChewJawOf(foodKind, c) : 0f);
             Contact = chewing ? 1f : 0f;
         }
 
