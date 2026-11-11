@@ -791,6 +791,93 @@ public class MirrorRig : MonoBehaviour
     /// 그 구멍으로 거울 뒤에 지어 둔 방과 머리가 보인다.
     /// 둥근 거울이면 네모로 뚫은 구멍의 네 귀퉁이를 고리로 덮어 동그랗게 만든다.
     /// </summary>
+    /// <summary>
+    /// 누운 참가자가 **올려다보는 면**을 채운다.
+    ///
+    /// 거울이 박힌 벽(z = D)이 환자에게는 천장이다. 치료등 고리 바깥이
+    /// 통째로 민무늬 회색 판이라, 고개를 조금만 돌려도 화면이 비었다
+    /// (mirror_turned.png / mirror_dental_down.png 에서 화면의 2/3).
+    /// 식사 장면은 문·액자·화분·식탁으로 방이 꽉 차 있는데 치과만 그래서,
+    /// 두 상황의 presence 차이가 진동이 아니라 여기서 날 수 있었다.
+    ///
+    /// **거울 각도는 안 건드린다.** 거울은 입만 담도록 일부러 좁게
+    /// 잡아 둔 것이고(SpecFor / DentalZoom 5배), 각을 돌려 얼굴이
+    /// 들어오게 하면 정작 봐야 할 "드릴이 이를 가는 그림"이 사라진다.
+    /// 비어 있던 것은 거울이 아니라 그 **둘레**다.
+    ///
+    /// **Both 를 쓰면 안 된다.** 거울면 바로 뒤(2D-z)에 쌍둥이가 생겨
+    /// 거울 구멍을 뒤에서 막는다. 거울 벽 자체도 같은 이유로 한 벌만
+    /// 세운다 (BuildMirrorWall).
+    /// </summary>
+    private void CeilingPanels(Transform root, MirrorSpec m,
+                               Material shell, Material steel)
+    {
+        // 벽보다 뚜렷하게 어두워야 한다. 0.72 로 뒀더니 벽(0.80)과 차이가
+        // 10 % 뿐이라 45 cm 앞에서 7 mm 짜리 줄이 아예 안 보였다.
+        Material seam = ToolModels.MakeMaterial(new Color(0.60f, 0.63f, 0.65f), 0f, 0.05f);
+
+        // 타일 한 변 20 cm 는 **보이는 각**으로 맞춘 값이다. 진짜 치과
+        // 천장은 60 cm 타일이 1.5 m 위에 있어 0.4 rad 쯤인데, 이 벽은
+        // 45 cm 앞이라 같은 각이 되려면 0.4 × 0.45 ≈ 0.18 m 다.
+        const float Tile = 0.20f;
+        const float Clear = 0.40f;     // 치료등과 손잡이가 차지하는 반지름
+        const float Half = 1.00f;      // 눈금을 깔 범위. 더 넓혀도 안 보인다
+        // **벽은 두께가 2 cm 다** (BuildMirrorWall 의 t). Box 는 가운데로
+        // 자리를 잡으므로 벽 앞면은 z = D - 0.01 에 있다. D - 0.004 에
+        // 뒀더니 눈금이 통째로 벽 **속에** 박혀서 하나도 안 보였다.
+        float z = D - 0.018f;
+        float yLo = Mathf.Max(-eyeHeight + 0.05f, m.centerY - Half);
+        float yHi = Mathf.Min(CeilUp - 0.05f, m.centerY + Half);
+
+        // 줄을 칸칸이 끊지 않고 **한 줄로 긋되 치료등 자리만 비운다.**
+        // 칸마다 상자를 놓으면 250 개가 넘는데, 폰에서는 그게 그대로
+        // 드로우콜이고 스테레오라 두 배다.
+        for (float y = Mathf.Ceil(yLo / Tile) * Tile; y <= yHi; y += Tile)
+        {
+            float d = Mathf.Abs(y - m.centerY);
+            float w = d < Clear ? Mathf.Sqrt(Clear * Clear - d * d) : 0f;
+            Span(root, seam, true, y, -Half, -w, z);
+            Span(root, seam, true, y, w, Half, z);
+        }
+        for (float x = -Half; x <= Half + 1e-3f; x += Tile)
+        {
+            float d = Mathf.Abs(x);
+            float h = d < Clear ? Mathf.Sqrt(Clear * Clear - d * d) : 0f;
+            Span(root, seam, false, x, yLo, m.centerY - h, z);
+            Span(root, seam, false, x, m.centerY + h, yHi, z);
+        }
+
+        // 형광등 한 짝. 치과 천장에서 제일 먼저 눈에 들어오는 물건이고,
+        // 빈 회색 면에 **밝기 차이**를 주는 것이 눈금보다 크게 먹는다.
+        // 빛을 내는 재질이라 (MakeGlow) 그늘에서도 하얗게 남는다.
+        Material tube = ToolModels.MakeGlow(new Color(0.97f, 0.98f, 1f));
+        for (int sx = -1; sx <= 1; sx += 2)
+            Box(root, tube, new Vector3(sx * 0.56f, m.centerY + 0.34f, z - 0.006f),
+                new Vector3(0.52f, 0.14f, 0.010f), "CeilTube" + sx);
+
+        // 환기구. 날 네 장이면 격자로 읽힌다.
+        Vector3 vent = new Vector3(0.62f, m.centerY - 0.52f, z - 0.006f);
+        Box(root, shell, vent, new Vector3(0.26f, 0.20f, 0.010f), "Vent");
+        for (int i = 0; i < 4; i++)
+            Box(root, steel,
+                vent + new Vector3(0f, 0.070f - i * 0.045f, -0.006f),
+                new Vector3(0.23f, 0.012f, 0.004f), "VentFin" + i);
+    }
+
+    /// <summary>천장 눈금 한 토막. 비어 있는 구간은 그냥 넘긴다.</summary>
+    private void Span(Transform root, Material mat, bool horizontal,
+                      float at, float from, float to, float z)
+    {
+        float len = to - from;
+        if (len <= 0.02f) return;
+        float mid = (from + to) * 0.5f;
+        Box(root, mat,
+            horizontal ? new Vector3(mid, at, z) : new Vector3(at, mid, z),
+            horizontal ? new Vector3(len, 0.007f, 0.004f)
+                       : new Vector3(0.007f, len, 0.004f),
+            horizontal ? "CeilSeamH" : "CeilSeamV");
+    }
+
     private void BuildMirrorWall(Transform root, Material wall, Material frame, MirrorSpec m)
     {
         float halfW = m.Width * 0.5f;
@@ -1293,6 +1380,8 @@ public class MirrorRig : MonoBehaviour
                     new Vector3(sx * grip, m.centerY - m.radius * 0.62f, D - 0.085f),
                     new Vector3(0.030f, 0.030f, 0.075f), "LampGripArmD" + sx);
         }
+
+        CeilingPanels(r, m, shell, steel);
 
         // 머리맡 받침. 거울 속에서 참가자 머리 뒤에 보인다.
         BothBox(r, teal, new Vector3(0f, -0.26f, -0.26f),
@@ -3207,9 +3296,9 @@ public class MirrorRig : MonoBehaviour
         {
             // 혀도 턱에 얹혀 내려간다. 아랫니보다 안쪽, 구강 바닥에 깔린다.
             mouthTongue.SetParent(mouthJawLow, false);
-            // 아랫니 안쪽에 **들어앙게** 둔다. 전에는 혀 앞끝이 앞니를
-            // 떠옣라 이 사이로 핑크색이 샐다. 치열 안쪽 반지름보다
-            // 작게, 그리고 씨는 면보다 낮게.
+            // 아랫니 안쪽에 **들어앉게** 둔다. 전에는 혀 앞끝이 앞니를
+            // 넘어서서 이 사이로 핑크색이 샜다. 치열 안쪽 반지름보다
+            // 작게, 그리고 씹는 면보다 낮게.
             mouthTongue.localPosition =
                 new Vector3(mouthLocal.x, mouthLocal.y - 0.011f, mouthSkinZ - 0.031f)
                 - jawHinge;

@@ -176,8 +176,8 @@ public static class ToolPreview
     /// <summary>리그 좌표로 주어진 자리에서 대상을 본다. 등장인물 자세 확인용이다.</summary>
     private static void CastShot(MirrorRig rig, Vector3 from, Vector3 at, string fileName)
     {
-        // 리그 좌표로 받는다. 치과에서는 리그가 통째로 35° 젌혀 있어서
-        // 월드 좌표로 주면 카메라가 기구 쌉반 속에 묻힌다.
+        // 리그 좌표로 받는다. 치과에서는 리그가 통째로 35° 젖혀 있어서
+        // 월드 좌표로 주면 카메라가 기구 쟁반 속에 묻힌다.
         Transform t = rig.transform;
         Vector3 p = t.TransformPoint(from);
         ShootFrom(p, Quaternion.LookRotation(t.TransformPoint(at) - p, t.up), fileName, 50f);
