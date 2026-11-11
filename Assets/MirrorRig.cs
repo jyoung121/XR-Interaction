@@ -576,12 +576,19 @@ public class MirrorRig : MonoBehaviour
     /// 같은 밝기로 나와야 파일럿에서 본 것과 본 실험에서 보는 것이 같다.
     /// 끝낼 때 원래대로 돌려놓는다 — 기존 탐색 실험 화면을 건드리면 안 된다.
     /// </summary>
+    private UnityEngine.Rendering.DefaultReflectionMode prevReflMode;
+    private Texture prevReflTex;
+    private float prevReflAmt;
+
     private void TakeOverEnvironment()
     {
         if (envSaved) return;
         prevAmbientMode = RenderSettings.ambientMode;
         prevAmbientLight = RenderSettings.ambientLight;
         prevSkybox = RenderSettings.skybox;
+        prevReflMode = RenderSettings.defaultReflectionMode;
+        prevReflTex = RenderSettings.customReflectionTexture;
+        prevReflAmt = RenderSettings.reflectionIntensity;
         envSaved = true;
 
         // 위·옆·아래를 다르게 준다. 로우폴리는 면이 넓고 평평해서
@@ -593,6 +600,20 @@ public class MirrorRig : MonoBehaviour
         RenderSettings.ambientGroundColor  = new Color(0.17f, 0.16f, 0.16f);
         RenderSettings.ambientLight = new Color(0.34f, 0.34f, 0.36f);
         RenderSettings.skybox = null;      // 방 안이다. 하늘이 비치면 안 된다.
+
+        // **skybox = null 만으로는 하늘이 안 없어진다.** 그 줄은 하늘을
+        // 그리지 말라는 뜻일 뿐이고, 반사에 쓰는 큐브맵은 그대로
+        // 남는다(defaultReflectionMode 가 Skybox 라서). 그래서 치과
+        // 의자와 턱받이처럼 조금만 매끈한 흰 면에 **구름이 비쳤다** —
+        // 환자 턱받이에 뭉게구름이 떠 있었다(mirror_dental_down.png).
+        //
+        // 반사 세기를 0 으로 내린다. 큐브맵을 null 로만 두면 반사가
+        // 까매져서 매끈한 면이 거꾸로 어두워진다. 방 안 빛은 위에서
+        // 넣은 Trilight 주변광과 등이 다 낸다.
+        RenderSettings.defaultReflectionMode =
+            UnityEngine.Rendering.DefaultReflectionMode.Custom;
+        RenderSettings.customReflectionTexture = null;
+        RenderSettings.reflectionIntensity = 0f;
     }
 
     private void RestoreEnvironment()
@@ -601,6 +622,9 @@ public class MirrorRig : MonoBehaviour
         RenderSettings.ambientMode = prevAmbientMode;
         RenderSettings.ambientLight = prevAmbientLight;
         RenderSettings.skybox = prevSkybox;
+        RenderSettings.defaultReflectionMode = prevReflMode;
+        RenderSettings.customReflectionTexture = prevReflTex;
+        RenderSettings.reflectionIntensity = prevReflAmt;
         envSaved = false;
     }
 
@@ -902,8 +926,13 @@ public class MirrorRig : MonoBehaviour
             horizontal ? "CeilSeamH" : "CeilSeamV");
     }
 
-    private void BuildMirrorWall(Transform root, Material wall, Material frame, MirrorSpec m)
+    private void BuildMirrorWall(Transform rootIn, Material wall, Material frame, MirrorSpec m)
     {
+        // 거울 벽도 **그림자를 지지 않는다** (NoCast 참고). RoomShell 이
+        // 껍데기를 한 번 빼 놨는데, 거울 벽은 그 뒤에 짓느라 빠져 있었다.
+        Transform root = new GameObject("MirrorWall").transform;
+        root.SetParent(rootIn, false);
+
         float halfW = m.Width * 0.5f;
         float halfH = m.Height * 0.5f;
         float cy = m.centerY;
@@ -936,6 +965,26 @@ public class MirrorRig : MonoBehaviour
                 Box(root, frame, new Vector3(s * (halfW + fw * 0.5f), cy, D - 0.03f),
                     new Vector3(fw, m.h, 0.05f), "FrameSide");
         }
+
+        NoCast(root);
+    }
+
+    /// <summary>
+    /// 그림자를 **지지 않게** 한다 (받는 건 그대로다).
+    ///
+    /// RoomShell 이 방 껍데기에 쓰는 규칙과 같다. 치과에서는 거울 벽이
+    /// 곧 누운 참가자의 **천장**이고, 치료등 갓과 천장 눈금이 그 앞에
+    /// 한 겹 더 붙는다. 셋 다 위에서 내려오는 키라이트를 막아서,
+    /// 몸과 바닥이 통째로 그늘에 들어간다 — 그러면 그림자가 있으나
+    /// 마나다. 물리적으로는 말이 안 되지만, 보고 싶은 건 천장이
+    /// 드리우는 그늘이 아니라 사람·의자·접시가 바닥에 남기는 접촉
+    /// 그림자다.
+    /// </summary>
+    private static void NoCast(Transform t)
+    {
+        if (t == null) return;
+        foreach (Renderer rr in t.GetComponentsInChildren<Renderer>(true))
+            rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
     }
 
     /// <summary>
@@ -1158,6 +1207,44 @@ public class MirrorRig : MonoBehaviour
         // 바닥에 **서 있는** 게 아니라 떠 있는 것으로 보인다.
         ContactShadow(r, new Vector3(0f, -eyeHeight + 0.002f, 0f),
                       0.78f, 0.56f, floor.color, "BodyShadow");
+
+        // 천장 조명 **기구**. 전에는 빛만 있고 물건이 없어서 천장에
+        // 흰 웅덩이 하나가 떠 있었다 — 집과 치과에서 고친 것과 같은
+        // 문제다. 대기실은 사무실 같은 곳이니 매단 등이 아니라
+        // 천장에 박힌 네모 패널로 둔다.
+        //
+        // **대기실은 일부러 비워 둔다.** 여기는 블록 사이에 쉬는
+        // 자리라, 꾸밀수록 치과·집 두 상황과 견줄 기준이 흐려진다.
+        // 다만 "덜 지은 상자"로 보이면 그 자체가 실재감을 깎으므로,
+        // 방이 방으로 보일 만큼만 — 조명 기구, 천장 몰딩, 문 하나.
+        Vector3 panelAt = new Vector3(-0.40f, CeilUp - 0.02f, -0.55f);
+        BothBox(r, ToolModels.MakeMaterial(new Color(0.80f, 0.81f, 0.82f), 0f, 0.05f),
+                panelAt, new Vector3(0.78f, 0.03f, 0.30f), "CeilPanel");
+        Both(r, PrimitiveType.Cube,
+             ToolModels.MakeGlow(new Color(1f, 0.99f, 0.96f)),
+             panelAt + new Vector3(0f, -0.018f, 0f), Vector3.zero,
+             new Vector3(0.72f, 0.004f, 0.25f), "CeilPanelGlow");
+
+        // 천장 몰딩 — 벽과 천장이 맞닿는 선. 걸레받이와 같은 이유다.
+        Material trim = ToolModels.MakeMaterial(new Color(0.84f, 0.85f, 0.87f), 0f, 0.08f);
+        BothBox(r, trim, new Vector3(0f, CeilUp - 0.035f, BackWall + 0.03f),
+                new Vector3(RoomHalfW * 2f, 0.07f, 0.04f), "Crown");
+        for (int sx = -1; sx <= 1; sx += 2)
+            BothBox(r, trim,
+                    new Vector3(sx * (RoomHalfW - 0.02f), CeilUp - 0.035f,
+                                D - RoomDepth * 0.5f),
+                    new Vector3(0.04f, 0.07f, RoomDepth), "CrownSide" + sx);
+
+        // 문 하나. 방에 나갈 데가 없으면 상자다.
+        BothBox(r, ToolModels.MakeMaterial(new Color(0.84f, 0.85f, 0.86f), 0f, 0.10f),
+                new Vector3(-0.95f, -eyeHeight + 1.02f, BackWall + 0.01f),
+                new Vector3(0.82f, 2.04f, 0.04f), "Door");
+        BothBox(r, frame, new Vector3(-0.95f, -eyeHeight + 1.02f, BackWall),
+                new Vector3(0.92f, 2.14f, 0.03f), "DoorFrame");
+        Both(r, PrimitiveType.Sphere,
+             ToolModels.MakeMaterial(new Color(0.72f, 0.73f, 0.75f), 0.6f, 0.5f),
+             new Vector3(-0.60f, -eyeHeight + 0.98f, BackWall + 0.04f), Vector3.zero,
+             new Vector3(0.07f, 0.07f, 0.07f), "Knob");
 
         // 천장등 하나. 짝을 지어야 거울 속도 같이 밝다 (Lamp 참고).
         // 등은 **하나뿐이다.** 둘을 달았더니 각자의 거울상이 거울 속 천장
@@ -1433,7 +1520,11 @@ public class MirrorRig : MonoBehaviour
         // 덮어 버린다(실제로 덮었다). 그리고 z 는 반드시 D 보다 **앞**이어야 한다.
         // Both 는 pos.z 를 그대로 한 번, 2D-z 로 한 번 놓으므로 D 보다 뒤에 두면
         // 진짜 갓이 거울 속으로 들어가고 거울상이 눈앞을 가린다.
-        LampShade(r, shell, m, D - 0.055f);
+        // 갓과 천장 눈금은 거울 벽과 **같은 평면**에 있다. 같이 빼야
+        // 한다 — 벽만 뺐더니 갓 고리의 그림자가 그대로 남았다.
+        Transform ceilPlane = new GameObject("CeilPlane").transform;
+        ceilPlane.SetParent(r, false);
+        LampShade(ceilPlane, shell, m, D - 0.055f);
         // 갓을 매단 팔. 거울 위로만 지나가게 띄운다.
         // 갓을 매단 팔. 거울이 입만 담을 만큼 좁아지면서(SpecFor 참고) 이 팔의
         // **거울상**이 입 앞을 세로로 가로질렀다 — 팔은 거울 앞(z = D-0.03)에
@@ -1463,7 +1554,8 @@ public class MirrorRig : MonoBehaviour
                     new Vector3(0.030f, 0.030f, 0.075f), "LampGripArmD" + sx);
         }
 
-        CeilingPanels(r, m, shell, steel);
+        CeilingPanels(ceilPlane, m, shell, steel);
+        NoCast(ceilPlane);
 
         // 머리맡 받침. 거울 속에서 참가자 머리 뒤에 보인다.
         BothBox(r, teal, new Vector3(0f, -0.26f, -0.26f),
@@ -1532,12 +1624,26 @@ public class MirrorRig : MonoBehaviour
         // 통째로 덮은 데다 치료등을 받아 하얗게 타 버렸다 — 회색 벽이 흰 벽이 됐을 뿐이다.
         // 더 내리고 줄이고 색을 죽여서, 빕 → 시술대 → 팔걸이 → 바닥 줄눈 순으로
         // 겹쳐 보이게 한다. 한 겹이 아니라 여러 겹이라야 면이 아니라 공간으로 읽힌다.
-        Material bibMat = ToolModels.MakeMaterial(new Color(0.78f, 0.85f, 0.86f), 0f, 0.05f);
+        //
+        // **색을 한 번 더 죽였다 (0.78,0.85,0.86 → 0.52,0.59,0.62).**
+        // 고개를 숙여 찍어 보니 빕이 순백으로 타 있었고, 그 위에 구름
+        // 같은 얼룩이 떠 있었다. 그림자인 줄 알고 거울 벽·치료등 갓의
+        // 캐스팅을 껐는데 그대로였다. 화소를 찍어 보니 밝은 쪽이
+        // (254,255,255), 어두운 쪽이 (223,247,254) 였다 — 그림자가
+        // 아니라 **빨강 채널만 255 에 먼저 닿아** 생긴 경계였다.
+        //
+        // 빕은 35도 젖혀진 이 방에서 거의 위를 보는 면이라 키라이트
+        // (1.00)를 정면으로 받는다. 거기에 알베도가 0.85 면 주변광만
+        // 더해도 1 을 넘는다. 등을 낮추면 거울 속 얼굴까지 어두워지니
+        // 타는 면의 색을 내리는 쪽이 맞다. 팔걸이도 같은 이유로
+        // shell(0.92) 에서 뺐다.
+        Material bibMat = ToolModels.MakeMaterial(new Color(0.52f, 0.59f, 0.62f), 0f, 0.05f);
         Box(r, bibMat, new Vector3(0f, -0.40f, 0.20f),
             new Vector3(0.34f, 0.02f, 0.24f), "Bib");
 
+        Material armMat = ToolModels.MakeMaterial(new Color(0.58f, 0.60f, 0.62f), 0f, 0.10f);
         for (int s = -1; s <= 1; s += 2)
-            Box(r, shell, new Vector3(s * 0.33f, -0.44f, 0f),
+            Box(r, armMat, new Vector3(s * 0.33f, -0.44f, 0f),
                 new Vector3(0.09f, 0.07f, 0.52f), "ArmRest" + s);
 
         // 시술대. 밝은 청록 한 판으로 두면 회색 벽이 청록 벽으로 바뀔 뿐이다.
