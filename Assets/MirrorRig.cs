@@ -382,6 +382,18 @@ public class MirrorRig : MonoBehaviour
     private DentalKind dentalKind = DentalKind.Drill;
     private float elapsed;
 
+    /// <summary>거울 속 얼굴을 비추는 치료등. <see cref="AimTreatLamp"/> 이 자리를 잡는다.</summary>
+    private Light treatLamp;
+
+    /// <summary>치료등이 얼굴을 겨누는 방향 (리그 로컬, 단위 벡터).</summary>
+    private Vector3 treatAim = Vector3.forward;
+
+    /// <summary>치료등을 얼굴에서 떨어뜨릴 거리 (m).</summary>
+    private const float LampDist = 1.10f;
+
+    /// <summary>얼굴이 치료등에서 받을 빛. 세기 = 이것 × 거리².</summary>
+    private const float LampLux = 0.35f;
+
     private UnityEngine.Rendering.AmbientMode prevAmbientMode;
     private Color prevAmbientLight;
     private Material prevSkybox;
@@ -1111,7 +1123,7 @@ public class MirrorRig : MonoBehaviour
     /// 짝 없는 등. 거울 속에만 있는 빛이다 — 치료등처럼 한쪽만 비추는 조명이
     /// 그렇다. 이쪽 방을 비추는 데 쓰면 거울이 깨져 보이므로 z 는 D 보다 뒤여야 한다.
     /// </summary>
-    private void OneLamp(Transform root, Vector3 pos, float range, float intensity, Color color)
+    private Light OneLamp(Transform root, Vector3 pos, float range, float intensity, Color color)
     {
         GameObject go = new GameObject("Lamp_one");
         go.transform.SetParent(root, false);
@@ -1122,6 +1134,7 @@ public class MirrorRig : MonoBehaviour
         l.intensity = intensity;
         l.color = color;
         l.shadows = LightShadows.None;
+        return l;
     }
 
     /// <summary>
@@ -1662,22 +1675,39 @@ public class MirrorRig : MonoBehaviour
             Box(r, seam, new Vector3(0f, -0.468f, -0.05f - i * 0.26f),
                 new Vector3(0.52f, 0.004f, 0.012f), "CouchSeam" + i);
 
-        // 얼굴을 비추는 등은 짝을 짓지 않는다.
+        // 치료등. 원래 치료등은 환자를 비추지 이쪽을 비추지 않으니,
+        // 거울 속에만 짝 없는 등 하나를 둔다.
         //
-        // Lamp 는 거울면 기준으로 같은 등을 두 개 놓는다. 그런데 거울 속 얼굴을
-        // 가깝게 비추려면 짝이 거울면 바로 앞에 놓이고, 그러면 눈앞 20 cm 의 벽이
-        // 통째로 하얗게 탄다. 둘 다 만족하는 자리가 없다.
+        // **세기를 눈으로 고르지 않는다. 거리에서 끌어낸다.**
         //
-        // 치료등은 원래 환자를 비추지 이쪽을 비추지 않는다. 그러니 거울 속에만
-        // 등이 있는 게 오히려 맞다. 짝 없는 등 하나를 거울 속 얼굴 앞에 둔다.
+        // 전에는 얼굴에서 0.314 m 에 0.40 으로 뒀는데, 점광은 1/d² 라
+        // 얼굴이 받는 빛이 4.05 였다. 살갗(알베도 0.81/0.68/0.53)은
+        // 받는 빛이 1.9 만 넘으면 세 채널이 다 1 로 잘려 순백이 된다 —
+        // 4 배를 때리고 있었던 셈이고, 클로즈업 픽셀의 17.4%가 완전히
+        // 날아가 있었다. 등을 하나씩 꺼 보고 알아냈다: 점광을 끄면
+        // 17.4% → 0.0%, 치료등 하나만 켜도 14.7% 다. 방향광과 환경광은
+        // 거의 무관하다 (17.3%, 16.8%).
         //
-        // 세기는 0.95 에서 **0.40 으로 낮추고 사거리는 1.6 → 3.0 으로 늘렸다.**
-        // 거울 속 장면이 5배(DentalZoom)라 얼굴이 이 등 코앞까지 와 있어서,
-        // 이마가 순백으로 타고 이에는 하얀 판때기 같은 반사가 얹혀 있었다.
-        // 자리도 0.60 → 0.52 로 **물렸다.** 세기만 낮추면 코끝만 밝고 턱은
-        // 묻힌다 — 코와 볼의 거리 차가 그대로라서다. 등을 멀리 두고 사거리를
-        // 늘려야 그 차가 줄어 얼굴 전체가 고르게 받는다.
-        OneLamp(r, new Vector3(0.16f, 0.26f, 0.52f), 3.0f, 0.40f, new Color(0.95f, 0.98f, 1f));
+        // 세기만 낮추는 것으로는 안 된다. 1/d² 는 **가까울수록 가파르다.**
+        // 얼굴 앞뒤 5 cm 사이의 밝기 차가 0.5 m 에서 1.23 배인데, 그래서
+        // 세기를 낮추면 코끝만 맞고 턱은 묻힌다. 거리를 먼저 정하고
+        // 세기를 거기서 뽑아야 한다.
+        //
+        //   거리   앞뒤 5 cm 차   얼굴 평균 밝기
+        //   0.5 m     1.23 배        108.7
+        //   0.8 m     1.14 배        118.4
+        //   1.1 m     1.10 배        119.3   ← 여기서 평평해진다
+        //   1.4 m     1.08 배        119.6
+        //
+        // 1.1 m 를 넘기면 더 나아지지 않는다. 받을 빛은 0.35 로 둔다.
+        // 겨눌 방향만 여기서 정한다. 자리와 세기는 AimTreatLamp 이 잡는다 —
+        // 방을 세우는 지금과 치과 자세일 때의 얼굴 자리가 다르기 때문이다.
+        // 처음엔 여기서 자리까지 잡았다가 1.10 m 로 뒀는데 실제로는 0.380 m
+        // 에 서 있었고(재 봤다), 받는 빛이 여전히 2.93 이라 얼굴이 탔다.
+        treatAim = (new Vector3(0.16f, 0.26f, 0.52f) - FaceAt(0f, 0f)).normalized;
+        treatLamp = OneLamp(r, new Vector3(0.16f, 0.26f, 0.52f), LampDist * 4f,
+                            LampLux * LampDist * LampDist,
+                            new Color(0.95f, 0.98f, 1f));
         KeyLight(r, 1.00f, new Color(1f, 0.99f, 0.97f));
         Lamp(r, new Vector3(-0.60f, CeilUp - 0.50f, -0.60f), 5.6f, 0.62f,
              new Color(0.92f, 0.96f, 1f));
@@ -5328,12 +5358,43 @@ public class MirrorRig : MonoBehaviour
         k = Mathf.Clamp01(k);
         return k * k * (3f - 2f * k);
     }
+    /// <summary>
+    /// 치료등을 거울 속 얼굴에서 늘 <see cref="LampDist"/> 만큼 떨어진 곳에
+    /// 둔다. **세기를 고르지 않고 거리를 고르는** 것이 요점이다.
+    ///
+    /// 점광은 1/d² 라 가까울수록 가파르다. 0.314 m 에 세기 0.40 으로 뒀을
+    /// 때 얼굴이 받던 빛이 4.05 였는데, 살갗은 1.9 만 넘으면 세 채널이 다
+    /// 잘려 순백이 된다. 클로즈업 픽셀의 17.4%가 그렇게 날아가 있었다.
+    ///
+    /// 세기만 낮추면 안 되는 이유: 가까이 두면 얼굴 앞뒤 5 cm 사이에서도
+    /// 밝기가 1.23 배 벌어져 코끝만 맞고 턱은 묻힌다. 1.1 m 로 물리면
+    /// 1.10 배로 평평해지고, 더 멀리 가도 나아지지 않는다.
+    ///
+    /// 자리를 **월드에서** 잡는다. 리그가 치과에서 35° 젖혀 있고 거울 속
+    /// 장면이 DentalZoom 배로 커져 있어서, 로컬로 1.1 을 주면 월드에서
+    /// 1.1 m 가 아니다 — 처음에 그래서 0.380 m 에 서 있었다.
+    /// </summary>
+    private void AimTreatLamp()
+    {
+        if (treatLamp == null || headPivot == null) return;
+
+        Vector3 faceW = transform.TransformPoint(FaceAt(0f, 0f));
+        Vector3 dirW = (transform.rotation * treatAim).normalized;
+
+        treatLamp.transform.position = faceW + dirW * LampDist;
+        treatLamp.intensity = LampLux * LampDist * LampDist;
+        treatLamp.range = LampDist * 4f;
+    }
+
+
 
     private void AnimateDental()
     {
         bool brush = dentalKind == DentalKind.Brush;
         GameObject tool = brush ? toothbrush : handpiece;
         if (tool == null) return;
+
+        AimTreatLamp();
 
         // 도구가 물러나는 방향. 치과의가 옆에서 몸을 숙이고 있으므로 옆 위에서
         // 비스듬히 들어온다. 아래에서 올리면 팔뚝이 도구를 가로질러 지나가

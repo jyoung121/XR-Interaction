@@ -20,6 +20,94 @@ public static class ToolPreview
     /// <summary>사람 머리 높이. Head.obj 의 원래 단위를 여기에 맞춘다.</summary>
     private const float HeadHeight = 0.22f;
 
+    /// <summary>
+    /// 치과 방의 등을 하나씩 꺼 가며 같은 장면을 찍고, 치료등이 얼굴에
+    /// 얼마나 때리고 있는지 잰다. 얼굴이 하얗게 타길래 세기를 눈으로
+    /// 낮춰 보다가 두 번 헛짚고서 만들었다 — 어느 등인지부터 가려야 했다.
+    ///
+    /// 찍은 것: lp_all / lp_nokey / lp_nopoint / lp_noamb / lp_none.
+    /// 탄 픽셀은 min(R,G,B) >= 250 으로 센다.
+    ///
+    ///   Unity.exe -batchmode -quit -projectPath &lt;proj&gt; -executeMethod ToolPreview.Ablate
+    /// </summary>
+    public static void Ablate()
+    {
+        Directory.CreateDirectory(OutDir);
+        EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        SetupEnvironment();
+
+        GameObject sun = GameObject.Find("Sun");
+        if (sun != null) sun.SetActive(false);
+
+        GameObject viewerGo = new GameObject("Viewer");
+        viewerGo.transform.SetPositionAndRotation(new Vector3(0f, 1.15f, 0f), Quaternion.identity);
+        MirrorRig rig = MirrorRig.Create(viewerGo.transform);
+        if (rig == null) return;
+
+        Quaternion upward = Quaternion.Euler(-35f, 0f, 0f);
+        rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
+        viewerGo.transform.rotation = upward;
+        rig.StepForPreview(1.8f);
+
+        var all = new System.Collections.Generic.List<Light>(
+            rig.GetComponentsInChildren<Light>(true));
+
+        Vector3 face = rig.transform.TransformPoint(rig.EyeSpot);
+        foreach (Light l in all)
+        {
+            if (!l.isActiveAndEnabled) continue;
+            string hit = "";
+            if (l.type == LightType.Point)
+            {
+                float d = Vector3.Distance(l.transform.position, face);
+                hit = "  얼굴까지 " + d.ToString("F3") + " m, 받는 빛 "
+                    + (l.intensity / (d * d)).ToString("F2");
+            }
+            Debug.Log("[Ablate] " + l.name + "  " + l.type
+                      + "  세기 " + l.intensity.ToString("F2") + hit);
+        }
+
+        string[] tags = { "all", "nokey", "nopoint", "noamb", "none" };
+        foreach (string tag in tags)
+        {
+            Color amb = RenderSettings.ambientLight;
+            Color sky = RenderSettings.ambientSkyColor;
+            Color eq = RenderSettings.ambientEquatorColor;
+            Color gr = RenderSettings.ambientGroundColor;
+
+            foreach (Light l in all)
+            {
+                bool on = true;
+                if (tag == "nokey") on = l.type != LightType.Directional;
+                else if (tag == "nopoint") on = l.type != LightType.Point;
+                else if (tag == "none") on = false;
+                l.enabled = on;
+            }
+            if (tag == "noamb" || tag == "none")
+            {
+                RenderSettings.ambientLight = Color.black;
+                RenderSettings.ambientSkyColor = Color.black;
+                RenderSettings.ambientEquatorColor = Color.black;
+                RenderSettings.ambientGroundColor = Color.black;
+            }
+
+            ShootFrom(viewerGo.transform.position, upward, "lp_" + tag + "_mirror.png", 75f);
+            CastShot(rig, new Vector3(0.62f, 0.46f, 0.52f), new Vector3(-0.30f, 0.12f, 0.88f),
+                     "lp_" + tag + "_cast.png");
+
+            RenderSettings.ambientLight = amb;
+            RenderSettings.ambientSkyColor = sky;
+            RenderSettings.ambientEquatorColor = eq;
+            RenderSettings.ambientGroundColor = gr;
+        }
+
+        foreach (Light l in all) l.enabled = true;
+        if (sun != null) sun.SetActive(true);
+        Debug.Log("[Ablate] 끝");
+    }
+
+
+
     public static void Render()
     {
         Directory.CreateDirectory(OutDir);
