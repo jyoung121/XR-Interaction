@@ -329,6 +329,18 @@ public static class ToolPreview
         rig.StepForPreview(3.0f);
         ShootFrom(eye, viewerGo.transform.rotation, "mirror_turned.png", 75f);
 
+        // 옆에 선 치과의. 거울이 아니라 **왼쪽**을 봐야 보인다 —
+        // 핸드피스가 -X 에서 들어오니 사람도 그쪽에 선다.
+        viewerGo.transform.rotation = Quaternion.Euler(-8f, -42f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "dental_doctor.png", 75f);
+
+        // 같은 자리에서 고개만 들었을 때. 사람이 보이는지 확인용이다 —
+        // 소매와 손만 보이면 "치과의가 있다"가 아니라 "팔이 떠 있다"다.
+        viewerGo.transform.rotation = Quaternion.Euler(-34f, -52f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "dental_doctor_up.png", 85f);
+
         rig.Dispose();
         Object.DestroyImmediate(viewerGo);
         if (sun != null) sun.SetActive(true);

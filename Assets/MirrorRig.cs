@@ -272,7 +272,12 @@ public class MirrorRig : MonoBehaviour
     private Quaternion restHeadRot;   // 리그 기준 머리뼈의 기본 자세
     private Transform headPivot;      // 머리뼈에 매달린 축. 도구 좌표의 기준
     private Transform toolRoot;
-    private GameObject handpiece;     // 치과 드릴
+    // 참가자 바로 옆에 선 치과의 (BuildCast). 거울 속 치과의와 같은
+    // 사람의 **실물 쪽**이다.
+    private Actor nearDentist;
+    private GameObject nearDrill;     // 그 사람이 쥔 진짜 드릴
+    private GameObject nearBrush;     // 전동칫솔 조건에서 쥐는 것
+    private GameObject handpiece;     // 치과 드릴 (거울 속)
     private GameObject toothbrush;    // 칫솔 (조건 이름은 전동칫솔)
     /// <summary>
     /// 음식 한 가지의 실물. FoodKind 순으로 다섯 벌 지어 두고 하나만 켠다.
@@ -3688,6 +3693,21 @@ public class MirrorRig : MonoBehaviour
                             new Color(0.87f, 0.90f, 0.93f), new Color(0.20f, 0.16f, 0.13f));
         if (dentist != null) BuildMask(dentist);
 
+        // 참가자 **바로 옆**에 한 사람 더 세운다. 위 dentist 는 거울 속
+        // 사람이라 참가자가 한 번도 못 본다 — 거울 속 장면이 5배라
+        // (DentalZoom) 거인이 되어 꺼 뒀기 때문이다. 그래서 거울에는
+        // 떠 있는 드릴만 보이고, 고개를 돌리면 아무도 없었다.
+        //
+        // 자리는 거울 속 치과의를 거울면(z = D)에 비춘 자리다 —
+        // z = 2D - (2D - 0.05) = 0.05. 거기서 조금 물러나 세운다.
+        // 35 cm 는 눈에서 너무 가까워 몸이 카메라에 박힌다. 좌우로
+        // 돌아앉는 각도 거울상이라 180 - 98 = 82 도다.
+        nearDentist = MakeActor("DentistNear", new Vector3(-0.52f, 0.27f, 0.015f),
+                                82f, 16f,
+                                new Color(0.87f, 0.90f, 0.93f),
+                                new Color(0.20f, 0.16f, 0.13f), 22f);
+        if (nearDentist != null) BuildMask(nearDentist);
+
         collar = BuildCollar();
 
         // 상의 원래 색을 기억해 둔다. 치과에서만 에이프런 색으로 바꿨다가 되돌린다.
@@ -3732,7 +3752,7 @@ public class MirrorRig : MonoBehaviour
     }
 
     private Actor MakeActor(string name, Vector3 headAt, float yaw, float lean,
-                            Color shirt, Color hair)
+                            Color shirt, Color hair, float headDown = 0f)
     {
         GameObject go = SpawnPerson(name);
         if (go == null) return null;
@@ -3751,6 +3771,20 @@ public class MirrorRig : MonoBehaviour
         a.facing = Quaternion.AngleAxis(lean, a.root.right) * a.root.rotation;
         Transform torso = FindBone(a.root, "Torso");
         if (torso != null) torso.rotation = Quaternion.AngleAxis(lean, a.root.right) * torso.rotation;
+
+        // 고개를 따로 더 숙인다. 몸만 숙이면 눈이 정면을 본 채라
+        // "남의 입을 들여다보는 사람"이 아니라 딴 데 보는 사람이 된다.
+        // 머리뼈는 아무도 매 프레임 건드리지 않으므로 한 번만 돌려 둔다
+        // (팔만 RelaxOther·GripAround 가 다시 쓴다).
+        if (a.head != null && Mathf.Abs(headDown) > 0.01f)
+        {
+            a.head.rotation = Quaternion.AngleAxis(headDown, a.root.right) * a.head.rotation;
+
+            // facing 도 같이 돌려야 한다. 마스크는 이 축에 매달리는데
+            // (BuildMask), 고개만 돌리고 축을 그대로 두면 마스크가
+            // 제자리에 남아 **눈을 덮는다**. 실제로 그렇게 났다.
+            a.facing = Quaternion.AngleAxis(headDown, a.root.right) * a.facing;
+        }
 
         // 머리뼈가 원하는 자리에 오도록 통째로 민다 (참가자와 같은 방식).
         if (a.head != null)
@@ -3903,6 +3937,20 @@ public class MirrorRig : MonoBehaviour
         handpiece = ToolModels.BuildHandpiece();
         handpiece.transform.SetParent(toolRoot, false);
         handpiece.SetActive(false);
+
+        // 옆에 선 치과의가 쥘 드릴. 위 handpiece 는 toolRoot(거울 속 머리)
+        // 에 달려 있어 거울 안에만 있다. 이쪽은 리그에 직접 달아 참가자
+        // 제 입가에 둔다 — 손에 뭔가 쥐여 줘야 팔이 늘어진 게 아니라
+        // 일하는 것으로 보인다.
+        nearDrill = ToolModels.BuildHandpiece();
+        nearDrill.transform.SetParent(transform, false);
+        nearDrill.SetActive(false);
+
+        // 칫솔 조건에도 하나 있어야 한다. 드릴만 쥐여 줬더니 칫솔
+        // 조건에서는 같은 손이 **빈손으로** 입가에 떠 있었다.
+        nearBrush = BuildBrush();
+        nearBrush.transform.SetParent(transform, false);
+        nearBrush.SetActive(false);
 
         toothbrush = BuildBrush();
         toothbrush.transform.SetParent(toolRoot, false);
@@ -4437,6 +4485,12 @@ public class MirrorRig : MonoBehaviour
         // 그대로 움직이고 닿는다. 확대를 끄면(배율 1) 다시 나온다.
         if (dentist != null)
             dentist.go.SetActive(s == Scenario.Dental && DentalZoom <= 1.001f);
+        // 이쪽은 실물이라 배율과 상관없다. 늘 제 크기로 선다.
+        if (nearDentist != null) nearDentist.go.SetActive(s == Scenario.Dental);
+        if (nearDrill != null)
+            nearDrill.SetActive(atDentist && dental == DentalKind.Drill);
+        if (nearBrush != null)
+            nearBrush.SetActive(atDentist && dental == DentalKind.Brush);
         // 치과 에이프런. 목에 두른 천이라 깃이 같이 보인다.
         if (collar != null) collar.gameObject.SetActive(s == Scenario.Dental);
 
@@ -4454,6 +4508,7 @@ public class MirrorRig : MonoBehaviour
 
         if (selfArm != null) selfArm.Rest();
         if (dentist != null) dentist.reach.Rest();
+        if (nearDentist != null) nearDentist.reach.Rest();
 
         ShowLabel(s);
     }
@@ -4633,6 +4688,67 @@ public class MirrorRig : MonoBehaviour
                      brush ? new Vector3(0f, 0f, -1f)
                            : new Vector3(0f, 0.10f, -0.99f),
                      ElbowPole(dentist));
+        }
+
+        if (nearDentist != null)
+        {
+            RelaxOther(nearDentist);
+
+            // 손은 참가자 입 왼쪽 아래. **거기 드릴은 없다** — 진짜
+            // 드릴은 참가자 제 입 안이라 제 눈에는 안 보인다. 보여야
+            // 하는 건 위에서 내려오는 팔과 몸이고, 손은 시야 아래
+            // 모서리에 걸친다.
+            //
+            // 입 자리는 눈에서 아래로 NeckDrop - 머리단위×0.08,
+            // 앞으로 머리단위×0.465 다 (BuildHead 의 mouthLocal).
+            Vector3 at = new Vector3(0f, -NeckDrop + headUnit * 0.08f,
+                                     headUnit * 0.465f);
+
+            // 가만히 서 있으면 마네킹이다. 숨 쉬는 만큼만 흔든다.
+            at.y += Mathf.Sin(elapsed * 0.85f) * 0.005f;
+
+            GameObject near = nearDrill != null && nearDrill.activeSelf
+                            ? nearDrill
+                            : (nearBrush != null && nearBrush.activeSelf
+                               ? nearBrush : null);
+            if (near != null)
+            {
+                // 자루가 들어오는 방향. **옆에서** 비스듬히여야 한다.
+                //
+                // 위에서 가파르게(-0.46, 0.82, -0.34) 내려오게 해 봤더니
+                // 자루가 화면 한복판을 세로로 갈라 거울 구멍을 통째로
+                // 덮었다. 참가자가 보는 건 거울 속 입 하나뿐이라 그걸
+                // 가리면 실험이 없어진다. 옆으로 눕히면 자루가 거울
+                // 테두리 바깥으로 빠져 구멍이 열린 채로 남는다.
+                Vector3 fromDoc = new Vector3(-0.72f, 0.42f, -0.55f).normalized;
+
+                // 도구의 +Z 가 **끝 방향**이고 원점이 끝이다 (위 거울 쪽
+                // 코드의 LookRotation(-away) 와 같은 규칙). 자루는 -Z 로
+                // 뻗으므로 치과의 쪽인 fromDoc 의 반대를 봐야 한다.
+                near.transform.localPosition = at;
+                near.transform.localRotation =
+                    Quaternion.LookRotation(-fromDoc, Vector3.up);
+
+                // 드릴의 자루 한가운데는 BuildHandpiece 를 따라가면
+                // (0, 0.024, -0.091) 이다. 거울 쪽과 같은 y = 0.008 을
+                // 썼더니 손이 자루 **밑** 16 mm 에 떠서 손가락이 허공을
+                // 쥐었다. 거울 속 치과의는 꺼져 있어(DentalZoom) 아무도
+                // 그걸 못 봤을 뿐이다.
+                bool br = near == nearBrush;
+                HoldTool(nearDentist.reach, near.transform,
+                         br ? new Vector3(0f, -0.008f, -0.115f)
+                            : new Vector3(0f, 0.024f, -0.091f),
+                         br ? new Vector3(0f, 0f, -1f)
+                            : new Vector3(0f, 0.34f, -0.94f),
+                         ElbowPole(nearDentist));
+            }
+            else
+            {
+                GripAround(nearDentist.reach, transform.TransformPoint(at),
+                           transform.TransformDirection(
+                               new Vector3(-0.72f, 0.42f, -0.55f).normalized),
+                           Vector3.zero, HandGrip, 46f, ElbowPole(nearDentist));
+            }
         }
 
         Contact = touching ? 1f : 0f;
