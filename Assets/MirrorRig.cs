@@ -112,7 +112,7 @@ public class MirrorRig : MonoBehaviour
     private Transform headPivot;      // 머리뼈에 매달린 축. 도구 좌표의 기준
     private Transform toolRoot;
     private GameObject handpiece;     // 치과 드릴
-    private GameObject toothbrush;    // 전동칫솔
+    private GameObject toothbrush;    // 칫솔 (조건 이름은 전동칫솔)
     private GameObject foodHard;      // 사과
     private GameObject foodSoft;      // 젤리
     private Transform plateJelly;     // 접시에 담아 둔 젤리들
