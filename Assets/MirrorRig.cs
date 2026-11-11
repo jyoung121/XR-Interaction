@@ -3846,7 +3846,9 @@ public class MirrorRig : MonoBehaviour
             else { Curl(l, curl); ThumbTo(l, point, axis, seat); }
 
             if (pass < 2)
+            {
                 target += point - HoldPoint(l, fold >= 0f, axis, seat);
+            }
         }
     }
 
@@ -4007,6 +4009,22 @@ public class MirrorRig : MonoBehaviour
         else PointBone(b2, b3, goal - b2.position);
     }
 
+    /// <summary>손가락 세 마디와 끝까지의 길이 합 — 이 손가락이 닿을 수 있는 거리.</summary>
+    private static float Reach(Transform b1, Transform b2, Transform b3)
+    {
+        if (b1 == null || b2 == null || b3 == null) return 0f;
+        Transform end = b3.childCount > 0 ? b3.GetChild(0) : null;
+        float d = Vector3.Distance(b1.position, b2.position)
+                + Vector3.Distance(b2.position, b3.position);
+        if (end != null) d += Vector3.Distance(b3.position, end.position);
+        return d;
+    }
+
+    /// <summary>PinchOn 이 마지막으로 겨눈 자리. FoodGripProbe 가 읽는다.</summary>
+    private static Vector3 pinchGoalIdx, pinchGoalThb, pinchBaseIdx, pinchBaseThb;
+    private static float pinchReachIdx, pinchReachThb;
+
+
     /// <summary>
     /// 집게손. **각을 주지 않고 손끝을 음식 겉면에 올려놓는다.**
     ///
@@ -4055,8 +4073,17 @@ public class MirrorRig : MonoBehaviour
         if (u.sqrMagnitude < 1e-10f) return;
         u = u.normalized;
 
-        DigitTo(i1, i2, i3, point + u * r,  u, 55f);
-        DigitTo(t1, t2, t3, point - u * r, -u, 35f);
+        Vector3 gi = point + u * r, gt = point - u * r;
+        DigitTo(i1, i2, i3, gi,  u, 55f);
+        DigitTo(t1, t2, t3, gt, -u, 35f);
+
+        // 프로브가 읽어 가는 값. 어디를 겨눴고 얼마나 빗나갔나.
+        pinchGoalIdx = gi;
+        pinchGoalThb = gt;
+        pinchReachIdx = Reach(i1, i2, i3);
+        pinchReachThb = Reach(t1, t2, t3);
+        pinchBaseIdx = i1.position;
+        pinchBaseThb = t1.position;
     }
 
 
@@ -4089,6 +4116,14 @@ public class MirrorRig : MonoBehaviour
         }
     }
 
+    /// <summary>끝마디 뼈가 아니라 그 끝에 달린 손끝 자리.</summary>
+    private static Vector3 Tip(Transform last)
+    {
+        if (last == null) return Vector3.zero;
+        return last.childCount > 0 ? last.GetChild(0).position : last.position;
+    }
+
+
     /// <summary>
     /// 쥔 물건이 놓여야 할 자리. 주먹이면 손가락 고리의 한가운데,
     /// 집게손이면 검지와 엄지 사이다.
@@ -4104,9 +4139,15 @@ public class MirrorRig : MonoBehaviour
     /// </summary>
     private static Vector3 HoldPoint(Limb l, bool pinch, Vector3 axis, float seat)
     {
+        // **끝마디 뼈는 손끝이 아니다.** 뼈가 하나 더 있다
+        // (Index4.L_end / Thumb3.L_end). 여기서 fingers[2]·fingers[14] 를
+        // 손끝으로 읽고 있었는데, 그건 끝마디가 **시작되는** 자리라
+        // 검지로 1.65 cm, 엄지로 2.05 cm 손 안쪽이다. 그만큼 손이 음식
+        // 쪽으로 더 들어와 앉았다. Index1 을 손가락으로 세던 것과 같은
+        // 한 칸 밀림이다.
         if (pinch && l.fingers != null && l.fingers.Length > 14
             && l.fingers[2] != null && l.fingers[14] != null)
-            return (l.fingers[2].position + l.fingers[14].position) * 0.5f;
+            return (Tip(l.fingers[2]) + Tip(l.fingers[14])) * 0.5f;
 
         if (l.palm != null && l.mid != null && l.tip != null)
         {
@@ -4154,7 +4195,12 @@ public class MirrorRig : MonoBehaviour
 
         FoodSpec fs = SpecOf(foodKind);
         Vector3 c = food.transform.position;
-        Vector3 ti = l.fingers[2].position, tt = l.fingers[14].position;
+        // **끝마디 뼈가 손끝이 아니다.** 뼈 하나 더 있다 (Index4.L_end).
+        // 그걸 모르고 fingers[2]/fingers[14] 를 손끝으로 읽었더니 늘
+        // 끝마디 길이만큼(검지 1.65 cm, 엄지 2.05 cm) 모자라게 나왔다.
+        Transform iEnd = l.fingers[2].childCount > 0 ? l.fingers[2].GetChild(0) : l.fingers[2];
+        Transform tEnd = l.fingers[14].childCount > 0 ? l.fingers[14].GetChild(0) : l.fingers[14];
+        Vector3 ti = iEnd.position, tt = tEnd.position;
         Vector3 mid = (ti + tt) * 0.5f;
 
         // 음식 반지름. 도구 자루를 잴 때 쓴 것과 같은 수다.
@@ -4176,6 +4222,15 @@ public class MirrorRig : MonoBehaviour
             + "   각 curl/thumb/fold "
             + fs.curl.ToString("F0") + "/" + fs.thumb.ToString("F0")
             + "/" + fs.fold.ToString("F0"));
+        sb.AppendLine();
+        sb.Append("  검지: 밑동→목표 "
+            + Vector3.Distance(pinchBaseIdx, pinchGoalIdx).ToString("F4")
+            + "  닿는 길이 " + pinchReachIdx.ToString("F4")
+            + "  끝→목표 " + Vector3.Distance(ti, pinchGoalIdx).ToString("F4"));
+        sb.Append("   엄지: 밑동→목표 "
+            + Vector3.Distance(pinchBaseThb, pinchGoalThb).ToString("F4")
+            + "  닿는 길이 " + pinchReachThb.ToString("F4")
+            + "  끝→목표 " + Vector3.Distance(tt, pinchGoalThb).ToString("F4"));
         return sb.ToString();
     }
 
