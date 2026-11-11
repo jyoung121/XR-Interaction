@@ -4311,13 +4311,7 @@ public class MirrorRig : MonoBehaviour
     /// <summary>치과의 마스크. 흰 가운만으로는 의사로 안 읽힌다.</summary>
     private void BuildMask(Actor a)
     {
-        if (a == null || a.head == null) return;
-
-        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        go.name = "Mask";
-        Kill(go.GetComponent<Collider>());
-        go.GetComponent<Renderer>().sharedMaterial =
-            ToolModels.MakeMaterial(new Color(0.60f, 0.79f, 0.84f), 0f, 0.08f);
+        if (a == null || a.head == null || a.go == null) return;
 
         // 머리뼈의 로컬 축이 어디를 보는지 모르니, 얼굴 방향을 아는 축을 하나 만들어
         // 거기에 매단다. 참가자 입을 놓을 때와 같은 방식이다.
@@ -4326,10 +4320,243 @@ public class MirrorRig : MonoBehaviour
         pivot.transform.rotation = a.facing;
         pivot.transform.SetParent(a.head, true);
 
+        Material blue = ToolModels.MakeMaterial(new Color(0.60f, 0.79f, 0.84f), 0f, 0.08f);
+
+        SkinnedMeshRenderer head = null;
+        foreach (SkinnedMeshRenderer r in a.go.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            if (r.name.IndexOf("Head", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            { head = r; break; }
+
+        if (FaceMask(head, pivot.transform, blue)) return;
+
+        // 얼굴 메시를 못 읽을 때만 쓰는 대비책. 공을 머리 속에 묻고
+        // 앞쪽 뚜껑만 내놓는다 — 상자보다는 낫지만 베개처럼 보인다.
+        GameObject go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        go.name = "Mask";
+        Kill(go.GetComponent<Collider>());
+        go.GetComponent<Renderer>().sharedMaterial = blue;
         go.transform.SetParent(pivot.transform, false);
-        go.transform.localPosition = new Vector3(0f, headUnit * 0.07f, headUnit * 0.50f);
+        go.transform.localPosition = new Vector3(0f, headUnit * 0.06f, headUnit * 0.34f);
         go.transform.localRotation = Quaternion.identity;
-        go.transform.localScale = new Vector3(headUnit * 0.40f, headUnit * 0.26f, headUnit * 0.20f);
+        go.transform.localScale = new Vector3(headUnit * 0.42f, headUnit * 0.30f, headUnit * 0.30f);
+    }
+
+    /// <summary>
+    /// 마스크를 **얼굴 메시에서 떠낸다.**
+    ///
+    /// 기본 도형으로 두 번 해 봤는데 둘 다 "얼굴에 붙인 물건"이 됐다.
+    /// 상자는 모서리가 곡면 밖으로 나와 얼굴 앞 3.4 cm 에 뜬 판때기였고,
+    /// 공은 제일 굵은 데가 한가운데라 옆으로 삐져나와 콩처럼 보였다.
+    /// 자리를 아무리 맞춰도 **모양이 얼굴이 아니면** 붙지를 않는다.
+    ///
+    /// 그래서 얼굴에서 덮을 자리를 떠다 5 mm 밀어낸다. 눈꺼풀을 눈알에서
+    /// 떠낸 것과 같은 수다 (<see cref="ShellCopy"/> 참고). 다만 얼굴은
+    /// 눈알과 달리 공이 아니라서, 떠내는 데만 수가 셋 더 든다 — 아래
+    /// 세 군데에 적어 두었다. 셋 다 **렌더를 보고** 알아낸 것이 아니라
+    /// 면·꼭짓점을 세어 보고 알아냈다.
+    /// </summary>
+    private bool FaceMask(SkinnedMeshRenderer head, Transform pivot, Material mat)
+    {
+        if (head == null || pivot == null) return false;
+        Mesh src = head.sharedMesh;
+        if (src == null) return false;
+
+        Mesh baked = new Mesh();
+        head.BakeMesh(baked, true);          // true 라야 임포트 배율이 들어간다
+        Vector3[] bv = baked.vertices, bn = baked.normals;
+        if (bv.Length == 0 || bn.Length != bv.Length || bv.Length != src.vertexCount)
+        { Kill(baked); return false; }
+
+        Transform rt = head.transform;
+        int n = bv.Length;
+        Vector3[] Pw = new Vector3[n], Nw = new Vector3[n];
+        for (int i = 0; i < n; i++)
+        {
+            Pw[i] = pivot.InverseTransformPoint(rt.TransformPoint(bv[i]));
+            Nw[i] = pivot.InverseTransformDirection(rt.TransformDirection(bn[i])).normalized;
+        }
+        // **살갗 서브메시는 하나가 아니다.** 가장 밝은 재질 하나만 떠냈는데
+        // 코·콧구멍·입술이 안 덮이고 살갗 그대로 남아 있었다. 머리를
+        // 뜯어보니 서브메시가 다섯이고 살갗이 둘로 갈려 있다:
+        //
+        //   0  Skin         404 면   0.81/0.68/0.53
+        //   1  Skin_Darker   44 면   0.73/0.61/0.47   ← 코·콧구멍·입술
+        //   2  Eyebrows      24 면   0.24/0.20/0.16
+        //   3  Eye           24 면   0.19/0.14/0.11
+        //   4  Hair        1188 면   0.29/0.18/0.09
+        //
+        // 그래서 제일 밝은 것 **하나**가 아니라, 제일 밝은 것과 **색이
+        // 가까운 것들**을 다 가져온다. Skin↔Skin_Darker 가 0.12 인데
+        // Skin↔Hair 는 0.85 다 — 0.25 로 자르면 깨끗하게 갈린다.
+        // 이름이 아니라 색으로 가르니 모델이 바뀌어도 버틴다.
+        //
+        // 다섯을 다 쓰면 안 된다. 머리카락이 1188 면이라 마스크가
+        // 턱 밑으로 삐죽삐죽한 넝마가 된다 — 해 봤다.
+        Material[] mats = head.sharedMaterials;
+        Color best = Color.black;
+        float bright = -1f;
+        for (int i = 0; i < mats.Length && i < src.subMeshCount; i++)
+        {
+            if (mats[i] == null) continue;
+            float lum = mats[i].color.r + mats[i].color.g + mats[i].color.b;
+            if (lum > bright) { bright = lum; best = mats[i].color; }
+        }
+
+        var pool = new System.Collections.Generic.List<int>();
+        for (int sm = 0; sm < src.subMeshCount; sm++)
+        {
+            if (sm >= mats.Length || mats[sm] == null) continue;
+            Color c = mats[sm].color;
+            float d = Mathf.Sqrt((c.r - best.r) * (c.r - best.r)
+                               + (c.g - best.g) * (c.g - best.g)
+                               + (c.b - best.b) * (c.b - best.b));
+            if (d > 0.25f) continue;
+            pool.AddRange(src.GetTriangles(sm));
+        }
+        int[] tri = pool.ToArray();
+
+        // 덮을 자리는 입을 기준으로 잡는다. 참가자 얼굴에서 잰 값이라
+        // (같은 모델) 치과의에게도 그대로 맞는다.
+        float my = mouthLocal.y != 0f ? mouthLocal.y : headUnit * 0.08f;
+        float top = my + headUnit * 0.20f;    // 콧대
+        float bot = my - headUnit * 0.32f;    // 턱 밑으로 넘겨 감는다
+
+        // **꼭짓점을 붙여 가며 뜬다.** 이게 이 함수에서 제일 중요한 수다.
+        //
+        // 이 머리는 면이 1684 개인데 꼭짓점이 3282 개다 — 평평하게
+        // 칠하려고 **삼각형마다 꼭짓점을 따로** 두었다는 뜻이다. 그래서
+        // 이웃한 두 면이 한 점을 같이 쓰지 않고, 각자 제 면 법선을
+        // 들고 있다. 그 상태로 꼭짓점을 법선 쪽으로 밀면 맞닿아 있던
+        // 두 면이 **모서리에서 쩍 벌어진다.** 벌어지는 폭은
+        // 2·push·tan(θ/2) 라 코처럼 각이 선 데서는 5 mm 를 밀면 6 mm 가
+        // 벌어진다. 마스크가 천이 아니라 **흩어진 비늘**로 보였고,
+        // 그 틈으로 살갗이 비쳤다. 밀어내는 양을 늘릴수록 더 벌어진다 —
+        // 처음에 3.6 → 5 → 7.6 mm 로 올려 봤자 나아지지 않은 이유다.
+        //
+        // 같은 자리에 있는 꼭짓점을 하나로 치고, 거기 모이는 면 법선을
+        // **평균 내서** 그 방향으로 민다. 그러면 모서리를 같이 쓰던 두
+        // 면이 같은 점을 같이 끌고 가니 벌어질 수가 없다.
+        var weld = new System.Collections.Generic.Dictionary<long, int>();
+        var vs = new System.Collections.Generic.List<Vector3>();
+        var nsum = new System.Collections.Generic.List<Vector3>();
+        var ts = new System.Collections.Generic.List<int>();
+        float push = headUnit * 0.020f;   // 5 mm
+
+        var poly = new System.Collections.Generic.List<Vector3>(8);
+        var pnrm = new System.Collections.Generic.List<Vector3>(8);
+
+        for (int i = 0; i < tri.Length; i += 3)
+        {
+
+            // **경계에서 삼각형을 자른다.** 통째로 넣고 빼면 마스크
+            // 테두리가 면 모서리를 따라 톱니로 간다. 코 위에서 그게
+            // 뿔 둘과 가운데 V 홈으로 나왔다 — 마스크 윗선은 콧등을
+            // 가로질러 **곧게** 가야 한다. 자르면 테두리가 내가 정한
+            // 자리에 정확히 선다.
+            poly.Clear(); pnrm.Clear();
+            for (int k = 0; k < 3; k++)
+            { poly.Add(Pw[tri[i + k]]); pnrm.Add(Nw[tri[i + k]]); }
+
+            ClipY(poly, pnrm, top, true);    // 콧등 위를 자른다
+            ClipY(poly, pnrm, bot, false);   // 턱 밑을 자른다
+            if (poly.Count < 3) continue;
+
+            Vector3 mid = Vector3.zero;
+            for (int k = 0; k < poly.Count; k++) mid += poly[k];
+            mid /= poly.Count;
+            if (mid.z <= 0f) continue;                       // 앞쪽 절반만
+
+            // 자르고 남은 것은 사각형이나 오각형일 수 있다. 부채꼴로 쪼갠다.
+            int v0 = Weld(weld, vs, nsum, poly[0], pnrm[0]);
+            for (int k = 1; k + 1 < poly.Count; k++)
+            {
+                int v1 = Weld(weld, vs, nsum, poly[k], pnrm[k]);
+                int v2 = Weld(weld, vs, nsum, poly[k + 1], pnrm[k + 1]);
+                ts.Add(v0); ts.Add(v1); ts.Add(v2);
+            }
+        }
+        Kill(baked);
+        if (ts.Count == 0) return false;
+
+        for (int i = 0; i < vs.Count; i++)
+        {
+            Vector3 d = nsum[i];
+            if (d.sqrMagnitude < 1e-12f) continue;
+            vs[i] = vs[i] + d.normalized * push;
+        }
+
+        Mesh m = new Mesh();
+        m.name = "MaskMesh";
+        m.SetVertices(vs);
+        m.SetTriangles(ts, 0);
+        m.RecalculateNormals();
+        m.RecalculateBounds();
+
+        GameObject go = new GameObject("Mask");
+        go.transform.SetParent(pivot, false);
+        go.AddComponent<MeshFilter>().sharedMesh = m;
+        go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+        return true;
+    }
+
+    /// <summary>
+    /// 같은 자리의 꼭짓점을 하나로 친다. 0.1 mm 눈금에 떨어뜨려 센다.
+    /// 법선은 거기 모이는 것을 더해 두었다가 나중에 평균을 낸다.
+    /// </summary>
+    private static int Weld(System.Collections.Generic.Dictionary<long, int> weld,
+                            System.Collections.Generic.List<Vector3> vs,
+                            System.Collections.Generic.List<Vector3> nsum,
+                            Vector3 p, Vector3 n)
+    {
+        long key = (long)Mathf.RoundToInt(p.x * 10000f) * 4000000L
+                 + (long)Mathf.RoundToInt(p.y * 10000f) * 2000L
+                 + (long)Mathf.RoundToInt(p.z * 10000f);
+        int dst;
+        if (!weld.TryGetValue(key, out dst))
+        {
+            dst = vs.Count;
+            weld[key] = dst;
+            vs.Add(p);
+            nsum.Add(Vector3.zero);
+        }
+        nsum[dst] += n;
+        return dst;
+    }
+
+    /// <summary>
+    /// 다각형을 y = <paramref name="y"/> 평면으로 자른다 (서덜런드–하지먼).
+    /// <paramref name="keepBelow"/> 면 아래쪽을, 아니면 위쪽을 남긴다.
+    /// 잘린 자리에 생기는 꼭짓점의 법선은 두 끝을 섞어 쓴다 — 어차피
+    /// 붙일 때 평균을 내니 길이는 상관없다.
+    /// </summary>
+    private static void ClipY(System.Collections.Generic.List<Vector3> P,
+                              System.Collections.Generic.List<Vector3> N,
+                              float y, bool keepBelow)
+    {
+        int n = P.Count;
+        if (n == 0) return;
+
+        Vector3[] op = new Vector3[n + 2], on = new Vector3[n + 2];
+        int m = 0;
+        for (int i = 0; i < n; i++)
+        {
+            int j = (i + 1) % n;
+            Vector3 a = P[i], b = P[j], na = N[i], nb = N[j];
+            bool ina = keepBelow ? a.y <= y : a.y >= y;
+            bool inb = keepBelow ? b.y <= y : b.y >= y;
+
+            if (ina) { op[m] = a; on[m] = na; m++; }
+            if (ina != inb)
+            {
+                float t = (y - a.y) / (b.y - a.y);
+                op[m] = Vector3.Lerp(a, b, t);
+                on[m] = Vector3.Lerp(na, nb, t);
+                m++;
+            }
+        }
+
+        P.Clear(); N.Clear();
+        for (int i = 0; i < m; i++) { P.Add(op[i]); N.Add(on[i]); }
     }
 
     private static Transform FindBone(Transform root, string name)
