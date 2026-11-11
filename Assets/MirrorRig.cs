@@ -1770,6 +1770,99 @@ public class MirrorRig : MonoBehaviour
         BothBox(r, teal, new Vector3(RoomHalfW - 0.02f, -eyeHeight + 1.62f, D - 1.85f),
                 new Vector3(0.03f, 0.44f, 0.60f), "WallChart");
 
+        // ── 왼쪽 벽 ── +X 를 채운 뒤에 **같은 자를 반대쪽에 댔다.**
+        //
+        // 왼쪽 끝(-70도) 시야를 프로브에 넣고 재니 옆벽 하나가 38.7 %,
+        // 거울 벽이 25.3 % 였다 — 고치기 전의 오른쪽(43 %)과 거의 같다.
+        // 왼쪽에는 쟁반·수납장·치과의가 있어서 "채워져 있다" 고 믿고
+        // 있었는데, 그 셋은 모두 환자 가까이 낮게 모여 있고 **벽은 걸레
+        // 받이 말고 아무것도 없었다.** 가진 물건을 세는 것과 화면을 재는
+        // 것은 다르다.
+
+        // 어두운 값 하나. 이 방에 제일 없는 것이 어두운 면이다.
+        Material screen = ToolModels.MakeMaterial(new Color(0.10f, 0.12f, 0.14f), 0.2f, 0.62f);
+
+        // 창. 문 하나로 상자가 방이 됐듯이, 창 하나로 방이 건물 안이 된다.
+        // 유리는 **빛나게 하지 않는다** — 빕이 타 버렸던 것과 같은 이유다.
+        // 벽(0.80)보다 어둡고 푸른 쪽으로 틀어서 색으로 구별되게 한다.
+        Material glass = ToolModels.MakeMaterial(new Color(0.66f, 0.76f, 0.84f), 0.2f, 0.55f);
+        float winY = -eyeHeight + 1.42f;
+        float winZ = D - 0.95f;
+        BothBox(r, glass, new Vector3(-(RoomHalfW - 0.02f), winY, winZ),
+                new Vector3(0.03f, 0.84f, 0.95f), "WinGlass");
+        // 틀 네 쪽. 유리 한 장만 두면 벽에 칠한 색으로 보인다.
+        for (int i = 0; i < 2; i++)
+        {
+            BothBox(r, shell, new Vector3(-(RoomHalfW - 0.05f), winY + (i * 2 - 1) * 0.45f, winZ),
+                    new Vector3(0.09f, 0.06f, 1.07f), "WinFrameH" + i);
+            BothBox(r, shell, new Vector3(-(RoomHalfW - 0.05f), winY, winZ + (i * 2 - 1) * 0.505f),
+                    new Vector3(0.09f, 0.96f, 0.06f), "WinFrameV" + i);
+        }
+        // 가운데 창살. 큰 면은 반으로 갈라 놓는 편이 늘 낫다.
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.045f), winY, winZ),
+                new Vector3(0.07f, 0.84f, 0.05f), "WinMullion");
+        // 반쯤 내린 블라인드. 얇은 띠 다섯이 위쪽 삼분의 일을 끊는다.
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.07f), winY + 0.41f, winZ),
+                new Vector3(0.12f, 0.09f, 0.98f), "BlindBox");
+        for (int i = 0; i < 5; i++)
+            BothBox(r, shell, new Vector3(-(RoomHalfW - 0.065f), winY + 0.32f - i * 0.072f, winZ),
+                    new Vector3(0.10f, 0.014f, 0.94f), "Blind" + i);
+        // 창턱.
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.085f), winY - 0.50f, winZ),
+                new Vector3(0.17f, 0.04f, 1.07f), "WinSill");
+
+        // 손 씻는 곳. 주석에는 "뒷벽 — 수납장과 세면대" 라고 적혀 있었지만
+        // 세면대는 **지은 적이 없었다.** 적어 둔 것과 서 있는 것이 다르다.
+        float sinkZ = D - 1.85f;
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.17f), -eyeHeight + 0.68f, sinkZ),
+                new Vector3(0.34f, 0.28f, 0.62f), "SinkBody");
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.17f), -eyeHeight + 0.84f, sinkZ),
+                new Vector3(0.36f, 0.05f, 0.64f), "SinkTop");
+        Both(r, PrimitiveType.Cylinder, shell,
+             new Vector3(-(RoomHalfW - 0.17f), -eyeHeight + 0.875f, sinkZ),
+             Vector3.zero, new Vector3(0.30f, 0.012f, 0.30f), "SinkRim");
+        Both(r, PrimitiveType.Cylinder, line,
+             new Vector3(-(RoomHalfW - 0.17f), -eyeHeight + 0.862f, sinkZ),
+             Vector3.zero, new Vector3(0.26f, 0.010f, 0.26f), "SinkBasin");
+        Both(r, PrimitiveType.Cylinder, hoseDark,
+             new Vector3(-(RoomHalfW - 0.17f), -eyeHeight + 0.858f, sinkZ),
+             Vector3.zero, new Vector3(0.06f, 0.010f, 0.06f), "SinkDrain");
+        // 수도꼭지. 벽 쪽에 기둥, 사발 위로 주둥이.
+        Both(r, PrimitiveType.Cylinder, steel,
+             new Vector3(-(RoomHalfW - 0.055f), -eyeHeight + 0.99f, sinkZ),
+             Vector3.zero, new Vector3(0.040f, 0.115f, 0.040f), "FaucetPost");
+        BothBox(r, steel, new Vector3(-(RoomHalfW - 0.145f), -eyeHeight + 1.095f, sinkZ),
+                new Vector3(0.20f, 0.032f, 0.032f), "FaucetSpout");
+        // 비누통과 종이 수건. 작은 것 여럿이 큰 판 하나보다 낫다.
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.05f), -eyeHeight + 1.24f, sinkZ + 0.23f),
+                new Vector3(0.09f, 0.22f, 0.08f), "Soap");
+        BothBox(r, steel, new Vector3(-(RoomHalfW - 0.09f), -eyeHeight + 1.12f, sinkZ + 0.23f),
+                new Vector3(0.06f, 0.04f, 0.06f), "SoapLever");
+        BothBox(r, steel, new Vector3(-(RoomHalfW - 0.08f), -eyeHeight + 1.27f, sinkZ - 0.26f),
+                new Vector3(0.15f, 0.26f, 0.22f), "TowelBox");
+        BothBox(r, shell, new Vector3(-(RoomHalfW - 0.155f), -eyeHeight + 1.14f, sinkZ - 0.26f),
+                new Vector3(0.02f, 0.06f, 0.17f), "Towel");
+
+        // 화면 하나 — 환자 머리 왼쪽 벽. 구강 카메라를 띄워 두는 그 모니터다.
+        // 여기에 어두운 색을 쓰는 것이 요점이다. 0.80 짜리 벽 한가운데
+        // 0.10 이 하나 있으면 면이 아니라 물건으로 읽힌다.
+        BothBox(r, steel, new Vector3(-(RoomHalfW - 0.11f), -eyeHeight + 1.46f, D - 0.25f),
+                new Vector3(0.22f, 0.045f, 0.045f), "ScreenArm");
+        BothBox(r, steel, new Vector3(-(RoomHalfW - 0.23f), -eyeHeight + 1.46f, D - 0.25f),
+                new Vector3(0.04f, 0.34f, 0.50f), "ScreenBack");
+        BothBox(r, screen, new Vector3(-(RoomHalfW - 0.255f), -eyeHeight + 1.46f, D - 0.25f),
+                new Vector3(0.015f, 0.30f, 0.46f), "ScreenFace");
+
+        // 치과의 의자. 벽이 아니라 바닥에 있는데도 넣는 이유는, 창 앞에
+        // 서면 창·의자·바닥 줄눈이 **겹쳐 보여서**다. 한 겹은 면이고
+        // 여러 겹은 공간이다 — 빕에 쓴 것과 같은 이야기.
+        Both(r, PrimitiveType.Cylinder, teal, new Vector3(-1.05f, -eyeHeight + 0.56f, D - 0.75f),
+             Vector3.zero, new Vector3(0.34f, 0.035f, 0.34f), "StoolSeat");
+        Both(r, PrimitiveType.Cylinder, steel, new Vector3(-1.05f, -eyeHeight + 0.38f, D - 0.75f),
+             Vector3.zero, new Vector3(0.055f, 0.14f, 0.055f), "StoolPost");
+        Both(r, PrimitiveType.Cylinder, hoseDark, new Vector3(-1.05f, -eyeHeight + 0.045f, D - 0.75f),
+             Vector3.zero, new Vector3(0.44f, 0.015f, 0.44f), "StoolBase");
+
         // 치료등. 원래 치료등은 환자를 비추지 이쪽을 비추지 않으니,
         // 거울 속에만 짝 없는 등 하나를 둔다.
         //

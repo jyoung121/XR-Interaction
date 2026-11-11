@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEditor;
 using UnityEditor.SceneManagement;
 
 /// <summary>
@@ -31,8 +32,7 @@ public static class ClinicProbe
         rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
         rig.StepForPreview(1.8f);
 
-        var temps = new List<GameObject>();
-        Collide(rig.transform, temps);
+        Collide(rig.transform);
 
         Shot(rig, "올려다봄 (거울)", new Vector3(-35f, 0f, 0f));
         Shot(rig, "정면",            new Vector3(  0f, 0f, 0f));
@@ -40,13 +40,31 @@ public static class ClinicProbe
         Shot(rig, "왼쪽 (치과의)",   new Vector3( -8f, -42f, 0f));
         Shot(rig, "오른쪽",          new Vector3( -8f,  42f, 0f));
         Shot(rig, "오른쪽 끝",       new Vector3(  0f,  70f, 0f));
+        Shot(rig, "왼쪽 끝",         new Vector3(  0f, -70f, 0f));
 
-        foreach (GameObject g in temps) Object.DestroyImmediate(g);
         Debug.Log("[ClinicProbe] 끝");
     }
 
-    /// <summary>리그 안의 모든 메시에 충돌체를 붙인다. 스킨 메시는 구워서 쓴다.</summary>
-    private static void Collide(Transform root, List<GameObject> temps)
+    /// <summary>
+    /// 리그 안의 **굳은 메시에만** 충돌체를 붙인다. 사람은 빼고 센다.
+    ///
+    /// 처음에는 사람도 구워서(BakeMesh) 넣었다. 그런데 렌더에서는 옆에
+    /// 선 치과의가 화면 절반을 덮는데 프로브는 사람을 거의 안 잡았다.
+    /// 둘 중 하나가 틀렸으니 자를 먼저 의심했고, 구운 메시의 경계를
+    /// 찍어 보니 꼭짓점 4894 개가 전부 원점에 몰린 **1 cm 짜리 점**이었다.
+    /// 오류도 경고도 없다. 이 방을 재는 내내 사람 셋은 없는 것으로
+    /// 세고 있었다.
+    ///
+    /// 원인을 여섯 번 쫓았다. FBX 의 Read/Write 를 켜도, 뼈(62)·
+    /// 바인드포즈(62)·뿌리뼈를 확인해도, updateWhenOffscreen 을 켜도
+    /// 그대로였다 — 이 배치모드에서 BakeMesh 는 작동하지 않는다.
+    ///
+    /// 그래서 **사람을 아예 뺀다.** 벽을 어떻게 채울지 정하는 데에는
+    /// 이쪽이 오히려 맞는 자다: 벽이 비었느냐는 한 동작에서 누가 그
+    /// 앞에 섰느냐와 상관없는 질문이다. 다만 여기서 나오는 벽 비율은
+    /// **사람이 가리기 전의 값**이고, 실제 화면에서는 그만큼 덜 보인다.
+    /// </summary>
+    private static void Collide(Transform root)
     {
         foreach (MeshFilter mf in root.GetComponentsInChildren<MeshFilter>(true))
         {
@@ -56,19 +74,9 @@ public static class ClinicProbe
             mc.sharedMesh = mf.sharedMesh;
             mc.convex = false;
         }
-        foreach (SkinnedMeshRenderer sm in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-        {
-            if (sm.sharedMesh == null) continue;
-            Mesh baked = new Mesh();
-            sm.BakeMesh(baked, true);
-            GameObject g = new GameObject("PROBE_" + sm.transform.root.name
-                                          + "/" + sm.name);
-            g.transform.SetPositionAndRotation(sm.transform.position,
-                                               sm.transform.rotation);
-            MeshCollider mc = g.AddComponent<MeshCollider>();
-            mc.sharedMesh = baked;
-            temps.Add(g);
-        }
+        int skin = root.GetComponentsInChildren<SkinnedMeshRenderer>(true).Length;
+        Debug.Log("[ClinicProbe] 사람은 안 센다 — 스킨 메시 " + skin + " 개를 뺐다."
+                  + " 아래 벽 비율은 사람이 가리기 전의 값이다.");
     }
 
     /// <summary>한 방향으로 격자 광선을 쏘고 맞은 것을 모아 찍는다.</summary>
@@ -159,7 +167,6 @@ public static class ClinicProbe
         for (int i = 0; i < 6 && cur != null; i++)
         {
             string n = cur.name;
-            if (n.StartsWith("PROBE_")) return n.Substring(6);
             if (n.StartsWith("Room_") || n == "MirrorRig") break;
             if (cur.parent != null && (cur.parent.name.StartsWith("Room_")
                                        || cur.parent.name == "MirrorRig"

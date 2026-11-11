@@ -439,6 +439,13 @@ public static class ToolPreview
         rig.StepForPreview(2.4f);
         ShootFrom(eye, viewerGo.transform.rotation, "dental_right_far.png", 75f);
 
+        // 환자 왼쪽 끝. 쟁반과 치과의가 있어서 채워진 줄 알았던 쪽인데,
+        // 벽은 비어 있었다. -42도 쪽은 dental_doctor.png 가 이미 같은
+        // 각도라 따로 찍지 않는다.
+        viewerGo.transform.rotation = Quaternion.Euler(0f, -70f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "dental_left_far.png", 75f);
+
         rig.Dispose();
         Object.DestroyImmediate(viewerGo);
         if (sun != null) sun.SetActive(true);
