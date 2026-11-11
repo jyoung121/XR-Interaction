@@ -99,13 +99,18 @@ public class MirrorRig : MonoBehaviour
 
         // 젤리 — 쫀득 눌린다. 한 알이니 통째로 들어간다. 부서지는 게 아니라
         // 이에 붙었다 떨어지는 느낌이라 진동은 조각이 적고 약하다.
+        //
+        // 8.5 cm 는 곰 젤리치고 컸다 — 사과보다 큰 젤리였다. 7.2 cm 로
+        // 내린다. 알이 작아진 만큼 손가락을 더 접어야 한다(curl/thumb/fold):
+        // 고리 크기는 접는 각이 정하는데, 각을 그대로 두면 작아진 알이
+        // 고리 안에 묻혀 손가락 뒤로 사라진다.
         new FoodSpec { model = "GummyBear", label = "JELLY",
-                       size = 0.085f, bites = 1, carve = false,
+                       size = 0.072f, bites = 1, carve = false,
                        hold = 0.70f, chew = 2.40f, rate = 8f, depth = 0.14f,
                        open = 0.45f, spin = 22f, tilt = 0f, smooth = 0.74f,
-                       grip = 0f, curl = 58f, thumb = 62f, fold = 95f,
+                       grip = 0f, curl = 63f, thumb = 67f, fold = 101f,
                        frags = 2, peak = 0.55f,
-                       pSize = 0.068f, pCount = 5, pRing = 0.045f,
+                       pSize = 0.058f, pCount = 5, pRing = 0.042f,
                        pYaw = 150f },
 
         // 고기 — 세워서 든다. 납작한 조각이라 눕혀 들면 두께 1 cm 짜리
