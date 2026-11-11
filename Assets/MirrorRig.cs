@@ -890,7 +890,12 @@ public class MirrorRig : MonoBehaviour
         // 45 cm 앞이라 같은 각이 되려면 0.4 × 0.45 ≈ 0.18 m 다.
         const float Tile = 0.20f;
         const float Clear = 0.40f;     // 치료등과 손잡이가 차지하는 반지름
-        const float Half = 1.00f;      // 눈금을 깔 범위. 더 넓혀도 안 보인다
+        // 눈금을 깔 범위. **1.00 m 로 잘라 두고 있었다** — 정면만 보고 고른
+        // 값이다. 눈에서 격자로 광선을 쏴 화면을 뭐가 채우는지 재 보니
+        // (ClinicProbe) 어느 쪽을 보든 민무늬 거울 벽이 22~33 % 였고,
+        // 오른쪽으로 70도 돌리면 눈금이 안 깔린 바깥쪽만 보였다. 누운
+        // 사람은 고개를 돌린다. 벽 끝까지 깐다 — 줄 열여섯 개가 는다.
+        float Half = RoomHalfW;
         // **벽은 두께가 2 cm 다** (BuildMirrorWall 의 t). Box 는 가운데로
         // 자리를 잡으므로 벽 앞면은 z = D - 0.01 에 있다. D - 0.004 에
         // 뒀더니 눈금이 통째로 벽 **속에** 박혀서 하나도 안 보였다.
@@ -1531,6 +1536,11 @@ public class MirrorRig : MonoBehaviour
         // 대신 거울 둘레의 치료등과 머리맡 소품으로 치과라는 걸 알린다.
         Material wall  = ToolModels.MakeMaterial(new Color(0.80f, 0.83f, 0.84f), 0f, 0.05f);
         Material floor = ToolModels.MakeMaterial(new Color(0.70f, 0.72f, 0.73f), 0f, 0.10f);
+        // 천장 색은 **건드리지 않는다.** 오른쪽을 보면 하얗게 뜬 쐐기가
+        // 하나 있어서 "천장이 구멍으로 보인다" 며 0.68 로 내렸었다.
+        // 화소가 (247,250,255) 였는데 그건 0.97/0.98/1.00 — 형광등
+        // 재질(MakeGlow)의 색 그대로다. 천장이 아니라 **등**이었고,
+        // 등은 하얀 게 맞다. 자리 지도를 찍고서야 알았다 (ClinicProbe).
         Material ceil  = ToolModels.MakeMaterial(new Color(0.90f, 0.92f, 0.93f), 0f, 0.03f);
         Material shell = ToolModels.MakeMaterial(new Color(0.92f, 0.93f, 0.94f), 0.1f, 0.42f);
         Material teal  = ToolModels.MakeMaterial(new Color(0.42f, 0.66f, 0.70f), 0f, 0.12f);
@@ -1665,6 +1675,15 @@ public class MirrorRig : MonoBehaviour
         Material bibMat = ToolModels.MakeMaterial(new Color(0.52f, 0.59f, 0.62f), 0f, 0.05f);
         Box(r, bibMat, new Vector3(0f, -0.40f, 0.20f),
             new Vector3(0.34f, 0.02f, 0.24f), "Bib");
+        // 빕도 한 장짜리 판이다 — 아래를 보는 두 시야에서 13 %를 차지한다.
+        // 시술대에 쿠션 이음매를 넣은 것과 같은 이유로, 접힌 금과 목 둘레
+        // 띠를 넣어 면을 끊는다.
+        Material bibLine = ToolModels.MakeMaterial(new Color(0.40f, 0.46f, 0.49f), 0f, 0.05f);
+        for (int i = 0; i < 2; i++)
+            Box(r, bibLine, new Vector3(0f, -0.388f, 0.14f + i * 0.08f),
+                new Vector3(0.34f, 0.004f, 0.010f), "BibFold" + i);
+        Box(r, bibLine, new Vector3(0f, -0.388f, 0.305f),
+            new Vector3(0.20f, 0.004f, 0.030f), "BibCollar");
 
         Material armMat = ToolModels.MakeMaterial(new Color(0.58f, 0.60f, 0.62f), 0f, 0.10f);
         for (int s = -1; s <= 1; s += 2)
@@ -1680,6 +1699,76 @@ public class MirrorRig : MonoBehaviour
         for (int i = 0; i < 3; i++)
             Box(r, seam, new Vector3(0f, -0.468f, -0.05f - i * 0.26f),
                 new Vector3(0.52f, 0.004f, 0.012f), "CouchSeam" + i);
+
+        // ── 방이 **한쪽뿐이었다** ──
+        //
+        // 눈에서 격자(60 x 40)로 광선을 쏴 화면의 몇 %를 뭐가 채우는지
+        // 쟀다(ClinicProbe). 오른쪽 끝을 보면 민무늬 옆벽 하나가 43 %,
+        // 거울 벽이 29 % — 화면의 72 %가 빈 판 둘이다. 당연했다. 쟁반도
+        // 수납장도 치과의도 전부 -X 에 있고 **+X 에는 아무것도 없었다.**
+        // 빈 데를 눈으로 찾으려 했으면 못 찾았을 것이다. 거울 속만 보고
+        // 있었으니까.
+
+        // 어두운 색 하나. 방이 통째로 밝은 회색이라 어두운 것이 있어야
+        // 깊이가 읽힌다. 배수구와 석션 호스가 같이 쓴다.
+        Material hoseDark = ToolModels.MakeMaterial(new Color(0.22f, 0.24f, 0.26f), 0f, 0.26f);
+
+        // 타구. 환자 오른쪽 어깨 옆 — 누운 사람이 고개를 돌리면 제일 먼저
+        // 들어오는 자리고, 치료등 다음으로 "치과 의자"를 만드는 물건이다.
+        Both(r, PrimitiveType.Cylinder, steel, new Vector3(0.62f, -0.76f, -0.02f),
+             Vector3.zero, new Vector3(0.07f, 0.26f, 0.07f), "SpitPost");
+        Both(r, PrimitiveType.Cylinder, shell, new Vector3(0.62f, -0.46f, -0.02f),
+             Vector3.zero, new Vector3(0.26f, 0.030f, 0.26f), "SpitBowl");
+        Both(r, PrimitiveType.Cylinder, teal, new Vector3(0.62f, -0.428f, -0.02f),
+             Vector3.zero, new Vector3(0.21f, 0.010f, 0.21f), "SpitBasin");
+        // 가운데 배수구. 청록 원판만 두면 사발이 아니라 뚜껑으로 보인다.
+        Both(r, PrimitiveType.Cylinder, hoseDark, new Vector3(0.62f, -0.424f, -0.02f),
+             Vector3.zero, new Vector3(0.055f, 0.010f, 0.055f), "SpitHole");
+        // 헹굼물 컵. 타구 턱에 하나 올려 둔다.
+        Material cup = ToolModels.MakeMaterial(new Color(0.88f, 0.90f, 0.92f), 0f, 0.34f);
+        Both(r, PrimitiveType.Cylinder, cup, new Vector3(0.78f, -0.395f, -0.13f),
+             Vector3.zero, new Vector3(0.055f, 0.035f, 0.055f), "RinseCup");
+
+        // 석션 호스 둘. 타구 기둥에서 환자 쪽으로 뻗은 팔에 걸린다.
+        BothBox(r, steel, new Vector3(0.52f, -0.385f, 0.07f),
+                new Vector3(0.30f, 0.035f, 0.05f), "SuctionArm");
+        for (int i = 0; i < 2; i++)
+            Both(r, PrimitiveType.Cylinder, hoseDark,
+                 new Vector3(0.42f + i * 0.085f, -0.50f, 0.07f), new Vector3(0f, 0f, 7f),
+                 new Vector3(0.022f, 0.12f, 0.022f), "Suction" + i);
+
+        // ── 오른쪽 벽 ── 재 보니 여기가 제일 휑했다 (43 %).
+        //
+        // 문 하나로 상자가 방이 된다. 나갈 데가 있다는 것 말고는 아무
+        // 정보도 없는데, 그게 바로 비어 있던 것이다.
+        Material door = ToolModels.MakeMaterial(new Color(0.84f, 0.86f, 0.87f), 0f, 0.12f);
+        BothBox(r, door, new Vector3(RoomHalfW - 0.035f, -eyeHeight + 1.02f, D - 1.45f),
+                new Vector3(0.05f, 2.04f, 0.88f), "Door");
+        BothBox(r, teal, new Vector3(RoomHalfW - 0.065f, -eyeHeight + 1.55f, D - 1.45f),
+                new Vector3(0.02f, 0.34f, 0.44f), "DoorWindow");
+        BothBox(r, steel, new Vector3(RoomHalfW - 0.075f, -eyeHeight + 1.02f, D - 1.08f),
+                new Vector3(0.03f, 0.03f, 0.13f), "DoorHandle");
+
+        // 벽 선반과 그 위의 통들. 네모 하나보다 작은 것 여럿이 낫다 —
+        // 큰 판은 또 하나의 빈 면이 될 뿐이다.
+        BothBox(r, shell, new Vector3(RoomHalfW - 0.13f, -eyeHeight + 1.18f, D - 0.50f),
+                new Vector3(0.24f, 0.03f, 0.66f), "WallShelf");
+        BothBox(r, steel, new Vector3(RoomHalfW - 0.13f, -eyeHeight + 1.06f, D - 0.50f),
+                new Vector3(0.22f, 0.02f, 0.03f), "ShelfLip");
+        Material bin = ToolModels.MakeMaterial(new Color(0.46f, 0.70f, 0.74f), 0f, 0.14f);
+        for (int i = 0; i < 3; i++)
+            BothBox(r, i == 1 ? bin : shell,
+                    new Vector3(RoomHalfW - 0.14f, -eyeHeight + 1.27f, D - 0.26f - i * 0.21f),
+                    new Vector3(0.17f, 0.15f, 0.14f), "GloveBox" + i);
+        // 소독제 — 선반 위 벽에 붙은 작은 통.
+        BothBox(r, shell, new Vector3(RoomHalfW - 0.075f, -eyeHeight + 1.62f, D - 0.95f),
+                new Vector3(0.11f, 0.26f, 0.10f), "Sanitizer");
+        BothBox(r, steel, new Vector3(RoomHalfW - 0.11f, -eyeHeight + 1.46f, D - 0.95f),
+                new Vector3(0.05f, 0.05f, 0.08f), "SanitizerLever");
+
+        // 환부 사진 패널. 왼쪽 뒷벽의 X선 판과 짝이 되게 오른쪽에도 하나.
+        BothBox(r, teal, new Vector3(RoomHalfW - 0.02f, -eyeHeight + 1.62f, D - 1.85f),
+                new Vector3(0.03f, 0.44f, 0.60f), "WallChart");
 
         // 치료등. 원래 치료등은 환자를 비추지 이쪽을 비추지 않으니,
         // 거울 속에만 짝 없는 등 하나를 둔다.

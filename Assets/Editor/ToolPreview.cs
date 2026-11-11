@@ -429,6 +429,16 @@ public static class ToolPreview
         rig.StepForPreview(2.4f);
         ShootFrom(eye, viewerGo.transform.rotation, "dental_doctor_up.png", 85f);
 
+        // 환자 오른쪽. 재 보니 여기가 아무것도 없던 쪽이다 (ClinicProbe:
+        // 오른쪽 끝에서 민무늬 옆벽 하나가 화면의 43 %였다).
+        viewerGo.transform.rotation = Quaternion.Euler(-8f, 42f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "dental_right.png", 75f);
+
+        viewerGo.transform.rotation = Quaternion.Euler(0f, 70f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "dental_right_far.png", 75f);
+
         rig.Dispose();
         Object.DestroyImmediate(viewerGo);
         if (sun != null) sun.SetActive(true);
