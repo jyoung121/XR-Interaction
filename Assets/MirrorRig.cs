@@ -281,6 +281,14 @@ public class MirrorRig : MonoBehaviour
     /// 값**을 써야 한다 — 따로 적어 두면 한쪽만 고쳤을 때 손이 자루에서
     /// 떨어진 채로 남는다. 실제로 y 를 0.008 로 잘못 둬서 손이 자루 밑
     /// 16 mm 에 떠 있었다.</summary>
+    // 주먹을 쥐는 각. 마디마다 이만큼씩 접힌다 (Curl 참고). 50 에서
+    // 올렸다 — 자루를 밑동에 앉히고 나니 손가락이 더 감겨야 닿는다.
+    private const float FistCurl = 62f;
+
+    // 도구마다 한 번 잰 자루 반지름.
+    private readonly System.Collections.Generic.Dictionary<Transform, float> toolR =
+        new System.Collections.Generic.Dictionary<Transform, float>();
+
     private static Vector3 GripOn(bool brush)
     {
         return brush ? new Vector3(0f, -0.008f, -0.115f)
@@ -3749,7 +3757,7 @@ public class MirrorRig : MonoBehaviour
     private void GripAround(Limb l, Vector3 point, Vector3 axis, Vector3 forward,
                             float back, float curl, Vector3 pole)
     {
-        GripAround(l, point, axis, forward, back, curl, 0f, -1f, pole);
+        GripAround(l, point, axis, forward, back, curl, 0f, -1f, 0f, pole);
     }
 
     /// <summary>
@@ -3759,7 +3767,8 @@ public class MirrorRig : MonoBehaviour
     /// 다섯 손가락을 같은 각으로 마는 주먹 — 도구를 잡을 때 쓰는 그 동작이다.
     /// </summary>
     private void GripAround(Limb l, Vector3 point, Vector3 axis, Vector3 forward,
-                            float back, float curl, float thumb, float fold, Vector3 pole)
+                            float back, float curl, float thumb, float fold,
+                            float seat, Vector3 pole)
     {
         if (l == null || !l.Valid || l.palm == null) return;
         if (axis.sqrMagnitude < 1e-10f) return;
@@ -3797,10 +3806,10 @@ public class MirrorRig : MonoBehaviour
             AimArm(l, target, pole);
             l.wrist.rotation = hand;
             if (fold >= 0f) Pinch(l, curl, thumb, fold);
-            else { Curl(l, curl); ThumbTo(l, point, axis); }
+            else { Curl(l, curl); ThumbTo(l, point, axis, seat); }
 
             if (pass < 2)
-                target += point - HoldPoint(l, fold >= 0f);
+                target += point - HoldPoint(l, fold >= 0f, axis, seat);
         }
     }
 
@@ -3810,9 +3819,10 @@ public class MirrorRig : MonoBehaviour
     /// </summary>
     private void HoldTool(Limb l, Transform tool, Vector3 gripLocal, Vector3 axisLocal, Vector3 pole)
     {
+        Vector3 p = tool.TransformPoint(gripLocal), a = tool.TransformDirection(axisLocal);
         if (l == null || !l.Valid || tool == null) return;
-        GripAround(l, tool.TransformPoint(gripLocal), tool.TransformDirection(axisLocal),
-                   Vector3.zero, HandGrip, 50f, pole);
+        GripAround(l, p, a, Vector3.zero, HandGrip, FistCurl, 0f, -1f,
+                   Seat(l, tool, p, a), pole);
     }
 
     /// <summary>
@@ -3822,9 +3832,79 @@ public class MirrorRig : MonoBehaviour
     private void HoldTool(Limb l, Transform tool, Vector3 gripLocal, Vector3 axisLocal,
                           Vector3 forward, Vector3 pole)
     {
+        Vector3 p = tool.TransformPoint(gripLocal), a = tool.TransformDirection(axisLocal);
         if (l == null || !l.Valid || tool == null) return;
-        GripAround(l, tool.TransformPoint(gripLocal), tool.TransformDirection(axisLocal),
-                   forward, HandGrip, 50f, pole);
+        GripAround(l, p, a, forward, HandGrip, FistCurl, 0f, -1f,
+                   Seat(l, tool, p, a), pole);
+    }
+
+    /// <summary>
+    /// 자루 겉면이 손가락 밑동 안쪽에 닿게 하려면 자루 한가운데를
+    /// 밑동에서 얼마나 떼어 놔야 하는가 — 자루 반지름 + 손가락 반 굵기.
+    /// </summary>
+    private float Seat(Limb l, Transform tool, Vector3 point, Vector3 axis)
+    {
+        if (l == null || l.palm == null || axis.sqrMagnitude < 1e-10f) return 0f;
+        axis = axis.normalized;
+
+        // 손가락 굵기는 검지와 중지 밑동 사이로 본다. 그 간격이 곧
+        // 손가락 하나 너비다.
+        float fat = 0.008f;
+        if (l.fingers != null && l.fingers.Length > 3
+            && l.fingers[0] != null && l.fingers[3] != null)
+            fat = Vector3.Distance(l.fingers[0].position, l.fingers[3].position) * 0.5f;
+
+        // 재는 구간은 손이 덮는 만큼. 그 밖(드릴 머리, 칫솔 솔)까지
+        // 넣으면 거기가 더 굵어서 엉뚱한 값이 나온다.
+        float span = l.tip != null
+                   ? Vector3.Distance(l.palm.position, l.tip.position) * 0.5f
+                   : 0.025f;
+        return ToolRadius(tool, point, axis, span) + fat;
+    }
+
+    /// <summary>
+    /// 쥘 자리에서 자루가 얼마나 굵은지. 드릴은 코드로 지어서 숫자를
+    /// 알지만 칫솔은 불러온 모델이라 알 수가 없다 — 둘 다 꼭짓점을
+    /// 훑어서 잰다. 도구는 굳지 않으니 한 번만 재고 들고 있는다.
+    /// </summary>
+    private float ToolRadius(Transform tool, Vector3 point, Vector3 axis, float span)
+    {
+        if (tool == null) return 0f;
+        float got;
+        if (toolR.TryGetValue(tool, out got)) return got;
+
+        got = 0f;
+        foreach (MeshFilter mf in tool.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh m = mf.sharedMesh;
+            if (m == null) continue;
+            Vector3[] vs = m.vertices;
+            for (int i = 0; i < vs.Length; i++)
+            {
+                Vector3 w = mf.transform.TransformPoint(vs[i]) - point;
+                if (Mathf.Abs(Vector3.Dot(w, axis)) > span) continue;
+                float d = Vector3.ProjectOnPlane(w, axis).magnitude;
+                if (d > got) got = d;
+            }
+        }
+        // 꼭짓점을 못 읽는 모델이 있다. 불러온 OBJ/FBX 는 Read/Write 가
+        // 꺼져 있으면 vertices 가 **빈 배열**로 온다 — 칫솔이 그랬고,
+        // 조용히 0 이 나와서 자루가 없는 셈 치고 손가락이 더 말려
+        // 들어갔다. 메시 경계는 읽기 설정과 상관없이 늘 있으니 그걸로
+        // 어림한다. 긴 자루는 **가장 얇은 쪽**이 곧 굵기다.
+        if (got <= 0f)
+        {
+            foreach (MeshFilter mf in tool.GetComponentsInChildren<MeshFilter>(true))
+            {
+                Mesh m = mf.sharedMesh;
+                if (m == null) continue;
+                Vector3 sz = Vector3.Scale(m.bounds.size, mf.transform.lossyScale);
+                float thin = Mathf.Min(sz.x, Mathf.Min(sz.y, sz.z)) * 0.5f;
+                if (thin > got) got = thin;
+            }
+        }
+        toolR[tool] = got;
+        return got;
     }
 
     /// <summary>
@@ -3840,7 +3920,7 @@ public class MirrorRig : MonoBehaviour
     /// 끝이 자루에서 떨어진 그 거리다 — 엄지만 더 들어가면 자루를
     /// 뚫고, 덜 들어가면 혼자 떠 있다.
     /// </summary>
-    private static void ThumbTo(Limb l, Vector3 point, Vector3 axis)
+    private static void ThumbTo(Limb l, Vector3 point, Vector3 axis, float seat)
     {
         if (l == null || l.fingers == null || l.fingers.Length < 15) return;
         Transform t1 = l.fingers[12], t2 = l.fingers[13], t3 = l.fingers[14];
@@ -3851,7 +3931,12 @@ public class MirrorRig : MonoBehaviour
         Vector3 side = Vector3.ProjectOnPlane(t1.position - point, axis);
         if (side.sqrMagnitude < 1e-10f) return;
 
-        float r = Vector3.ProjectOnPlane(l.tip.position - point, axis).magnitude;
+        // 네 손가락 끝이 떨어진 거리를 쓰고 있었는데, 자루를 밑동에
+        // 앉히고부터는 그 값이 자루 겉면이 아니라 고리 반대편까지의
+        // 거리라 엄지가 혼자 멀찍이 섰다. 자루 겉면까지(seat)가 맞다.
+        float r = seat > 0f
+                ? seat
+                : Vector3.ProjectOnPlane(l.tip.position - point, axis).magnitude;
         Vector3 goal = point + side.normalized * r;
 
         // **손허리뼈는 조금만 돈다.** 세 마디 다 IK 에 맡겼더니 손허리뼈가
@@ -3913,7 +3998,7 @@ public class MirrorRig : MonoBehaviour
     /// 마디 세 개가 다 그 원 위에 있으니 외접원의 중심을 구하면 된다.
     /// 재서 나오는 값이라 접는 각을 바꾸든 모델을 바꾸든 따라온다.
     /// </summary>
-    private static Vector3 HoldPoint(Limb l, bool pinch)
+    private static Vector3 HoldPoint(Limb l, bool pinch, Vector3 axis, float seat)
     {
         if (pinch && l.fingers != null && l.fingers.Length > 14
             && l.fingers[2] != null && l.fingers[14] != null)
@@ -3923,7 +4008,27 @@ public class MirrorRig : MonoBehaviour
         {
             Vector3 c;
             if (Circumcenter(l.palm.position, l.mid.position, l.tip.position, out c))
+            {
+                // 고리 한가운데는 **굵은** 것을 쥘 때만 맞는 자리다.
+                //
+                // 이 손은 마디가 2.5 cm 라 세 마디로 만들 수 있는 가장
+                // 작은 고리도 반지름 2.5 cm 다. 드릴 자루는 0.8 cm 니,
+                // 한가운데에 놓으면 사방에 1.5 cm 씩 뜬다 — 쥔 게 아니라
+                // 꿴 모양이다. 사람도 펜을 주먹 한가운데 띄워 쥐지 않는다.
+                // 손가락이 **밑동에서 접히는 그 자리**에 눕힌다.
+                //
+                // seat = 자루 반지름 + 손가락 반 굵기. 고리 중심에서
+                // 밑동 쪽으로 (R - seat) 만큼 밀면 자루 겉면이 밑동
+                // 안쪽에 딱 닿는다.
+                if (seat > 0f && l.wrist != null)
+                {
+                    float R = Vector3.Distance(c, l.palm.position);
+                    Vector3 toPalm = Vector3.ProjectOnPlane(l.palm.position - c, axis);
+                    if (toPalm.sqrMagnitude > 1e-12f)
+                        c += toPalm.normalized * Mathf.Max(0f, R - seat);
+                }
                 return c;
+            }
         }
         if (l.tip != null && l.palm != null)
             return (l.palm.position + l.tip.position) * 0.5f;
@@ -3956,6 +4061,12 @@ public class MirrorRig : MonoBehaviour
             P2("Index4", l.fingers[2]);
         }
         sb.Append("  grip(목표)  ").Append(GripOn(near == nearBrush).ToString("F4")).Append("\n");
+        Vector3 gp = t.TransformPoint(GripOn(near == nearBrush));
+        Vector3 ga = t.TransformDirection(GripAxisOn(near == nearBrush)).normalized;
+        float span = l.tip != null && l.palm != null
+                   ? Vector3.Distance(l.palm.position, l.tip.position) * 0.5f : 0.025f;
+        sb.Append("  자루반지름  ").Append(ToolRadius(near.transform, gp, ga, span).ToString("F4"))
+          .Append("   앉힐거리=").Append(Seat(l, near.transform, gp, ga).ToString("F4")).Append("\n");
         Vector3 c;
         if (l.palm != null && l.mid != null && l.tip != null
             && Circumcenter(l.palm.position, l.mid.position, l.tip.position, out c))
@@ -5373,7 +5484,7 @@ public class MirrorRig : MonoBehaviour
                 Vector3 hold = food.transform.position - toolRoot.up * fs.grip;
                 GripAround(selfArm, hold,
                            toolRoot.forward, toolRoot.up, 0f,
-                           fs.curl, fs.thumb, fs.fold,
+                           fs.curl, fs.thumb, fs.fold, 0f,   // 집게손은 앉힐 것이 없다
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();
