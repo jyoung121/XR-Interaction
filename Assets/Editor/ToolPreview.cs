@@ -202,16 +202,35 @@ public static class ToolPreview
         rig.StepForPreview(0f);
         ShootFrom(eye, look, "mirror_idle.png", 75f);
 
-        // 무른 음식. 단단한 쪽과 나란히 놓고 봐야 두 조건이 눈으로 구분되는지 알 수 있다.
-        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Soft);
-        viewerGo.transform.rotation = look;
-        // 무른 것도 한 입 주기가 6.6 초다. 1.6 초는 아직 접시 위라
-        // 집어 올리는 장면이 안 찍혔다. 입에 닿는 순간으로 옮긴다.
-        rig.StepForPreview(1.4f + 1.2f + 0.3f);
-        ShootFrom(eye, look, "mirror_food_soft.png", 75f);
+        // 음식 다섯 가지를 다 찍는다. 조건이 거울에서 서로 구분되는지는
+        // 나란히 놓고 봐야만 알 수 있다 — 두 가지일 때도 그랬고, 다섯이
+        // 되면 "이게 고기인지 푸딩인지" 가 훨씬 아슬아슬하다.
+        //
+        // 찍는 시각은 리그에서 받는다(MirrorRig.BiteMomentOf). 주기가
+        // 음식마다 다른데 숫자를 여기 적어 두면, 전에 젤리를 1.6 초에
+        // 찍어 접시 위만 나왔던 일이 또 난다.
+        MirrorRig.FoodKind[] kinds =
+        {
+            MirrorRig.FoodKind.Apple,
+            MirrorRig.FoodKind.Jelly,
+            MirrorRig.FoodKind.Meat,
+            MirrorRig.FoodKind.Pudding,
+            MirrorRig.FoodKind.Candy
+        };
+        foreach (MirrorRig.FoodKind fk in kinds)
+        {
+            rig.ShowScenario(MirrorRig.Scenario.Food, fk);
+            viewerGo.transform.rotation = look;
+            rig.StepForPreview(MirrorRig.BiteMomentOf(fk));
+            ShootFrom(eye, look,
+                      "mirror_food_" + fk.ToString().ToLowerInvariant() + ".png", 75f);
+        }
 
         // 음식이 아직 접시에 놓여 있는 순간. 책상에서 집어 먹는 그림이
-        // 성립하려면 이 구간이 제대로 보여야 한다.
+        // 성립하려면 이 구간이 제대로 보여야 한다. 접시에 담긴 것도
+        // 조건을 따라가므로(ShowScenario) 사과로 돌려 놓고 찍는다.
+        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Apple);
+        viewerGo.transform.rotation = look;
         rig.StepForPreview(0.4f);
         ShootFrom(eye, look, "mirror_food_plate.png", 75f);
 
@@ -246,16 +265,13 @@ public static class ToolPreview
         rig.StepForPreview(2.0f);
         ShootFrom(eye, chinDown, "mirror_dental_down.png", 75f);
 
-        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Hard);
+        // 사과만 깨문 자리가 패인다. 세 입째 모양을 보려면 깨무는 순간을
+        // 하나하나 밟아 줘야 한다 — StepForPreview 는 시각을 **박아 넣는**
+        // 것이라 한 번에 건너뛰면 한 입만 깨문 것으로 나온다.
+        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Apple);
         viewerGo.transform.rotation = look;
-        // 한 입 주기는 5.9 초고, 깨무는 순간은 주기 시작에서 3.1 초다.
-        // StepForPreview 는 시각을 **박아 넣는** 것이라 세 입째 모양을
-        // 보려면 깨무는 순간을 하나하나 밟아 줘야 한다 — 한 번에
-        // 건너뛰면 한 입만 깨문 것으로 나온다.
-        const float BiteCycle = 5.9f;
-        const float BiteAt = 3.1f + 0.5f;
-        rig.StepForPreview(BiteAt);
-        ShootFrom(eye, look, "mirror_food_hard.png", 75f);
+        float BiteCycle = MirrorRig.BiteCycleOf(MirrorRig.FoodKind.Apple);
+        float BiteAt = MirrorRig.BiteMomentOf(MirrorRig.FoodKind.Apple) + 0.25f;
         rig.StepForPreview(BiteCycle + BiteAt);
         rig.StepForPreview(BiteCycle * 2f + BiteAt);
         ShootFrom(eye, look, "mirror_food_bitten.png", 75f);

@@ -23,13 +23,143 @@ public class MirrorRig : MonoBehaviour
     public enum Scenario { None, Food, Dental }
 
     /// <summary>
-    /// 음식의 단단함. 11/10 에 음식 시나리오를 두 수준으로 나누기로 했다 —
-    /// 사과처럼 딱 부서지는 것과 빵처럼 물컹 눌리는 것.
+    /// 음식 종류. 11/11 에 두 수준(단단한 것 / 무른 것)에서 다섯 가지로 늘렸다.
     ///
-    /// 시나리오를 둘로 쪼개지 않고 이 값으로 가른다. 방도 거울도 팔 동작도 같고
-    /// 달라지는 건 음식 모델과 씹는 속도뿐이라, 시나리오를 늘리면 방만 두 번 짓는다.
+    /// 두 수준으로는 "단단하면 세게, 무르면 약하게" 한 줄밖에 못 묻는다.
+    /// 다섯 가지는 씹는 느낌이 **한 축이 아니라는 것**을 보여 준다 — 사과는
+    /// 아삭 부서지고, 고기는 질겨서 찢기고, 사탕은 유리처럼 쩍 깨지고,
+    /// 젤리는 쫀득 눌리고, 푸딩은 아예 씹히지 않는다. 단단함 한 축으로
+    /// 줄여 버리면 사과와 사탕이 같은 칸에 들어가고 젤리와 푸딩도 같은
+    /// 칸에 들어가는데, 입에 넣어 보면 넷이 다 다른 느낌이다.
+    ///
+    /// 시나리오는 그래도 하나다. 방도 거울도 팔 동작도 같고 달라지는 건
+    /// 음식 모델과 씹는 값뿐이라, 다른 점은 전부 FoodSpecs 표에 있다.
     /// </summary>
-    public enum FoodKind { Hard, Soft }
+    public enum FoodKind { Apple, Jelly, Meat, Pudding, Candy }
+
+    /// <summary>
+    /// 음식 하나의 생김새와 씹는 느낌. 조건마다 다른 값을 **한 군데** 모은다.
+    ///
+    /// 전에는 `soft ? a : b` 가 AnimateFood·BuildHome·ShowLabel·
+    /// ApplyContactHaptics 네 군데에 흩어져 있었다. 두 가지일 때는 읽혔지만
+    /// 다섯 가지가 되면 어디를 안 고쳤는지 알 수가 없다.
+    /// </summary>
+    private class FoodSpec
+    {
+        public string model;     // Resources/Models 아래 이름
+        public string label;     // 거울 밑 안내 글자 (내장 폰트에 한글이 없다)
+        public float size;       // 손에 드는 것의 가장 긴 변 (m)
+        public int bites;        // 1 = 한 입에 통째로, 2 이상 = 그 횟수에 걸쳐
+        public bool carve;       // 깨문 자리를 파낼지 (안 파면 작아지기만 한다)
+        public float hold;       // 입에 닿아 있는 시간 (s)
+        public float chew;       // 씹는 시간 (s)
+        public float rate;       // 오물거리는 속도
+        public float depth;      // 오물거리는 폭
+        public float open;       // 입을 벌리는 정도 (0~1)
+        public float spin;       // 손에 들고 돌리는 속도 (도/s)
+        public float tilt;       // 손에 들 때 세우는 각 (도, X 축)
+        public float smooth;     // 재질 반질거림 (Reskin 이 쓴다)
+        public float grip;       // 쥐는 자리를 음식 밑으로 내리는 양 (m)
+                                 // 0 = 한가운데를 쥔다
+        public float curl;       // 쥐는 손가락 각 (GripAround)
+        public float thumb;
+        public float fold;
+        public int frags;        // 진동 조각 수 (ScenarioHaptics.BuildCrunch)
+        public float peak;       // 진동 세기 배율 (0~1)
+        public float pSize;      // 접시에 담은 알의 크기 (m)
+        public int pCount;       // 접시에 담은 알 수
+        public float pRing;      // 알들을 놓는 원의 반지름 (m)
+        public float pYaw;       // 알을 돌려 놓는 각 (도)
+    }
+
+    /// <summary>
+    /// 다섯 가지의 값. 순서가 FoodKind 와 같아야 한다 — 표를 번호로 찾는다.
+    ///
+    /// 씹는 시간·속도·폭은 실제로 재서 맞춘 값이 아니라 **순서**를 맞춘
+    /// 값이다. 중요한 건 절대값이 아니라 다섯이 서로 다르고, 그 차이가
+    /// 진동(frags·peak)과 같은 방향이라는 것이다 — 보이는 것과 느껴지는
+    /// 것이 어긋나면 이 연구가 재려는 현실감이 바로 무너진다.
+    ///
+    /// 접시에 담는 알 수는 겹치지 않게 고른다. 반지름 R 인 원에 n 알을
+    /// 두면 이웃 사이가 2·R·sin(π/n) 이라 그게 알 지름보다 커야 하고,
+    /// 접시가 지름 20 cm 니까 R + 알 반지름이 10 cm 를 넘으면 접시 밖으로
+    /// 나간다. 손에 드는 것보다 접시 알을 조금 작게 둔 건 그래서다.
+    /// </summary>
+    private static readonly FoodSpec[] FoodSpecs =
+    {
+        // 사과 — 아삭 부서진다. 네 입에 걸쳐 먹고 깨문 자리가 패인다.
+        new FoodSpec { model = "Apple", label = "APPLE",
+                       size = 0.075f, bites = 4, carve = true,
+                       hold = 0.50f, chew = 1.90f, rate = 12f, depth = 0.20f,
+                       open = 0.55f, spin = 26f, tilt = 0f, smooth = 0.58f,
+                       grip = 0f, curl = 42f, thumb = 46f, fold = 78f,
+                       frags = 3, peak = 1.00f,
+                       pSize = 0.075f, pCount = 3, pRing = 0.050f,
+                       pYaw = 40f },
+
+        // 젤리 — 쫀득 눌린다. 한 알이니 통째로 들어간다. 부서지는 게 아니라
+        // 이에 붙었다 떨어지는 느낌이라 진동은 조각이 적고 약하다.
+        new FoodSpec { model = "GummyBear", label = "JELLY",
+                       size = 0.085f, bites = 1, carve = false,
+                       hold = 0.70f, chew = 2.40f, rate = 8f, depth = 0.14f,
+                       open = 0.45f, spin = 22f, tilt = 0f, smooth = 0.74f,
+                       grip = 0f, curl = 58f, thumb = 62f, fold = 95f,
+                       frags = 2, peak = 0.55f,
+                       pSize = 0.068f, pCount = 5, pRing = 0.045f,
+                       pYaw = 150f },
+
+        // 고기 — 세워서 든다. 납작한 조각이라 눕혀 들면 두께 1 cm 짜리
+        // 선으로만 보이고, 그 선마저 주먹 안에 들어가 아예 안 보였다.
+        // 질겨서 오래 씹는다. 다섯 중 씹는 시간이 가장 길고 속도는
+        // 가장 느리다. 부서지는 게 아니라 찢기는 것이라 진동은 조각이
+        // 적으면서 둔하다. 세 입에 걸쳐 먹는데 **깨문 자리는 안 판다** —
+        // 납작한 조각이라 구를 파면 구멍이 뚫린다(PrepareBites 주석).
+        new FoodSpec { model = "Steak", label = "MEAT",
+                       size = 0.085f, bites = 3, carve = false,
+                       hold = 0.60f, chew = 3.40f, rate = 6f, depth = 0.17f,
+                       open = 0.60f, spin = 18f, tilt = 90f, smooth = 0.26f,
+                       grip = 0.023f, curl = 40f, thumb = 44f, fold = 74f,
+                       frags = 2, peak = 0.70f,
+                       pSize = 0.080f, pCount = 3, pRing = 0.052f,
+                       pYaw = 90f },
+
+        // 푸딩 — 거의 안 씹힌다. 혀로 누르면 사라지니 씹는 구간을 가장
+        // 짧게, 오물거림도 가장 얕게 둔다. 진동은 한 번, 아주 약하게 —
+        // 다섯 중 아래 끝을 잡아 주는 조건이다.
+        new FoodSpec { model = "Flan", label = "PUDDING",
+                       size = 0.070f, bites = 1, carve = false,
+                       hold = 0.80f, chew = 1.10f, rate = 5f, depth = 0.09f,
+                       open = 0.45f, spin = 14f, tilt = 0f, smooth = 0.55f,
+                       grip = 0.024f, curl = 46f, thumb = 50f, fold = 80f,
+                       frags = 1, peak = 0.30f,
+                       pSize = 0.065f, pCount = 4, pRing = 0.048f,
+                       pYaw = 0f },
+
+        // 사탕 — 납작한 알이라 고기와 같이 세워서 든다. 세워야 거울에서
+        // 빨간 소용돌이 무늬가 보이고, 그게 "사탕" 으로 읽히는 유일한 단서다.
+        // 유리처럼 쩍 깨진다. 알이 작아 입을 거의 안 벌리는데
+        // 깨지는 순간은 다섯 중 가장 날카롭다. 조각이 가장 많고 세기도
+        // 최대다 — 위 끝을 잡아 주는 조건이다.
+        new FoodSpec { model = "Candy", label = "CANDY",
+                       size = 0.055f, bites = 1, carve = false,
+                       // 입을 0.32 밖에 안 벌리니 씹는 폭도 작아야 한다. 씹는
+                       // 동안의 기준 벌림은 open × ChewBase = 0.13 인데, 여기에
+                       // 0.22 를 더했다 빼면 주기의 절반이 0 으로 잘려 나가
+                       // (SetMouth 가 0~1 로 묶는다) 턱이 다물린 채 떨리는 것
+                       // 처럼 보인다. 날카로움은 폭이 아니라 rate 가 맡는다.
+                       hold = 0.35f, chew = 1.50f, rate = 14f, depth = 0.12f,
+                       open = 0.32f, spin = 40f, tilt = 90f, smooth = 0.86f,
+                       grip = 0.026f, curl = 44f, thumb = 48f, fold = 78f,
+                       frags = 4, peak = 1.00f,
+                       pSize = 0.052f, pCount = 5, pRing = 0.045f,
+                       pYaw = 0f },
+    };
+
+    private static FoodSpec SpecOf(FoodKind k)
+    {
+        return FoodSpecs[Mathf.Clamp((int)k, 0, FoodSpecs.Length - 1)];
+    }
+
 
     /// <summary>
     /// 치과에서 입에 닿는 도구. 두 수준을 **파라미터가 아니라 물건**으로 가른다.
@@ -100,6 +230,14 @@ public class MirrorRig : MonoBehaviour
     private float eyeHeight = 1.60f;
 
     private const float ApproachTime = 1.2f;
+
+    // 씹는 동안 입이 머무는 벌림. 벌린 정도(FoodSpec.open)에 대한 비율이다 —
+    // 사과에서 0.55 를 벌렸다가 0.22 로 물어 내렸으니 그 비율을 그대로 쓴다.
+    private const float ChewBase = 0.40f;
+
+    // 한 입 주기에서 음식에 상관없이 같은 두 구간.
+    private const float OnPlate = 1.4f;    // 접시에 놓인 채 기다리는 동안
+    private const float AfterBite = 0.9f;  // 삼키고 잠시 쉬는 동안
     private const float HandScale    = 0.62f;   // 손이 커서 줄인다
     private const float HandGrip     = 0f;      // 고리 한가운데에서 더 띄울 여유   // 물체가 들어와 닿기까지
 
@@ -113,20 +251,31 @@ public class MirrorRig : MonoBehaviour
     private Transform toolRoot;
     private GameObject handpiece;     // 치과 드릴
     private GameObject toothbrush;    // 칫솔 (조건 이름은 전동칫솔)
-    private GameObject foodHard;      // 사과
-    private GameObject foodSoft;      // 젤리
-    private Transform plateJelly;     // 접시에 담아 둔 젤리들
-    private Transform plateApple;     // 같은 자리의 사과들
+    /// <summary>
+    /// 음식 한 가지의 실물. FoodKind 순으로 다섯 벌 지어 두고 하나만 켠다.
+    ///
+    /// 접시에 담아 둔 것도 여기 같이 들고 있다. **조건마다 접시에 담긴
+    /// 것이 달라야 한다** — 사과를 집어 먹으면서 접시에는 젤리가 담겨
+    /// 있으면 그 조건이 무너진다.
+    /// </summary>
+    private class FoodItem
+    {
+        public GameObject go;        // 손에 드는 것
+        public Transform plate;      // 접시에 담아 둔 같은 음식
+        public Mesh[] bites;         // 깨문 단계별 메시 (안 파는 음식은 null)
+        public MeshFilter[] body;    // 갈아 끼울 메시
+        public int stage;            // 지금 몇 입 깨문 상태인가
+        public Vector3 half;         // 실제 반 크기 (접시에 올려놓을 때 쓴다)
+    }
+    private FoodItem[] foodItems;    // FoodKind 순
+    private FoodItem foodNow;        // 지금 켜져 있는 쪽
     // 입술 — 다문 선에서 피부로 그러데이션으로 건너간다 (JawPiece).
     private Material lipMatUp, lipMatLow;
     private TextMesh[] labelEdge;    // 안내 글자의 어두운 외곽선
     private const bool FakeContactShadows = false;  // 가짜 원반 그림자
-    // 한 입마다 사과가 한 조각 패이고, 이 수에 닿으면 없어진다.
-    private const int BiteStages = 4;
-    private Mesh[] biteMesh;          // [0] 아직 안 깨문 것 … [3] 세 입 깨문 것
-    private MeshFilter[] appleMesh;   // 갈아 끼울 사과 몸통
-    private int biteStage;            // 지금 몇 입 깨문 상태인가
-    private int biteCycle = -1;       // 깨무는 순간을 한 번만 세려고 둔다
+    // 깨무는 순간을 한 번만 세려고 둔다. 몇 입에 걸쳐 먹는지는 음식마다
+    // 다르므로(FoodSpec.bites) 단계 수는 여기 두지 않는다.
+    private int biteCycle = -1;
     private const float LipBulge = 0.0018f;  // 입술을 앞으로 내미는 양
     private Quaternion pivToMesh = Quaternion.identity;  // headPivot → 원본 메시 좌표
     private bool pivToMeshOK;
@@ -156,7 +305,7 @@ public class MirrorRig : MonoBehaviour
     private float labelUntil;
 
     private Scenario current = Scenario.None;
-    private FoodKind foodKind = FoodKind.Hard;
+    private FoodKind foodKind = FoodKind.Apple;
     private DentalKind dentalKind = DentalKind.Drill;
     private float elapsed;
 
@@ -215,6 +364,39 @@ public class MirrorRig : MonoBehaviour
 
     /// <summary>지금 보여 주고 있는 음식의 단단함. 진동 쪽에서 조각 수를 여기에 맞춘다.</summary>
     public FoodKind CurrentFood { get { return foodKind; } }
+
+    /// <summary>
+    /// 지금 음식의 진동 조각 수. ScenarioHaptics.BuildCrunch 에 그대로 넘긴다.
+    ///
+    /// 진동 값을 음식 표(FoodSpecs)에 같이 적어 둔 이유가 여기 있다. 전에는
+    /// 실험 러너가 "단단하면 3 조각, 무르면 2 조각" 을 **제 쪽에서** 정했다.
+    /// 다섯 가지가 되면 보이는 씹기와 느껴지는 씹기가 두 파일에서 따로
+    /// 굴러가는데, 이 연구가 재려는 건 바로 그 둘이 맞는지다.
+    /// </summary>
+    public int FoodFragments { get { return SpecOf(foodKind).frags; } }
+
+    /// <summary>지금 음식의 진동 세기 배율 (0~1). 세기의 윗값에 곱한다.</summary>
+    public float FoodPeakScale { get { return SpecOf(foodKind).peak; } }
+
+    /// <summary>
+    /// 한 입 주기의 길이 (s). 음식마다 다르다 — 질긴 고기가 7.5 초로 가장
+    /// 길고 사탕이 5.4 초로 가장 짧다.
+    ///
+    /// 밖에 내놓는 이유는 미리보기(ToolPreview)다. 음식마다 "입에 닿는
+    /// 순간" 을 찍어야 조건이 서로 구분되는지 볼 수 있는데, 그 시각을
+    /// 저쪽에 숫자로 적어 두면 표를 고칠 때 엉뚱한 데를 찍는다.
+    /// </summary>
+    public static float BiteCycleOf(FoodKind k)
+    {
+        FoodSpec fs = SpecOf(k);
+        return OnPlate + ApproachTime + fs.hold + fs.chew + AfterBite;
+    }
+
+    /// <summary>한 입 주기에서 입에 닿아 있는 순간 (s). 그림으로 찍을 자리다.</summary>
+    public static float BiteMomentOf(FoodKind k)
+    {
+        return OnPlate + ApproachTime + SpecOf(k).hold * 0.5f;
+    }
 
     /// <summary>지금 입에 닿고 있는 치과 도구. 진동 쪽에서 날카로움을 여기에 맞춘다.</summary>
     public DentalKind CurrentDental { get { return dentalKind; } }
@@ -877,46 +1059,38 @@ public class MirrorRig : MonoBehaviour
         // 뜬다(AnimateFood). 모델 원점이 바닥이라 접시 높이에 그대로 둔다.
         //
         // **조건마다 담는 것이 다르다.** 사과를 집어 먹으면서 접시에는
-        // 젤리가 담겨 있으면 "단단한 음식" 조건이 무너진다. 두 벌을 다
-        // 지어 두고 ShowScenario 에서 한 벌만 켠다.
-        plateJelly = PlateGroup(r, "PlateJelly");
-        plateApple = PlateGroup(r, "PlateApple");
-
-        int slots = JellyColors.Length - 1;
-        for (int i = 1; i <= slots; i++)
-        {
-            float a = (i - 1) * (Mathf.PI * 2f / slots) + 0.4f;
-            Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * 0.045f,
-                                     tableTop + 0.010f,
-                                     D - 0.25f + Mathf.Sin(a) * 0.045f);
-            BothModel(plateJelly, "Models/GummyBear",
-                      ToolModels.MakeMaterial(JellyColors[i], 0f, 0.74f),
-                      at, a * Mathf.Rad2Deg + 150f,
-                      Vector3.one * 0.068f, "Jelly" + i);
-            ContactShadow(plateJelly, at + new Vector3(0f, 0.0005f, 0f),
-                          0.048f, 0.048f, plateColor, "JellyShadow" + i);
-        }
-
-        // 사과는 젤리보다 훨씬 굵어서 다섯 알을 같은 자리에 놓으면 서로
-        // 파고든다. 세 알만 놓고 반지름을 조금 줄인다.
+        // 젤리가 담겨 있으면 그 조건이 무너진다. 다섯 벌을 다 지어 두고
+        // ShowScenario 에서 한 벌만 켠다.
         //
-        // 5.5 cm 는 자두만 했다. 7.5 cm 로 키운다 (손에 드는 쪽도 같이 —
-        // BuildFoodItem 의 FoodHard). 알이 굵어진 만큼 세 알을 놓는
-        // 원도 넓혀야 한다. 반지름 r 인 정삼각형의 변은 1.73 r 이므로,
-        // 7.5 cm 짜리가 안 겹치려면 r 이 4.3 cm 는 넘어야 한다.
-        for (int i = 0; i < 3; i++)
+        // 알 수와 원 반지름은 표에 있다 (FoodSpecs 주석의 겹침 계산).
+        for (int k = 0; k < FoodSpecs.Length; k++)
         {
-            float a = i * (Mathf.PI * 2f / 3f) + 0.6f;
-            Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * 0.050f,
-                                     tableTop + 0.010f,
-                                     D - 0.25f + Mathf.Sin(a) * 0.050f);
-            // 재질을 null 로 주면 모델이 달고 온 색(빨간 몸통 + 초록 꼭지)을
-            // 그대로 쓰되 셰이더만 런타임 재질로 바뀐다 (AddModel 참고).
-            BothModel(plateApple, "Models/Apple", null,
-                      at, a * Mathf.Rad2Deg + 40f,
-                      Vector3.one * 0.075f, "Apple" + i);
-            ContactShadow(plateApple, at + new Vector3(0f, 0.0005f, 0f),
-                          0.068f, 0.068f, plateColor, "AppleShadow" + i);
+            FoodSpec fs = FoodSpecs[k];
+            Transform g = PlateGroup(r, "Plate" + fs.model);
+            Item((FoodKind)k).plate = g;
+
+            for (int i = 0; i < fs.pCount; i++)
+            {
+                float a = i * (Mathf.PI * 2f / fs.pCount) + 0.4f;
+                Vector3 at = new Vector3(-0.13f + Mathf.Cos(a) * fs.pRing,
+                                         tableTop + 0.010f,
+                                         D - 0.25f + Mathf.Sin(a) * fs.pRing);
+                // 젤리만 알마다 색이 다르다 — 한 봉지에서 집어 먹는 것이라
+                // 무지개로 담아 둔다. 나머지는 재질을 null 로 줘서 모델이
+                // 달고 온 색과 무늬를 그대로 쓴다 (AddModel 참고). 고기·
+                // 푸딩·사탕은 색이 Kd 가 아니라 **텍스처**에 들어 있어서,
+                // 한 색으로 덮으면 사탕이 새까매진다 (Reskin 참고).
+                Material mat = (FoodKind)k == FoodKind.Jelly
+                    ? ToolModels.MakeMaterial(
+                          JellyColors[(i + 1) % JellyColors.Length], 0f, fs.smooth)
+                    : null;
+                BothModel(g, "Models/" + fs.model, mat,
+                          at, a * Mathf.Rad2Deg + fs.pYaw,
+                          Vector3.one * fs.pSize, fs.model + i);
+                ContactShadow(g, at + new Vector3(0f, 0.0005f, 0f),
+                              fs.pSize * 0.9f, fs.pSize * 0.9f,
+                              plateColor, fs.model + "Shadow" + i);
+            }
         }
 
         // 상 위의 컵 — 상이 비어 있으면 식탁으로 안 읽힌다.
@@ -2458,18 +2632,29 @@ public class MirrorRig : MonoBehaviour
         // 같은 플라스틱으로 보인다. 이름으로 갈라 반질거림만 달리 준다.
         string n = go.name.ToLowerInvariant();
         float smooth = 0.30f;
-        if (n.Contains("apple")) smooth = 0.58f;          // 사과 껍질은 밀랍하다
-        else if (n.Contains("gummy") || n.Contains("jelly")) smooth = 0.74f;
-        else if (n.Contains("bread")) smooth = 0.05f;      // 빵은 빛을 거의 안 튀긴다
+        if (n.Contains("bread")) smooth = 0.05f;      // 빵은 빛을 거의 안 튀긴다
         else if (n.Contains("brush")) smooth = 0.34f;
+        // 음식은 표에 값이 있다. 같은 값을 두 군데 적어 두면 한쪽만 고치게 된다.
+        // 찍어 낸 것은 이름이 "Apple(Clone)" 이라 이름이 같은지가 아니라
+        // 표의 이름을 품고 있는지를 본다.
+        foreach (FoodSpec fs in FoodSpecs)
+            if (n.Contains(fs.model.ToLowerInvariant())) smooth = fs.smooth;
+
         foreach (Renderer r in go.GetComponentsInChildren<Renderer>(true))
         {
             Material[] src = r.sharedMaterials;
             if (src == null) continue;
             Material[] dst = new Material[src.Length];
             for (int i = 0; i < src.Length; i++)
+            {
+                // 무늬가 있으면 색은 흰색으로 둔다. 런타임 재질은 색과 무늬를
+                // 곱하는데, 받아온 모델의 Kd 는 무늬가 있을 때 아무 값이나
+                // 들어 있다 — 박하사탕은 검정이라 곱하면 새까매진다.
+                Texture tex = src[i] != null ? src[i].mainTexture : null;
+                Color col = src[i] != null ? src[i].color : Color.gray;
                 dst[i] = ToolModels.MakeMaterial(
-                    src[i] != null ? src[i].color : Color.gray, 0f, smooth);
+                    tex != null ? Color.white : col, 0f, smooth, tex);
+            }
             r.sharedMaterials = dst;
         }
     }
@@ -3149,29 +3334,50 @@ public class MirrorRig : MonoBehaviour
         toothbrush.transform.SetParent(toolRoot, false);
         toothbrush.SetActive(false);
 
-        // 음식은 두 가지를 미리 지어 두고 켜고 끈다. 단단한 쪽은 사과,
-        // 무른 쪽은 곰 젤리다. 둘 다 받아온 모델이다.
+        // 음식은 다섯 가지를 미리 지어 두고 켜고 끈다. 값은 모두 표에
+        // 있다(FoodSpecs). 다 짓고 켜 두지 않는 쪽이 매번 짓는 것보다
+        // 싸다 — 한 입에 한 번씩 모델을 찍어 내면 거울 속 상까지 두 배다.
         //
-        // 젤리를 사과만큼 키우면 한 알이 주먹만 해진다. 실제로도 젤리가 더 작다.
-        // 다만 3.2 cm 로는 손가락 사이에 묻혀 거울에서 점으로밖에 안 보였다.
-        // 실제 젤리보다 크지만 올린다 — 여기서 중요한 건 치수가 아니라
-        // "무엇을 먹는지 보이는 것" 이다.
-        foodHard = BuildFoodItem("FoodHard", Resources.Load<GameObject>("Models/Apple"), 0.075f);
-        // 크기를 맞춘 뒤에 깨문 단계별 메시를 미리 만들어 둔다.
-        PrepareAppleBites(foodHard);
+        // 크기는 실물보다 크다. 젤리를 3.2 cm 로 뒀을 때 손가락 사이에
+        // 묻혀 거울에서 점으로밖에 안 보였다. 여기서 중요한 건 치수가
+        // 아니라 "무엇을 먹는지 보이는 것" 이다.
+        //
+        // 젤리만 재질을 덮어쓴다. 한 입마다 색을 갈아 끼워야 해서 재질을
+        // 하나 만들어 들고 있는다 — 그때그때 새로 만들면 재질이 계속
+        // 쌓인다(AnimateFood 참고).
+        jellyMat = ToolModels.MakeMaterial(JellyColors[0], 0f,
+                                           SpecOf(FoodKind.Jelly).smooth);
+        for (int k = 0; k < FoodSpecs.Length; k++)
+        {
+            FoodSpec fs = FoodSpecs[k];
+            FoodItem it = Item((FoodKind)k);
+            GameObject src = Resources.Load<GameObject>("Models/" + fs.model);
+            if ((FoodKind)k == FoodKind.Jelly && src != null)
+            {
+                src = Instantiate(src);
+                foreach (Renderer rr in src.GetComponentsInChildren<Renderer>(true))
+                    rr.sharedMaterial = jellyMat;
+            }
+            it.go = BuildFoodItem("Food" + fs.model, src, fs.size, out it.half);
+            // 크기를 맞춘 뒤에 깨문 단계별 메시를 만든다.
+            if (fs.carve) PrepareBites(it, fs);
+        }
+        foodNow = Item(FoodKind.Apple);
+        food = foodNow.go;
+    }
 
-        // 젤리는 재질을 덮어쓴다. OBJ 와 같이 온 재질은 Standard 셰이더라
-        // 아이폰 빌드에서 분홍색 오류 셰이더로 나온다(AddModel 참고).
-        //
-        // 재질을 하나 만들어 들고 있는다. 한 입마다 색을 갈아 끼워야 해서
-        // 그때그때 새로 만들면 재질이 계속 쌓인다(AnimateFood 참고).
-        jellyMat = ToolModels.MakeMaterial(JellyColors[0], 0f, 0.74f);
-        GameObject bear = Instantiate(Resources.Load<GameObject>("Models/GummyBear"));
-        if (bear != null)
-            foreach (Renderer rr in bear.GetComponentsInChildren<Renderer>(true))
-                rr.sharedMaterial = jellyMat;
-        foodSoft = BuildFoodItem("FoodSoft", bear, 0.085f);
-        food = foodHard;
+    /// <summary>
+    /// 음식 한 벌을 꺼낸다. 접시 쪽(BuildHome)과 손에 드는 쪽(BuildTools)이
+    /// 서로 다른 때에 채우므로, 먼저 부르는 쪽이 자리를 만든다.
+    /// </summary>
+    private FoodItem Item(FoodKind k)
+    {
+        if (foodItems == null)
+        {
+            foodItems = new FoodItem[FoodSpecs.Length];
+            for (int i = 0; i < foodItems.Length; i++) foodItems[i] = new FoodItem();
+        }
+        return foodItems[Mathf.Clamp((int)k, 0, foodItems.Length - 1)];
     }
 
     /// <summary>
@@ -3218,9 +3424,11 @@ public class MirrorRig : MonoBehaviour
     /// 모델의 원점이 한가운데라는 보장이 없어서(사과가 그렇다) 빈 오브젝트로 한 번
     /// 감싸 중심을 맞춘다. 그래야 입 위치에 그대로 놓을 수 있다.
     /// </summary>
-    /// <param name="height">한 입 크기로 맞출 세로 길이 (m)</param>
-    private GameObject BuildFoodItem(string name, GameObject source, float height)
+    /// <param name="size">한 입 크기로 맞출 **가장 긴 변**의 길이 (m)</param>
+    private GameObject BuildFoodItem(string name, GameObject source, float size,
+                                     out Vector3 half)
     {
+        half = Vector3.one * (size * 0.5f);
         if (source == null)
         {
             Debug.LogWarning("[MirrorRig] 음식 모델을 못 찾았다 — " + name);
@@ -3241,10 +3449,23 @@ public class MirrorRig : MonoBehaviour
         item.transform.SetParent(holder.transform, false);
 
         // 통째로는 입에 비해 크다. 한 입 크기로 줄인다.
+        //
+        // 세로(y)로 재서는 안 된다. 사과와 젤리는 세로로 서 있으니 맞았지만,
+        // 고기와 사탕은 **납작한 조각**이라 세로가 모델에서 가장 짧은 변이다.
+        // 그 1 cm 를 8.5 cm 로 늘리면 고기가 가로 44 cm 짜리 판이 된다.
+        // 가장 긴 변으로 재면 사과·젤리도 전과 같은 값이 나온다(세로가
+        // 가장 긴 변이다) — 사과만 1.3 % 작아진다.
         Bounds b = WorldBounds(item);
-        item.transform.localScale = Vector3.one * (height / Mathf.Max(b.size.y, 1e-5f));
+        float longest = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+        item.transform.localScale = Vector3.one * (size / Mathf.Max(longest, 1e-5f));
         item.transform.localPosition -=
             holder.transform.InverseTransformPoint(WorldBounds(item).center);
+
+        // 접시에 올려놓을 때 쓸 반 크기. **가장 긴 변의 절반이 아니다** —
+        // 납작한 고기는 길이가 8.5 cm 여도 두께는 1 cm 뿐이라, 절반인
+        // 4.25 cm 를 쓰면 접시 위 3.7 cm 허공에 뜬다. 세워 드는 음식은
+        // 세운 뒤의 높이가 또 다르므로(SitHeight) 세 축을 다 들고 있는다.
+        half = WorldBounds(item).size * 0.5f;
 
         holder.SetActive(false);
         return holder;
@@ -3266,8 +3487,9 @@ public class MirrorRig : MonoBehaviour
     /// 민 정점으로만 이뤄진 삼각형은 과육 재질로 돌려서 하얗게 보이게
     /// 한다 — 패인 자리가 껍질과 같은 빨강이면 패인 게 안 보인다.
     /// </summary>
-    private void PrepareAppleBites(GameObject holder)
+    private void PrepareBites(FoodItem it, FoodSpec fs)
     {
+        GameObject holder = it.go;
         if (holder == null) return;
 
         // 사과 몸통은 정점이 가장 많은 메시다. 꼭지·잎도 같은 메시에
@@ -3282,9 +3504,9 @@ public class MirrorRig : MonoBehaviour
         List<MeshFilter> body = new List<MeshFilter>();
         foreach (MeshFilter f in all)
             if (f.sharedMesh != null && f.sharedMesh.vertexCount == most) body.Add(f);
-        appleMesh = body.ToArray();
+        it.body = body.ToArray();
 
-        Mesh src = appleMesh[0].sharedMesh;
+        Mesh src = it.body[0].sharedMesh;
         int subs = src.subMeshCount;
 
         List<Vector3> v = new List<Vector3>();
@@ -3308,14 +3530,14 @@ public class MirrorRig : MonoBehaviour
         Vector3 mid = b.center - Vector3.up * (b.size.y * 0.05f);
         float rad = Mathf.Max(b.size.x, b.size.z) * 0.5f;
 
-        biteMesh = new Mesh[BiteStages];
-        for (int k = 0; k < BiteStages; k++)
-            biteMesh[k] = BiteApple(v, tri, sub, subs, mid, rad, k);
+        it.bites = new Mesh[fs.bites];
+        for (int k = 0; k < fs.bites; k++)
+            it.bites[k] = BiteMesh(v, tri, sub, subs, mid, rad, k, fs.bites);
 
         // 과육 재질을 서브메시 한 칸 뒤에 붙인다.
         Material flesh =
             ToolModels.MakeMaterial(new Color(0.95f, 0.91f, 0.74f), 0f, 0.18f);
-        foreach (MeshFilter f in appleMesh)
+        foreach (MeshFilter f in it.body)
         {
             MeshRenderer mr = f.GetComponent<MeshRenderer>();
             if (mr == null) continue;
@@ -3327,15 +3549,16 @@ public class MirrorRig : MonoBehaviour
             mr.sharedMaterials = now;
         }
 
-        biteStage = 0;
-        SetBiteStage(0);
+        it.stage = 0;
+        SetBiteStage(it, 0);
 
         // 과육 면이 몇 장 나왔는지는 눈으로 가늠이 안 된다. 처음에
         // 작은 자국 넷을 냈을 때 5280 면 중 32 면뿐이었는데, 그게
         // 화면에서 안 보이는 이유였다 — 세어 봐야 알 수 있다.
-        Debug.Log("[MirrorRig] 사과 깨물기 — 쪼갠 뒤 " + v.Count + "꼭짓점 "
-                  + sub.Count + "면 / 과육면 " + biteMesh[1].GetTriangles(subs).Length / 3
-                  + "→" + biteMesh[BiteStages - 1].GetTriangles(subs).Length / 3);
+        Debug.Log("[MirrorRig] " + fs.model + " 깨물기 — 쪼갠 뒤 " + v.Count
+                  + "꼭짓점 " + sub.Count + "면 / 과육면 "
+                  + it.bites[1].GetTriangles(subs).Length / 3
+                  + "→" + it.bites[fs.bites - 1].GetTriangles(subs).Length / 3);
     }
 
     /// <summary>삼각형을 네 쪽으로 쪼갠다. 변 가운데 점은 한 번만 만든다.</summary>
@@ -3382,8 +3605,8 @@ public class MirrorRig : MonoBehaviour
     }
 
     /// <summary>사과를 <paramref name="bites"/> 번 깨문 메시를 만든다.</summary>
-    private Mesh BiteApple(List<Vector3> srcV, List<int> tri, List<int> sub, int subs,
-                           Vector3 mid, float rad, int bites)
+    private Mesh BiteMesh(List<Vector3> srcV, List<int> tri, List<int> sub, int subs,
+                          Vector3 mid, float rad, int bites, int stages)
     {
         List<Vector3> v = new List<Vector3>(srcV);
         bool[] gone = new bool[v.Count];
@@ -3457,7 +3680,7 @@ public class MirrorRig : MonoBehaviour
         // 한 입마다 전체를 8.5 % 씩 줄여야 줄어드는 게 눈에 보인다.
         if (bites > 0)
         {
-            float k2 = 1f - 0.085f * bites;
+            float k2 = 1f - BiteShrink(stages) * bites;
             for (int i = 0; i < v.Count; i++) v[i] = mid + (v[i] - mid) * k2;
         }
 
@@ -3487,13 +3710,61 @@ public class MirrorRig : MonoBehaviour
         return m;
     }
 
-    /// <summary>사과를 몇 입 깨문 모양으로 갈아 끼운다.</summary>
-    private void SetBiteStage(int stage)
+    /// <summary>
+    /// 음식을 몇 입 깨문 모양으로 갈아 끼운다.
+    ///
+    /// 깨문 자리를 파 둔 음식(FoodSpec.carve)은 단계별 메시를 갈아 끼우고,
+    /// 안 판 음식은 **작아지기만** 한다. 납작한 조각(고기)에 구를 파면
+    /// 구멍이 뚫리는데, 어차피 거울에서 사과는 가로 35 픽셀쯤이라 읽히는
+    /// 단서는 패인 자리가 아니라 작아지는 쪽이다(BiteMesh 주석).
+    /// </summary>
+    private void SetBiteStage(FoodItem it, int stage)
     {
-        if (appleMesh == null || biteMesh == null) return;
-        Mesh m = biteMesh[Mathf.Clamp(stage, 0, BiteStages - 1)];
-        foreach (MeshFilter f in appleMesh)
-            if (f != null) f.sharedMesh = m;
+        if (it == null || it.go == null) return;
+        stage = Mathf.Max(stage, 0);
+
+        if (it.bites != null && it.body != null)
+        {
+            Mesh m = it.bites[Mathf.Min(stage, it.bites.Length - 1)];
+            foreach (MeshFilter f in it.body)
+                if (f != null) f.sharedMesh = m;
+            return;
+        }
+
+        // 메시를 안 파는 음식. 한 입마다 같은 비율로 줄인다 — 파는 쪽의
+        // 줄어드는 폭(BiteMesh)과 같은 식을 쓴다.
+        int stages = SpecOf(KindOf(it)).bites;
+        float k = stages > 1 ? 1f - BiteShrink(stages) * Mathf.Min(stage, stages - 1) : 1f;
+        it.go.transform.localScale = Vector3.one * k;
+    }
+
+    /// <summary>
+    /// 접시에 올려놓을 때의 반높이. 세워 드는 음식(FoodSpec.tilt)은 눕혀
+    /// 쟀을 때의 반높이를 쓰면 접시에 박힌다 — 눕힌 고기는 반두께가
+    /// 0.5 cm 인데, 세우고 나면 4.3 cm 가 필요하다.
+    /// </summary>
+    private static float SitHeight(FoodItem it, FoodSpec fs)
+    {
+        float r = fs.tilt * Mathf.Deg2Rad;
+        return Mathf.Abs(Mathf.Cos(r)) * it.half.y + Mathf.Abs(Mathf.Sin(r)) * it.half.z;
+    }
+
+    /// <summary>이 음식이 FoodKind 몇 번인가.</summary>
+    private FoodKind KindOf(FoodItem it)
+    {
+        if (foodItems != null)
+            for (int i = 0; i < foodItems.Length; i++)
+                if (foodItems[i] == it) return (FoodKind)i;
+        return FoodKind.Apple;
+    }
+
+    /// <summary>
+    /// 한 입마다 줄어드는 비율. 네 입에 걸쳐 먹는 사과에서 8.5 % 로 맞춰
+    /// 뒀으니, 횟수가 달라져도 다 먹을 때까지 줄어드는 총량은 같게 둔다.
+    /// </summary>
+    private static float BiteShrink(int stages)
+    {
+        return 0.085f * 4f / Mathf.Max(stages, 1);
     }
 
     // ───────────────────────── 진행 ─────────────────────────
@@ -3504,7 +3775,7 @@ public class MirrorRig : MonoBehaviour
         ShowScenario(s, foodKind, dentalKind);
     }
 
-    /// <summary>음식 블록 — 사과냐 젤리냐.</summary>
+    /// <summary>음식 블록 — 사과·젤리·고기·푸딩·사탕 중 하나.</summary>
     public void ShowScenario(Scenario s, FoodKind kind)
     {
         ShowScenario(s, kind, dentalKind);
@@ -3544,19 +3815,23 @@ public class MirrorRig : MonoBehaviour
         if (handpiece != null)  handpiece.SetActive(atDentist && dental == DentalKind.Drill);
         if (toothbrush != null) toothbrush.SetActive(atDentist && dental == DentalKind.Brush);
 
-        // 접시에 담아 두는 것도 조건을 따라간다.
-        bool soft = kind == FoodKind.Soft;
-        if (plateJelly != null) plateJelly.gameObject.SetActive(soft);
-        if (plateApple != null) plateApple.gameObject.SetActive(!soft);
-
-        // 음식은 둘 중 하나만 든다. 켜는 건 AnimateFood 가 한 입 주기에 맞춰 한다.
-        // 새로 들어가는 장면은 온전한 사과로 시작한다.
-        biteStage = 0;
+        // 접시에 담아 두는 것도, 손에 드는 것도 조건을 따라간다. 다섯 벌을
+        // 다 지어 뒀으니 한 벌만 켜면 된다. 손에 든 쪽을 켜는 건 AnimateFood
+        // 가 한 입 주기에 맞춰 하므로 여기서는 전부 끈다.
+        //
+        // 새로 들어가는 장면은 온전한 것으로 시작한다.
         biteCycle = -1;
-        SetBiteStage(0);
-        food = kind == FoodKind.Soft ? foodSoft : foodHard;
-        if (foodHard != null) foodHard.SetActive(false);
-        if (foodSoft != null) foodSoft.SetActive(false);
+        for (int k = 0; k < FoodSpecs.Length; k++)
+        {
+            FoodItem it = Item((FoodKind)k);
+            bool on = (FoodKind)k == kind;
+            if (it.plate != null) it.plate.gameObject.SetActive(on);
+            it.stage = 0;
+            SetBiteStage(it, 0);
+            if (it.go != null) it.go.SetActive(false);
+        }
+        foodNow = Item(kind);
+        food = foodNow.go;
 
         SetMouth(0f);          // 치과를 보다 나가면 입이 벌어진 채로 남는다
 
@@ -3801,14 +4076,21 @@ public class MirrorRig : MonoBehaviour
     /// 먹을 때 실제로 하는 짓이기도 하다 — 한 입 베고 손을 내리면서
     /// 베어 문 자리를 들여다본다.
     /// </summary>
-    private Quaternion FoodSpin(bool soft, float toMouth)
+    private Quaternion FoodSpin(FoodSpec fs, float toMouth)
     {
-        if (soft || biteStage <= 0)
-            return Quaternion.Euler(0f, elapsed * (soft ? 22f : 26f), 0f);
+        // 세우기는 **돌리기 바깥**에 건다. Euler(tilt,0,0) * Euler(0,yaw,0)
+        // 은 모델 좌표에서 먼저 돌리고 나서 세우는 것이라, 90° 세운 음식은
+        // 제 앞면을 거울에 둔 채 그 자리에서 뱅글뱅글 돈다. 순서를 뒤집으면
+        // 세운 것이 Y 축으로 돌아 반 바퀴마다 두께만 보인다.
+        Quaternion stand = Quaternion.Euler(fs.tilt, 0f, 0f);
 
-        float out0 = -BiteAngle(biteStage);        // 패인 쪽이 거울을 본다
-        float in1  = 180f - BiteAngle(biteStage);  // 패인 쪽이 입을 본다
-        return Quaternion.Euler(
+        // 깨문 자리를 파지 않는 음식은 돌려 봐야 보여 줄 자리가 없다.
+        if (!fs.carve || foodNow == null || foodNow.stage <= 0)
+            return stand * Quaternion.Euler(0f, elapsed * fs.spin, 0f);
+
+        float out0 = -BiteAngle(foodNow.stage);        // 패인 쪽이 거울을 본다
+        float in1  = 180f - BiteAngle(foodNow.stage);  // 패인 쪽이 입을 본다
+        return stand * Quaternion.Euler(
             0f, Mathf.Lerp(out0, in1, Mathf.Clamp01(toMouth))
                 + Mathf.Sin(elapsed * 1.1f) * 5f, 0f);
     }
@@ -3817,30 +4099,24 @@ public class MirrorRig : MonoBehaviour
     {
         if (food == null) return;
 
-        bool soft = foodKind == FoodKind.Soft;
+        FoodSpec fs = SpecOf(foodKind);
+        if (foodNow == null) foodNow = Item(foodKind);
 
-        // 무른 것은 입술에 천천히 눌리며 들어가고 오래, 작게 씹힌다.
-        // 단단한 것은 한 번에 딱 베어 물리고 짧고 크게 씹힌다.
-        // 진동 쪽 조각 수(ScenarioHaptics.BuildCrunch)와 짝이 맞아야
-        // 보이는 것과 느껴지는 것이 어긋나지 않는다.
+        // 음식마다 다른 값은 전부 표에 있다(FoodSpecs). 씹는 시간·속도·폭이
+        // 진동 쪽 조각 수(ScenarioHaptics.BuildCrunch)와 짝이 맞아야 보이는
+        // 것과 느껴지는 것이 어긋나지 않는다 — 표에 나란히 적어 둔 이유다.
+        //
         // 사람은 이렇게 못 먹는다. 전엔 한 입이 4 초여서, 집어 들자마자
         // 삼키고 곧바로 다시 집는 것으로 보였다. 구간마다 늘려 한 입을
-        // 6 초로 뒀다. 진동은 깨무는 순간에 한 번 터지고 끝나는 짧은
-        // 다발이라(ScenarioHaptics.BuildCrunch), 보이는 쪽을 늘려도
-        // 느껴지는 쪽과 어긋나지 않는다.
-        const float onPlate = 1.4f;          // 접시에 놓인 채 기다리는 동안
-        float hold = soft ? 0.70f : 0.50f;   // 입에 닿아 있는 순간
-        float chew = soft ? 2.40f : 1.90f;   // 씹는 시간
-        float chewRate  = soft ? 8f    : 12f;    // 오물거리는 속도
-        float chewDepth = soft ? 0.14f : 0.20f;  // 오물거리는 폭
-        const float after = 0.9f;            // 삼키고 잠시 쉬는 동안
-        float bite = onPlate + ApproachTime + hold + chew + after;   // 한 입 주기
+        // 6 초 안팎으로 뒀다. 진동은 깨무는 순간에 한 번 터지고 끝나는
+        // 짧은 다발이라, 보이는 쪽을 늘려도 느껴지는 쪽과 어긋나지 않는다.
+        float bite = BiteCycleOf(foodKind);
 
         float t = Mathf.Repeat(elapsed, bite);
 
         // 집어 드는 젤리는 한 입마다 다음 색이다. 접시에 무지개로 놓여
         // 있는데 집어 드는 것만 늘 빨강이면 같은 알을 계속 집는 것으로 보인다.
-        if (soft && jellyMat != null)
+        if (foodKind == FoodKind.Jelly && jellyMat != null)
         {
             int hue = Mathf.FloorToInt(elapsed / bite) % JellyColors.Length;
             if (hue != jellyHue)
@@ -3863,17 +4139,20 @@ public class MirrorRig : MonoBehaviour
         // 접시 바닥에 올려놓으려면 거기에 반높이를 더한다.
         float plateFloor = tableTopY + 0.010f;
         Vector3 plateRig = new Vector3(
-            -0.13f, plateFloor + (soft ? 0.085f : 0.075f) * 0.5f, 2f * D - (D - 0.25f));
+            -0.13f, plateFloor + SitHeight(foodNow, fs), 2f * D - (D - 0.25f));
         Vector3 plateLocal = toolRoot.InverseTransformPoint(transform.TransformPoint(plateRig));
 
         // 음식의 원점은 한가운데라, 입술 지점에 그대로 놓으면 절반이 얼굴에 박힌다.
         // 반지름만큼 앞으로 빼서 입술에 닿게 한다.
         // 손이 아래에서 올라오므로 음식을 입술 한가운데에 두면 손이 코까지 올라온다.
+        // 앞으로 빼는 양은 반지름을 따라간다. 사과(7.5 cm)에서 5 cm 가
+        // 맞았으니 그 비율(0.60)을 그대로 쓴다 — 사탕에 5 cm 를 주면
+        // 입술에서 한참 떨어진 허공에 떠 있다.
         Vector3 rest = mouthLocal
-                     + Vector3.forward * (soft ? 0.040f : 0.050f)
+                     + Vector3.forward * (fs.size * 0.60f)
                      - Vector3.up * 0.008f;
 
-        if (t < onPlate)
+        if (t < OnPlate)
         {
             // 아직 접시 위에 있다. 손은 내려와 있고 입도 다물려 있다.
             // 이 구간이 있어야 "책상 위의 것을 집어서" 가 눈에 보인다 —
@@ -3881,19 +4160,23 @@ public class MirrorRig : MonoBehaviour
             // 다 먹었으면 접시에서 새 사과를 집는다. 먹던 사과는 깨문
             // 채로 접시 위에서 기다린다 — 쉬는 동안 저 혼자 온전해지면
             // 같은 사과가 아니라 다른 사과를 집은 것으로 보인다.
-            if (!soft && biteStage >= BiteStages) { biteStage = 0; SetBiteStage(0); }
+            if (foodNow.stage >= fs.bites)
+            {
+                foodNow.stage = 0;
+                SetBiteStage(foodNow, 0);
+            }
             food.SetActive(true);
             food.transform.localPosition = plateLocal;
             // 접시에서 기다릴 땐 패인 쪽을 거울로 둔다. 어차피 아무
             // 쪽이나 될 자리고, 몇 입 먹었는지 눈에 보이는 쪽이 낫다.
-            food.transform.localRotation = FoodSpin(soft, 0f);
+            food.transform.localRotation = FoodSpin(fs, 0f);
             SetMouth(0f);
             Contact = 0f;
             if (selfArm != null) selfArm.Rest();
             return;
         }
 
-        float u = t - onPlate;
+        float u = t - OnPlate;
 
         // 패인 쪽이 입을 보는 정도. 입으로 올리는 동안 돌려서 대고,
         // 씹으려고 내리는 동안 도로 거울 쪽으로 돌린다 (FoodSpin).
@@ -3908,24 +4191,28 @@ public class MirrorRig : MonoBehaviour
             toMouth = Ease(u / ApproachTime);
             // 치과에 맞춰 최대 벌림을 키웠더니(SetMouth 참고) 음식 쪽은 밥 먹는
             // 입이 아니라 비명 지르는 입이 됐다. 음식은 그 절반쯤이면 된다.
-            SetMouth(Ease(u / ApproachTime) * 0.55f);     // 올라오는 동안 벌린다
+            // 얼마나 벌리는지도 음식마다 다르다 — 알사탕에 입을 크게
+            // 벌리면 사탕이 아니라 주먹을 넣는 것으로 보인다.
+            SetMouth(Ease(u / ApproachTime) * fs.open);   // 올라오는 동안 벌린다
             Contact = 0f;
         }
-        else if (u < ApproachTime + hold)
+        else if (u < ApproachTime + fs.hold)
         {
             // 입술에 닿아 있는 순간. 여기를 건너뛰면 정작 베어 무는 장면이 안 보인다 —
             // 음식이 다 올라오자마자 사라져 버린다.
             food.SetActive(true);
             food.transform.localPosition = rest;
-            SetMouth(Mathf.Lerp(0.55f, 0.22f, (u - ApproachTime) / hold));   // 물어 내린다
+            // 벌린 입을 물어 내린다. 씹는 동안의 기준 벌림도 이 값이다.
+            SetMouth(Mathf.Lerp(fs.open, fs.open * ChewBase,
+                                (u - ApproachTime) / fs.hold));
             Contact = 1f;
             toMouth = 1f;   // 패인 쪽이 입에 닿아 있다
         }
         else
         {
             // 베어 물었다.
-            float c = u - ApproachTime - hold;
-            bool chewing = c < chew;
+            float c = u - ApproachTime - fs.hold;
+            bool chewing = c < fs.chew;
 
             // 깨무는 순간은 한 번만 센다. 사과는 여기서 한 조각 패이고,
             // 네 입째에 사라진다. 젤리는 한 알이니 통째로 들어간다.
@@ -3933,14 +4220,20 @@ public class MirrorRig : MonoBehaviour
             if (cyc != biteCycle)
             {
                 biteCycle = cyc;
-                if (!soft) { biteStage++; SetBiteStage(biteStage); }
+                if (fs.bites > 1)
+                {
+                    foodNow.stage++;
+                    SetBiteStage(foodNow, foodNow.stage);
+                }
             }
 
             // 깨문 사과는 여전히 손에 있다. 입에서 조금 내려서 들고
             // 씹는다. 예전처럼 한 입에 통째로 감추면 먹는 게 아니라
             // 지워지는 것으로 보이고, 입에 붙여 둔 채로 두면 아직
             // 무는 중인지 씹는 중인지 분간이 안 된다.
-            bool inHand = !soft && biteStage < BiteStages;
+            // 여러 입에 걸쳐 먹는 것은 깨문 채로 손에 남는다. 한 입에
+            // 통째로 들어가는 것(젤리·푸딩·사탕)은 여기서 사라진다.
+            bool inHand = fs.bites > 1 && foodNow.stage < fs.bites;
             food.SetActive(inHand);
             // 아래로만 내리면 모자란다. 손을 재 보니 손목이 입보다 2 cm
             // **위**에 있었다 (입 y 0.02, 손목 y 0.04). 가운데에 둔 채로
@@ -3953,18 +4246,20 @@ public class MirrorRig : MonoBehaviour
                     rest + Vector3.right * 0.13f
                          - Vector3.up * 0.18f
                          + Vector3.forward * 0.03f,
-                    Ease(Mathf.Clamp01(c / Mathf.Max(chew, 1e-3f))));
+                    Ease(Mathf.Clamp01(c / Mathf.Max(fs.chew, 1e-3f))));
 
             // 손을 내리면서 베어 문 자리를 들여다본다 — 패인 쪽이
             // 입에서 거울 쪽으로 돌아 나온다.
-            toMouth = 1f - Ease(Mathf.Clamp01(c / Mathf.Max(chew, 1e-3f)));
+            toMouth = 1f - Ease(Mathf.Clamp01(c / Mathf.Max(fs.chew, 1e-3f)));
 
             // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
-            SetMouth(chewing ? 0.22f + chewDepth * Mathf.Sin(c * chewRate) : 0f);
+            SetMouth(chewing
+                     ? fs.open * ChewBase + fs.depth * Mathf.Sin(c * fs.rate)
+                     : 0f);
             Contact = chewing ? 1f : 0f;
         }
 
-        food.transform.localRotation = FoodSpin(soft, toMouth);
+        food.transform.localRotation = FoodSpin(fs, toMouth);
 
         // 남이 먹여 주는 게 아니라 제 손으로 먹는다. 음식이 보이는 동안만 팔을 올린다.
         if (selfArm != null)
@@ -3995,9 +4290,28 @@ public class MirrorRig : MonoBehaviour
                 // 크기를 정하는데, 사과를 7.5 cm 로 키웠더니 5.5 cm 에
                 // 맞춰 둔 각으로는 손가락이 사과를 뚫고 지나갔다.
                 // 젤리 한 알은 그대로 바싹 집는다.
-                GripAround(selfArm, food.transform.position,
+                // 쥐는 자리를 음식 **밑으로** 내린다.
+                //
+                // GripAround 의 `back` 으로는 안 된다. 그 함수는 손가락
+                // 고리를 한 번 접어 보고 고리 한가운데가 목표에서 빗나간
+                // 만큼 손을 옮겨 다시 접는데, 그 보정이 back 을 도로
+                // 지운다 — 고리는 언제나 넘겨준 점을 한가운데 둔다.
+                // 그러니 넘겨주는 점 자체를 내려야 한다.
+                //
+                // 사과와 젤리는 0 이다. 둥글고 굵어서 주먹 위로 솟는다.
+                // 납작한 고기·푸딩·사탕은 한가운데를 쥐면 조각이 통째로
+                // 고리 안에 들어가 손가락 뒤로 사라진다 — 실제로도 이런
+                // 건 아래쪽 끝을 집어 든다.
+                //
+                // 내리는 양은 **미터로 박는다.** 처음엔 음식 반높이에
+                // 대한 비율로 뒀는데, 넓고 납작한 푸딩은 반높이가 8 mm
+                // 뿐이라 0.6 을 줘도 5 mm 밖에 안 내려가 그대로 묻혔다.
+                // 고리 크기는 음식이 아니라 **손**이 정하니 손 치수로
+                // 적는 게 맞다.
+                Vector3 hold = food.transform.position - toolRoot.up * fs.grip;
+                GripAround(selfArm, hold,
                            toolRoot.forward, toolRoot.up, 0f,
-                           soft ? 58f : 42f, soft ? 62f : 46f, soft ? 95f : 78f,
+                           fs.curl, fs.thumb, fs.fold,
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();
@@ -4092,7 +4406,7 @@ public class MirrorRig : MonoBehaviour
         switch (s)
         {
             case Scenario.Food:
-                text = foodKind == FoodKind.Soft ? "EATING  (JELLY)" : "EATING  (APPLE)";
+                text = "EATING  (" + SpecOf(foodKind).label + ")";
                 break;
             case Scenario.Dental:
                 text = dentalKind == DentalKind.Brush ? "TOOTHBRUSH" : "DENTAL DRILL";

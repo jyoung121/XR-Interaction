@@ -75,10 +75,22 @@ public static class ToolModels
     /// <summary>다른 스크립트도 같은 셰이더로 머티리얼을 만들 수 있게 열어 둔다.</summary>
     public static Material MakeMaterial(Color color, float metallic, float smoothness)
     {
-        return Mat(color, metallic, smoothness);
+        return Mat(color, metallic, smoothness, null);
     }
 
-    private static Material Mat(Color color, float metallic, float smoothness)
+    /// <summary>
+    /// 무늬가 있는 모델용. 받아온 음식 모델 몇 개는 색이 .mtl 의 Kd 가 아니라
+    /// **텍스처**에 들어 있다 — 박하사탕은 Kd 가 검정이라 텍스처를 안 넘기면
+    /// 새까만 돌이 된다.
+    /// </summary>
+    public static Material MakeMaterial(Color color, float metallic,
+                                        float smoothness, Texture tex)
+    {
+        return Mat(color, metallic, smoothness, tex);
+    }
+
+    private static Material Mat(Color color, float metallic, float smoothness,
+                                Texture tex = null)
     {
         Material m = new Material(BaseShader());
         // 색과 반질거림의 프로퍼티 이름이 파이프라인마다 다르다. URP/Lit 은
@@ -90,6 +102,14 @@ public static class ToolModels
         if (m.HasProperty("_Metallic"))   m.SetFloat("_Metallic", metallic);
         if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", smoothness);
         if (m.HasProperty("_Glossiness")) m.SetFloat("_Glossiness", smoothness);
+        // 무늬 이름도 파이프라인마다 다르다. URP/Lit 은 _BaseMap,
+        // 내장 Standard 는 _MainTex 다.
+        if (tex != null)
+        {
+            m.mainTexture = tex;
+            if (m.HasProperty("_BaseMap")) m.SetTexture("_BaseMap", tex);
+            if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", tex);
+        }
         return m;
     }
 

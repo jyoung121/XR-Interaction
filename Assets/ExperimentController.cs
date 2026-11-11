@@ -508,10 +508,18 @@ public class ExperimentController : MonoBehaviour
             yield break;
         }
 
-        // 바리깡을 빼고 치과와 음식 두 상황으로 간다. 상황마다 두 수준이라
-        // 블록은 넷이다 — 사과 / 젤리 / 드릴 / 칫솔.
+        // 바리깡을 빼고 치과와 음식 두 상황으로 간다. 음식은 11/11 에 두
+        // 수준에서 다섯 가지로 늘렸으므로(MirrorRig.FoodKind) 블록은 일곱이다.
+        //
+        // 순서는 섞지 않고 **단단한 쪽에서 무른 쪽으로** 내려간다. 파일럿에서
+        // 실험자가 값을 맞추는 단계라, 느낌이 한 방향으로 움직이는 게 눈에
+        // 보여야 "이 조건이 과했다" 를 바로 안다. 참가자를 받을 때는 순서
+        // 효과를 지워야 하니 돌려 가며 내야 한다 — 아직 안 했다.
         MirrorRig.Scenario[] order =
         {
+            MirrorRig.Scenario.Food,
+            MirrorRig.Scenario.Food,
+            MirrorRig.Scenario.Food,
             MirrorRig.Scenario.Food,
             MirrorRig.Scenario.Food,
             MirrorRig.Scenario.Dental,
@@ -519,14 +527,20 @@ public class ExperimentController : MonoBehaviour
         };
         MirrorRig.FoodKind[] foods =
         {
-            MirrorRig.FoodKind.Hard,
-            MirrorRig.FoodKind.Soft,
-            MirrorRig.FoodKind.Hard,     // 치과에서는 쓰이지 않는다
-            MirrorRig.FoodKind.Hard
+            MirrorRig.FoodKind.Candy,    // 유리처럼 쩍
+            MirrorRig.FoodKind.Apple,    // 아삭
+            MirrorRig.FoodKind.Meat,     // 질겨서 길게
+            MirrorRig.FoodKind.Jelly,    // 쫀득
+            MirrorRig.FoodKind.Pudding,  // 거의 안 씹힌다
+            MirrorRig.FoodKind.Apple,    // 치과에서는 쓰이지 않는다
+            MirrorRig.FoodKind.Apple
         };
         MirrorRig.DentalKind[] tools =
         {
             MirrorRig.DentalKind.Drill,  // 음식에서는 쓰이지 않는다
+            MirrorRig.DentalKind.Drill,
+            MirrorRig.DentalKind.Drill,
+            MirrorRig.DentalKind.Drill,
             MirrorRig.DentalKind.Drill,
             MirrorRig.DentalKind.Drill,
             MirrorRig.DentalKind.Brush
@@ -589,16 +603,15 @@ public class ExperimentController : MonoBehaviour
             {
                 crunchSeed++;
 
-                // 사과는 조각이 적고 세게 부서지고, 무른 것은 더 적고 약하게 뭉개진다.
-                // BuildCrunch 주석의 기준(과자 4~6, 사과 2~3, 얼음 1~2)을 따른다.
-                // 보이는 씹는 속도(MirrorRig.AnimateFood)와 짝을 맞춘 값이다.
-                bool hard = rig.CurrentFood == MirrorRig.FoodKind.Hard;
-                int fragments = hard ? 3 : 2;
-                int peak = hard
-                    ? waveHighAmplitude
-                    : Mathf.Max(1, Mathf.RoundToInt(waveHighAmplitude * 0.55f));
+                // 조각 수와 세기는 **리그가 쥐고 있다**(MirrorRig.FoodFragments).
+                // 여기서 음식 종류를 보고 정하면 보이는 씹기와 느껴지는 씹기가
+                // 두 파일에서 따로 굴러간다 — 다섯 가지가 되면서 값을 음식
+                // 표 한 군데로 모았다. BuildCrunch 주석의 기준(과자 4~6,
+                // 사과 2~3, 얼음 1~2)은 그 표에 그대로 들어가 있다.
+                int peak = Mathf.Max(
+                    1, Mathf.RoundToInt(waveHighAmplitude * rig.FoodPeakScale));
 
-                ScenarioHaptics.PlayCrunch(fragments, peak, crunchSeed);
+                ScenarioHaptics.PlayCrunch(rig.FoodFragments, peak, crunchSeed);
             }
             scenarioBuzzing = touching;
             return;
