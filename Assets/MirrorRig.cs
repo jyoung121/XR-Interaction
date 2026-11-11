@@ -1072,7 +1072,7 @@ public class MirrorRig : MonoBehaviour
         l.type = LightType.Directional;
         l.intensity = intensity;
         l.color = color;
-        l.shadows = LightShadows.Hard;
+        l.shadows = LightShadows.None;
         l.shadowStrength = 0.55f;
     }
 
@@ -3610,6 +3610,7 @@ public class MirrorRig : MonoBehaviour
     private class Limb
     {
         public Transform shoulder, upper, lower, wrist, palm, tip;
+        public Transform mid;               // 가운뎃손가락 중간 마디 — 고리 중심을 재는 데 쓴다
         public Quaternion restShoulder, restUpper, restLower, restWrist;
         public Transform[] fingers;
         public Quaternion[] restFingers;
@@ -3647,8 +3648,18 @@ public class MirrorRig : MonoBehaviour
         l.upper = FindBone(root, "UpperArm." + side);
         l.lower = FindBone(root, "LowerArm." + side);
         l.wrist = FindBone(root, "Wrist." + side);
-        l.palm  = FindBone(root, "Middle1." + side);   // 손가락 밑동
-        l.tip   = FindBone(root, "Middle3." + side);   // 손끝
+        // **Index1 은 손가락이 아니라 손허리뼈다.** 이 리그는 손가락마다
+        // 뼈가 넷이고(1=손허리, 2=첫마디, 3=중간마디, 4=끝마디) 넷이 다
+        // 손목에 붙은 1 번부터 시작한다. 그걸 모르고 1·2·3 을 손가락으로
+        // 세고 있었다 — 그래서 **손바닥이 접히고 끝마디는 안 접혔다.**
+        // 재 보면 Middle1→Middle2 가 7.7 cm 다. 손가락 마디가 아니라
+        // 손바닥 길이다.
+        //
+        // 엄지만 뼈가 셋이라(1=손허리, 2·3=마디) 1 번부터 맞다 — 엄지는
+        // 손허리뼈도 같이 돌아야 손바닥 쪽으로 모인다.
+        l.palm  = FindBone(root, "Middle2." + side);   // 손가락 밑동 (진짜 손등 관절)
+        l.mid   = FindBone(root, "Middle3." + side);   // 중간 마디
+        l.tip   = FindBone(root, "Middle4." + side);   // 끝마디
         // 이 모델의 손은 19 cm 로 제 아래팔(23.5 cm)의 80% 다. 저대로 두면
         // 사과를 입에 가져갈 때 손 하나가 얼굴을 통째로 덮어 버린다.
         // 손목뼈를 줄이면 거기 매달린 손 메시가 통째로 줄어든다.
@@ -3661,8 +3672,8 @@ public class MirrorRig : MonoBehaviour
 
         // 엄지도 같이 접어야 주먹이 닫힌다. 네 손가락만 말면 도구가 그 사이로
         // 들여다보여서 쥔 게 아니라 걸쳐 놓은 것처럼 보인다.
-        string[] names = { "Index1", "Index2", "Index3", "Middle1", "Middle2", "Middle3",
-                           "Ring1", "Ring2", "Ring3", "Pinky1", "Pinky2", "Pinky3",
+        string[] names = { "Index2", "Index3", "Index4", "Middle2", "Middle3", "Middle4",
+                           "Ring2", "Ring3", "Ring4", "Pinky2", "Pinky3", "Pinky4",
                            "Thumb1", "Thumb2", "Thumb3" };
         l.fingers = new Transform[names.Length];
         l.restFingers = new Quaternion[names.Length];
@@ -3673,11 +3684,15 @@ public class MirrorRig : MonoBehaviour
         }
 
         // 손가락이 접히는 축. 이 리그는 네 손가락 밑마디가 전부 한 점에 겹쳐 있어서
-        // (검지와 새끼의 좌표가 소수점 넷째 자리까지 같다) 손바닥을 가로지르는 선을
-        // 두 밑마디 사이에서 잴 수가 없다. 대신 손가락이 뻗은 방향과 엄지 쪽 방향의
-        // 외적을 쓴다 — 그 축으로 돌리면 손끝이 엄지 쪽, 곧 손바닥 안쪽으로 말린다.
-        Transform knuckle = FindBone(root, "Middle1." + side);
-        Transform tip     = FindBone(root, "Middle3." + side);
+        // 손가락이 뻗은 방향과 엄지 쪽 방향의 외적을 쓴다 — 그 축으로 돌리면
+        // 손끝이 엄지 쪽, 곧 손바닥 안쪽으로 말린다.
+        //
+        // 전에는 Index1 과 Pinky1 의 좌표가 넷째 자리까지 같아서 손등을
+        // 가로지르는 선을 못 잰다고 적혀 있었다. 둘 다 손허리뼈라 손목
+        // 한 점에서 시작하니 당연한 것이었다. 2 번끼리는 손등에 제대로
+        // 벌어져 있지만, 외적 쪽이 이미 맞게 돌고 있으므로 그대로 둔다.
+        Transform knuckle = FindBone(root, "Middle2." + side);
+        Transform tip     = FindBone(root, "Middle4." + side);
         Transform thumb   = FindBone(root, "Thumb2." + side);
         if (knuckle != null && tip != null && thumb != null && l.wrist != null)
         {
@@ -3843,15 +3858,18 @@ public class MirrorRig : MonoBehaviour
         Quaternion hand = Quaternion.LookRotation(fwd, axis)
                         * Quaternion.Inverse(Quaternion.LookRotation(kLocal, l.curlAxis));
 
+        // 세 번 돈다. 한 번 고치면 6 cm 가 1.5 cm 로, 두 번이면 몇 mm 로
+        // 줄어든다 (GripProbe 로 잰 값). 팔이 뻗을 수 있는 거리에 걸려서
+        // 한 번에는 안 맞는다.
         Vector3 target = point - fwd * back;
-        for (int pass = 0; pass < 2; pass++)
+        for (int pass = 0; pass < 3; pass++)
         {
             AimArm(l, target, pole);
             l.wrist.rotation = hand;
             if (fold >= 0f) Pinch(l, curl, thumb, fold);
             else Curl(l, curl);
 
-            if (pass == 0)
+            if (pass < 2)
                 target += point - HoldPoint(l, fold >= 0f);
         }
     }
@@ -3911,15 +3929,78 @@ public class MirrorRig : MonoBehaviour
     /// <summary>
     /// 쥔 물건이 놓여야 할 자리. 주먹이면 손가락 고리의 한가운데,
     /// 집게손이면 검지와 엄지 사이다.
+    ///
+    /// 주먹 쪽은 밑동과 손끝의 **한가운데**를 쓰고 있었다. 그건 고리의
+    /// 중심이 아니라 활시위의 가운데다 — 중심은 거기서 손바닥 쪽으로
+    /// 활 높이만큼 더 들어가 있다. 그만큼 도구가 손 바깥으로 밀려서,
+    /// 드릴이 손등 위에 얹히고 손가락은 그 아래 허공을 쥐고 있었다
+    /// (dental_doctor.png).
+    ///
+    /// 마디 세 개가 다 그 원 위에 있으니 외접원의 중심을 구하면 된다.
+    /// 재서 나오는 값이라 접는 각을 바꾸든 모델을 바꾸든 따라온다.
     /// </summary>
     private static Vector3 HoldPoint(Limb l, bool pinch)
     {
         if (pinch && l.fingers != null && l.fingers.Length > 14
             && l.fingers[2] != null && l.fingers[14] != null)
             return (l.fingers[2].position + l.fingers[14].position) * 0.5f;
+
+        if (l.palm != null && l.mid != null && l.tip != null)
+        {
+            Vector3 c;
+            if (Circumcenter(l.palm.position, l.mid.position, l.tip.position, out c))
+                return c;
+        }
         if (l.tip != null && l.palm != null)
             return (l.palm.position + l.tip.position) * 0.5f;
         return l.wrist != null ? l.wrist.position : Vector3.zero;
+    }
+
+    /// <summary>손이 도구를 어떻게 쥐고 있는지 도구 기준으로 찍는다 (GripProbe).</summary>
+    public string DumpGrip()
+    {
+        GameObject near = nearDrill != null && nearDrill.activeSelf ? nearDrill : nearBrush;
+        if (near == null || nearDentist == null || nearDentist.reach == null)
+            return "[GripProbe] 손이나 도구가 없다";
+        Limb l = nearDentist.reach;
+        Transform t = near.transform;
+        var sb = new System.Text.StringBuilder(
+            "[GripProbe] 도구 로컬 좌표 (원점=끝, +Z=끝 방향)\n");
+        System.Action<string, Transform> P2 = (n2, b) =>
+        {
+            if (b == null) { sb.Append("  ").Append(n2).Append(" = 없음\n"); return; }
+            Vector3 v = t.InverseTransformPoint(b.position);
+            sb.Append("  ").Append(n2.PadRight(10)).Append(v.ToString("F4")).Append("\n");
+        };
+        P2("Wrist", l.wrist); P2("Middle1", l.palm); P2("Middle2", l.mid); P2("Middle3", l.tip);
+        if (l.fingers != null && l.fingers.Length > 14) P2("Thumb3", l.fingers[14]);
+        sb.Append("  grip(목표)  ").Append(GripOn(near == nearBrush).ToString("F4")).Append("\n");
+        Vector3 c;
+        if (l.palm != null && l.mid != null && l.tip != null
+            && Circumcenter(l.palm.position, l.mid.position, l.tip.position, out c))
+            sb.Append("  외접원중심  ").Append(t.InverseTransformPoint(c).ToString("F4"))
+              .Append("   R=").Append(Vector3.Distance(c, l.palm.position).ToString("F4")).Append("\n");
+        if (l.palm != null && l.tip != null)
+            sb.Append("  시위중간    ")
+              .Append(t.InverseTransformPoint((l.palm.position + l.tip.position) * 0.5f).ToString("F4"))
+              .Append("\n");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 세 점을 지나는 원의 중심. 거의 일직선이면 (손가락을 안 접었으면)
+    /// 중심이 무한히 멀어지므로 false 를 돌려준다.
+    /// </summary>
+    private static bool Circumcenter(Vector3 A, Vector3 B, Vector3 C, out Vector3 center)
+    {
+        center = Vector3.zero;
+        Vector3 a = A - C, b = B - C;
+        Vector3 n = Vector3.Cross(a, b);
+        float nn = n.sqrMagnitude;
+        // 마디 길이가 2~3 cm 라 제대로 접히면 nn 이 1e-7 쯤 된다.
+        if (nn < 1e-12f) return false;
+        center = C + Vector3.Cross(a.sqrMagnitude * b - b.sqrMagnitude * a, n) / (2f * nn);
+        return true;
     }
 
     /// <summary>
