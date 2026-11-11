@@ -61,9 +61,12 @@ public class MirrorRig : MonoBehaviour
         public float smooth;     // 재질 반질거림 (Reskin 이 쓴다)
         public float grip;       // 쥐는 자리를 음식 밑으로 내리는 양 (m)
                                  // 0 = 한가운데를 쥔다
-        public float curl;       // 쥐는 손가락 각 (GripAround)
+        // 집는 각. **이제 평소에는 안 쓴다** — PinchOn 이 손끝을 음식
+        // 겉면에 직접 올려놓는다. 음식 반지름을 못 재는 모델이 들어왔을
+        // 때만 옛 Pinch 로 돌아가면서 쓰인다.
+        public float curl;
         public float thumb;
-        public float fold;
+        public float fold;       // 중지·약지·새끼를 손바닥에 접는 각
         public int frags;        // 진동 조각 수 (ScenarioHaptics.BuildCrunch)
         public float peak;       // 진동 세기 배율 (0~1)
         public float bright;     // 깨지는 소리의 밝기 (0 둔한 퍽 ~ 1 유리 쨍)
@@ -3838,7 +3841,8 @@ public class MirrorRig : MonoBehaviour
         {
             AimArm(l, target, pole);
             l.wrist.rotation = hand;
-            if (fold >= 0f) Pinch(l, curl, thumb, fold);
+            if (fold >= 0f && seat > 0f) PinchOn(l, point, axis, seat, fold);
+            else if (fold >= 0f) Pinch(l, curl, thumb, fold);
             else { Curl(l, curl); ThumbTo(l, point, axis, seat); }
 
             if (pass < 2)
@@ -3976,18 +3980,85 @@ public class MirrorRig : MonoBehaviour
         // 70도를 돌았고(재 봤다), 거기 매달린 엄지두덩 살이 통째로 끌려와
         // 손이 자루를 덮는 넓적한 판이 됐다. 사람 엄지도 손허리뼈는 그만큼
         // 안 꺾인다. 35도에서 끊고 나머지는 마디 둘이 맡는다.
-        Vector3 cur = t2.position - t1.position;
-        Vector3 want = goal - t1.position;
-        if (cur.sqrMagnitude < 1e-10f || want.sqrMagnitude < 1e-10f) return;
-        PointBone(t1, t2, Vector3.RotateTowards(cur.normalized, want.normalized,
-                                                35f * Mathf.Deg2Rad, 0f));
-
-        // 남은 두 마디로 자루에 닿는다. 가운데 관절은 자루 바깥으로
-        // 불룩해야 쥔 모양이 된다. 안 닿으면 TwoBone 이 알아서 쭉 편다.
-        Transform end = t3.childCount > 0 ? t3.GetChild(0) : null;
-        if (end != null) TwoBone(t2, t3, end, goal, side.normalized);
-        else PointBone(t2, t3, goal - t2.position);
+        DigitTo(t1, t2, t3, goal, side.normalized, 35f);
     }
+
+    /// <summary>
+    /// 손가락 하나를 <paramref name="goal"/> 에 **갖다 댄다.**
+    ///
+    /// 밑마디는 <paramref name="cap"/> 도까지만 돌리고 나머지 두 마디로
+    /// 닿는다. 세 마디를 다 IK 에 맡기면 밑마디가 크게 돌면서 거기 매달린
+    /// 살이 통째로 끌려와 손이 넓적한 판이 된다 (ThumbTo 주석 참고).
+    /// 안 닿으면 TwoBone 이 알아서 쭉 편다.
+    /// </summary>
+    private static void DigitTo(Transform b1, Transform b2, Transform b3,
+                                Vector3 goal, Vector3 pole, float cap)
+    {
+        if (b1 == null || b2 == null || b3 == null) return;
+
+        Vector3 cur = b2.position - b1.position;
+        Vector3 want = goal - b1.position;
+        if (cur.sqrMagnitude < 1e-10f || want.sqrMagnitude < 1e-10f) return;
+        PointBone(b1, b2, Vector3.RotateTowards(cur.normalized, want.normalized,
+                                                cap * Mathf.Deg2Rad, 0f));
+
+        Transform end = b3.childCount > 0 ? b3.GetChild(0) : null;
+        if (end != null) TwoBone(b2, b3, end, goal, pole);
+        else PointBone(b2, b3, goal - b2.position);
+    }
+
+    /// <summary>
+    /// 집게손. **각을 주지 않고 손끝을 음식 겉면에 올려놓는다.**
+    ///
+    /// 전에는 검지와 엄지를 각으로 모았다 (Pinch). 음식마다 curl/thumb 두
+    /// 각을 손으로 맞춰 적어 두었는데, 재 보니 **그 각이 벌어진 폭을 거의
+    /// 바꾸지 못했다.**
+    ///
+    ///   각  10도 → 8.40 cm   30도 → 9.43 cm   50도 → 9.96 cm
+    ///       70도 → 10.06 cm  90도 → 9.87 cm
+    ///
+    /// 접을수록 오히려 **벌어지고**, 아무리 해도 8.4 cm 아래로 안 닫힌다.
+    /// 사과가 8.7 cm, 사탕이 5.5 cm 니 다섯 다 쥘 수가 없었다. 이유는
+    /// Pinch 가 엄지를 네 손가락과 **같은 축, 같은 부호**로 돌려서다 —
+    /// 그러면 엄지가 마주 오지 않고 나란히 따라간다. 주먹은 그게 맞지만
+    /// 집게손은 엄지가 맞은편에서 와야 한다.
+    ///
+    /// 그래서 각을 버리고 자리를 준다. 음식 겉면에서 마주 보는 두 점을
+    /// 잡아 검지와 엄지를 각각 거기 갖다 댄다. 음식 크기가 바뀌면 따라온다.
+    /// </summary>
+    private static void PinchOn(Limb l, Vector3 point, Vector3 axis, float r, float fold)
+    {
+        if (l == null || l.fingers == null || l.fingers.Length < 15 || l.wrist == null) return;
+
+        for (int i = 0; i < l.fingers.Length; i++)
+            if (l.fingers[i] != null) l.fingers[i].localRotation = l.restFingers[i];
+
+        Vector3 cax = l.wrist.rotation * l.curlAxis;
+        if (cax.sqrMagnitude < 1e-8f) return;
+        cax = cax.normalized;
+
+        // 중지·약지·새끼만 손바닥에 접는다. 집는 일은 검지와 엄지가 한다.
+        Quaternion step = Quaternion.AngleAxis(fold * l.curlSign, cax);
+        for (int i = 3; i < 12; i++)
+            if (l.fingers[i] != null) l.fingers[i].rotation = step * l.fingers[i].rotation;
+
+        Transform i1 = l.fingers[0], i2 = l.fingers[1], i3 = l.fingers[2];
+        Transform t1 = l.fingers[12], t2 = l.fingers[13], t3 = l.fingers[14];
+        if (i1 == null || i2 == null || i3 == null) return;
+        if (t1 == null || t2 == null || t3 == null) return;
+
+        // 집는 방향은 **재서 쓴다.** 쉬는 자세에서 엄지 끝과 검지 끝이
+        // 마주 보는 방향이 곧 이 손이 집는 방향이다. 적어 두면 모델이
+        // 바뀔 때 어긋난다.
+        Vector3 u = Vector3.ProjectOnPlane(i3.position - t3.position, cax);
+        if (u.sqrMagnitude < 1e-10f) u = i3.position - t3.position;
+        if (u.sqrMagnitude < 1e-10f) return;
+        u = u.normalized;
+
+        DigitTo(i1, i2, i3, point + u * r,  u, 55f);
+        DigitTo(t1, t2, t3, point - u * r, -u, 35f);
+    }
+
 
     /// <summary>
     /// 집게손. 검지와 엄지만 모으고 나머지 셋은 손바닥에 접는다.
@@ -4067,6 +4138,48 @@ public class MirrorRig : MonoBehaviour
             return (l.palm.position + l.tip.position) * 0.5f;
         return l.wrist != null ? l.wrist.position : Vector3.zero;
     }
+    /// <summary>
+    /// 집게손이 음식을 실제로 쥐고 있는지 잰다. 손가락 끝이 음식 표면에서
+    /// 얼마나 떨어져 있는지가 요점이다 — 벌어진 폭은 FoodSpec 의 curl/
+    /// thumb/fold 세 각이 정하는데, 그게 음식 크기와 따로 논다.
+    /// </summary>
+    public string DumpFoodGrip()
+    {
+        if (food == null || selfArm == null || !selfArm.Valid)
+            return "[FoodGrip] 음식이나 손이 없다";
+        Limb l = selfArm;
+        if (l.fingers == null || l.fingers.Length < 15
+            || l.fingers[2] == null || l.fingers[14] == null)
+            return "[FoodGrip] 손가락이 없다";
+
+        FoodSpec fs = SpecOf(foodKind);
+        Vector3 c = food.transform.position;
+        Vector3 ti = l.fingers[2].position, tt = l.fingers[14].position;
+        Vector3 mid = (ti + tt) * 0.5f;
+
+        // 음식 반지름. 도구 자루를 잴 때 쓴 것과 같은 수다.
+        Vector3 ax = toolRoot != null ? toolRoot.forward : Vector3.forward;
+        float r = ToolRadius(food.transform, c, ax, 10f);
+
+        float di = Vector3.Distance(ti, c), dt = Vector3.Distance(tt, c);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("[FoodGrip] " + fs.label
+            + "  크기 " + fs.size.ToString("F3")
+            + "  잰 반지름 " + r.ToString("F4"));
+        sb.AppendLine("  검지끝→중심 " + di.ToString("F4")
+            + "   엄지끝→중심 " + dt.ToString("F4")
+            + "   벌어진 폭 " + Vector3.Distance(ti, tt).ToString("F4"));
+        sb.AppendLine("  표면에서: 검지 " + (di - r).ToString("F4")
+            + "   엄지 " + (dt - r).ToString("F4") + "   (양수 = 떠 있다)");
+        sb.Append("  쥔 자리→중심 " + Vector3.Distance(mid, c).ToString("F4")
+            + "   각 curl/thumb/fold "
+            + fs.curl.ToString("F0") + "/" + fs.thumb.ToString("F0")
+            + "/" + fs.fold.ToString("F0"));
+        return sb.ToString();
+    }
+
+
 
     /// <summary>손이 도구를 어떻게 쥐고 있는지 도구 기준으로 찍는다 (GripProbe).</summary>
     public string DumpGrip()
@@ -5775,7 +5888,12 @@ public class MirrorRig : MonoBehaviour
                 Vector3 hold = food.transform.position - toolRoot.up * fs.grip;
                 GripAround(selfArm, hold,
                            toolRoot.forward, toolRoot.up, 0f,
-                           fs.curl, fs.thumb, fs.fold, 0f,   // 집게손은 앉힐 것이 없다
+                           fs.curl, fs.thumb, fs.fold,
+                           // 쥘 반지름을 **잰다.** 자루 굵기를 재는 것과 같은 수다
+                           // (ToolRadius). 음식 크기를 바꾸면 손이 따라온다 —
+                           // 전에는 음식마다 손가락 각을 손으로 다시 맞춰 적었다.
+                           ToolRadius(food.transform, food.transform.position,
+                                      toolRoot.forward, 10f),
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();
