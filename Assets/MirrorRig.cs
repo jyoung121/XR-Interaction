@@ -276,6 +276,23 @@ public class MirrorRig : MonoBehaviour
     // 사람의 **실물 쪽**이다.
     private Actor nearDentist;
     private GameObject nearDrill;     // 그 사람이 쥔 진짜 드릴
+
+    /// <summary>도구를 쥐는 자리 (도구 로컬). 손 모형과 팔 IK 가 **같은
+    /// 값**을 써야 한다 — 따로 적어 두면 한쪽만 고쳤을 때 손이 자루에서
+    /// 떨어진 채로 남는다. 실제로 y 를 0.008 로 잘못 둬서 손이 자루 밑
+    /// 16 mm 에 떠 있었다.</summary>
+    private static Vector3 GripOn(bool brush)
+    {
+        return brush ? new Vector3(0f, -0.008f, -0.115f)
+                     : new Vector3(0f, 0.024f, -0.091f);
+    }
+
+    /// <summary>쥘 때 손이 도구로 들어오는 축 (도구 로컬).</summary>
+    private static Vector3 GripAxisOn(bool brush)
+    {
+        return brush ? new Vector3(0f, 0f, -1f)
+                     : new Vector3(0f, 0.34f, -0.94f);
+    }
     private GameObject nearBrush;     // 전동칫솔 조건에서 쥐는 것
     private GameObject handpiece;     // 치과 드릴 (거울 속)
     private GameObject toothbrush;    // 칫솔 (조건 이름은 전동칫솔)
@@ -1313,6 +1330,64 @@ public class MirrorRig : MonoBehaviour
         Both(r, PrimitiveType.Cylinder, cloth,
              new Vector3(0.22f, tableTop + 0.055f, D - 0.30f), Vector3.zero,
              new Vector3(0.075f, 0.055f, 0.075f), "Cup");
+
+        // 천장에 매단 등. 전에는 **빛만** 있고 물건이 없어서, 천장에
+        // 흰 웅덩이 하나가 떠 있고 화면 위 1/4 이 통째로 비었다.
+        // 치과 천장을 채운 것과 같은 이유다 — 빛이 어디서 오는지
+        // 보이지 않으면 방이 아니라 배경이 된다.
+        //
+        // 자리는 아래 Lamp 와 같아야 한다. 갓이 빛보다 위에 있으면
+        // 갓 안쪽이 안 밝아서 종이등으로 안 보인다.
+        Vector3 lampAt = new Vector3(-0.40f, CeilUp - 0.50f, -0.55f);
+        Material shade = ToolModels.MakeMaterial(new Color(0.93f, 0.88f, 0.76f), 0f, 0.05f);
+        Material cord  = ToolModels.MakeMaterial(new Color(0.18f, 0.16f, 0.14f), 0f, 0.20f);
+
+        Both(r, PrimitiveType.Cylinder, cord,
+             new Vector3(lampAt.x, (CeilUp + lampAt.y + 0.07f) * 0.5f, lampAt.z),
+             Vector3.zero,
+             new Vector3(0.008f, (CeilUp - lampAt.y - 0.07f) * 0.5f, 0.008f), "LampCord");
+        Both(r, PrimitiveType.Cylinder, shade,
+             new Vector3(lampAt.x, lampAt.y + 0.02f, lampAt.z), Vector3.zero,
+             new Vector3(0.32f, 0.075f, 0.32f), "LampShade");
+        // 갓 아래로 비치는 면. 흰 원판이 아니라 **스스로 빛나야** 한다 —
+        // 이 방에는 반사 프로브가 없어서 매끈한 흰 면은 까맣게 뜬다
+        // (눈 빛점에서 같은 일을 겪었다).
+        Both(r, PrimitiveType.Cylinder, ToolModels.MakeGlow(new Color(1f, 0.94f, 0.80f)),
+             new Vector3(lampAt.x, lampAt.y - 0.054f, lampAt.z), Vector3.zero,
+             new Vector3(0.30f, 0.004f, 0.30f), "LampGlow");
+
+        // 벽시계. 집이라는 걸 알려 주는 물건 중 문 다음으로 싼 것이다.
+        //
+        // 처음엔 x = -0.42 에 뒀는데 매단 등(x = -0.40)과 겹쳐서
+        // 시계가 갓 뒤에 반쯤 숨었다. 액자 위쪽 빈 벽으로 옮긴다.
+        Material clockRim = ToolModels.MakeMaterial(new Color(0.22f, 0.20f, 0.18f), 0f, 0.20f);
+        Material clockFace = ToolModels.MakeMaterial(new Color(0.94f, 0.93f, 0.90f), 0f, 0.05f);
+        Vector3 clockAt = new Vector3(0.98f, 0.44f, BackWall + 0.02f);
+        // 기본 Cylinder 의 축은 Y 다. 벽을 보게 눕힌다.
+        Both(r, PrimitiveType.Cylinder, clockRim, clockAt, new Vector3(90f, 0f, 0f),
+             new Vector3(0.32f, 0.018f, 0.32f), "Clock");
+        Both(r, PrimitiveType.Cylinder, clockFace,
+             clockAt + new Vector3(0f, 0f, 0.019f), new Vector3(90f, 0f, 0f),
+             new Vector3(0.28f, 0.006f, 0.28f), "ClockFace");
+        // 바늘 둘. 10시 10분 — 시계 광고가 늘 이 시각인 데는 이유가
+        // 있다. 두 바늘이 겹치지 않아 멀리서도 시계로 읽힌다.
+        Both(r, PrimitiveType.Cube, clockRim,
+             clockAt + new Vector3(-0.025f, 0.022f, 0.026f), new Vector3(0f, 0f, 36f),
+             new Vector3(0.012f, 0.075f, 0.006f), "ClockHandH");
+        Both(r, PrimitiveType.Cube, clockRim,
+             clockAt + new Vector3(0.030f, 0.030f, 0.026f), new Vector3(0f, 0f, -42f),
+             new Vector3(0.010f, 0.098f, 0.006f), "ClockHandM");
+
+        // 천장 몰딩. 벽과 천장이 맞닿는 선 하나로 방에 모서리가 생긴다
+        // (걸레받이와 같은 이유 — 아래 RoomShell 참고).
+        Material trim = ToolModels.MakeMaterial(new Color(0.88f, 0.85f, 0.80f), 0f, 0.08f);
+        BothBox(r, trim, new Vector3(0f, CeilUp - 0.035f, BackWall + 0.03f),
+                new Vector3(RoomHalfW * 2f, 0.07f, 0.04f), "Crown");
+        for (int s2 = -1; s2 <= 1; s2 += 2)
+            BothBox(r, trim,
+                    new Vector3(s2 * (RoomHalfW - 0.02f), CeilUp - 0.035f,
+                                D - RoomDepth * 0.5f),
+                    new Vector3(0.04f, 0.07f, RoomDepth), "CrownSide" + s2);
 
         // 집은 등이 하나뿐이고 따뜻하다. 치과보다 어둑해야 집처럼 보인다.
         //
@@ -3956,6 +4031,26 @@ public class MirrorRig : MonoBehaviour
         toothbrush.transform.SetParent(toolRoot, false);
         toothbrush.SetActive(false);
 
+        // 거울 속 도구에는 **손을 안 붙인다.** 붙여 봤고, 안 된다.
+        // 거울 속에 사람을 세우면 5배(DentalZoom)로 커져 입을 통째로
+        // 가린다. 그래서 치과 블록 내내 참가자는 손 없이 떠 있는 도구를
+        // 본다. 사람 대신 손만 만들어 도구에 매달아 봤는데, 세 자리를
+        // 다 재 보니 쓸 수 있는 자리가 없었다.
+        //
+        // 거울 구멍은 반지름 0.185 짜리 창이고(SpecFor 의 radius) 그
+        // 안의 장면이 5배다. 입 가로폭 4.4 cm 가 창을 거의 채우므로,
+        // 창 테두리는 입에서 7.7 cm 쯤이다. 손은 18 cm 짜리 덩어리다.
+        //
+        //   자루 한가운데(-0.091) — 창 밖. 드릴만 그대로 떠 있다.
+        //   끝 쪽(-0.055)        — 손바닥이 입을 덮는다.
+        //   그 사이(-0.076)      — 반만 들어와 손가락이 안 보이고,
+        //                          손등이 흰 판때기 하나로 읽힌다.
+        //
+        // 팔뚝까지 붙였을 때는 더 심했다 — 22 cm 짜리 원통이 창을
+        // 가로지르는 흰 띠가 됐다. 손가락이 읽히려면 창이 손보다 커야
+        // 하는데, 그러려면 배율을 내려야 하고 그러면 정작 봐야 할
+        // "드릴이 이를 가는 그림"이 작아진다. 둘 다는 안 된다.
+
         // 음식은 다섯 가지를 미리 지어 두고 켜고 끈다. 값은 모두 표에
         // 있다(FoodSpecs). 다 짓고 켜 두지 않는 쪽이 매번 짓는 것보다
         // 싸다 — 한 입에 한 번씩 모델을 찍어 내면 거울 속 상까지 두 배다.
@@ -4683,11 +4778,7 @@ public class MirrorRig : MonoBehaviour
             // 않는다. 받아온 모델로 바꾸며 11.8 → 19 cm 가 됐으므로
             // 잡는 자리도 같은 비율(손잡이의 60 % 쯤)로 물려 뒀다.
             HoldTool(dentist.reach, tool.transform,
-                     brush ? new Vector3(0f, -0.008f, -0.115f)
-                           : new Vector3(0f, 0.008f, -0.090f),
-                     brush ? new Vector3(0f, 0f, -1f)
-                           : new Vector3(0f, 0.10f, -0.99f),
-                     ElbowPole(dentist));
+                     GripOn(brush), GripAxisOn(brush), ElbowPole(dentist));
         }
 
         if (nearDentist != null)
@@ -4736,11 +4827,7 @@ public class MirrorRig : MonoBehaviour
                 // 그걸 못 봤을 뿐이다.
                 bool br = near == nearBrush;
                 HoldTool(nearDentist.reach, near.transform,
-                         br ? new Vector3(0f, -0.008f, -0.115f)
-                            : new Vector3(0f, 0.024f, -0.091f),
-                         br ? new Vector3(0f, 0f, -1f)
-                            : new Vector3(0f, 0.34f, -0.94f),
-                         ElbowPole(nearDentist));
+                         GripOn(br), GripAxisOn(br), ElbowPole(nearDentist));
             }
             else
             {
