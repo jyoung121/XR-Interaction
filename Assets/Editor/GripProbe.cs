@@ -19,7 +19,11 @@ public static class GripProbe
 
         rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
         rig.StepForPreview(1.8f);
-        Debug.Log(rig.DumpGrip());
+        Debug.Log("=== 드릴 ===\n" + rig.DumpGrip());
+
+        rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Brush);
+        rig.StepForPreview(1.8f);
+        Debug.Log("=== 칫솔 ===\n" + rig.DumpGrip());
 
         if (sun != null) sun.SetActive(true);
     }

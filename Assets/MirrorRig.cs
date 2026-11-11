@@ -326,8 +326,6 @@ public class MirrorRig : MonoBehaviour
     // 눈꺼풀 두 짝 (0 = 왼쪽, x<0). 모델에 눈 뼈도 블렌드셰이프도 없어서
     // 눈 앞면을 떠다 살색으로 덮어 만들었다 — BuildEyes 참고.
     private readonly Transform[] eyeLid = new Transform[2];
-    // 홍채와 빛점. 눈꺼풀보다 **앞**에 있어서 감을 때 따로 꺼야 한다.
-    private readonly Transform[] eyeFront = new Transform[2];
     // 깜빡임 시계. elapsed 와 따로 가는 이유는, 아무 상황도 안 켠 거울
     // 앞에서도 사람은 눈을 깜빡여야 하기 때문이다. elapsed 는 상황이
     // 켜져 있는 동안만 흐른다.
@@ -1913,10 +1911,9 @@ public class MirrorRig : MonoBehaviour
 
         int[] tri = src.GetTriangles(eyeSub);
         Material lidMat = ToolModels.MakeMaterial(skin, 0f, 0.12f);
-        Material glintMat = ToolModels.MakeGlow(new Color(0.95f, 0.97f, 1f));
 
         for (int side = 0; side < 2; side++)
-            eyeLid[side] = OneLid(side == 0, P, tri, lidMat, glintMat);
+            eyeLid[side] = OneLid(side == 0, P, tri, lidMat);
 
         BuildFlex(head, P, SubMeshNamed("Eyebrows"));
 
@@ -1927,8 +1924,7 @@ public class MirrorRig : MonoBehaviour
     }
 
     /// <summary>한쪽 눈꺼풀. 앞을 보는 삼각형만 쓴다.</summary>
-    private Transform OneLid(bool left, Vector3[] P, int[] tri,
-                             Material lidMat, Material glintMat)
+    private Transform OneLid(bool left, Vector3[] P, int[] tri, Material lidMat)
     {
         var keep = new System.Collections.Generic.List<int>();
         for (int i = 0; i < tri.Length; i += 3)
@@ -1946,8 +1942,7 @@ public class MirrorRig : MonoBehaviour
 
         // 쓸 꼭짓점의 한가운데와 맨 위. 축을 맨 위에 둬야 위에서 내려온다.
         Vector3 c0 = Vector3.zero;
-        float topY = -1e9f, frontZ = -1e9f;
-        float loX = 1e9f, hiX = -1e9f, loY = 1e9f, backZ = 1e9f;
+        float topY = -1e9f;
         int n = 0;
         foreach (int i in keep)
             for (int k = 0; k < 3; k++)
@@ -1955,39 +1950,8 @@ public class MirrorRig : MonoBehaviour
                 Vector3 v = P[tri[i + k]];
                 c0 += v; n++;
                 if (v.y > topY) topY = v.y;
-                if (v.z > frontZ) frontZ = v.z;
-                if (v.z < backZ) backZ = v.z;
-                if (v.x < loX) loX = v.x;
-                if (v.x > hiX) hiX = v.x;
-                if (v.y < loY) loY = v.y;
             }
         c0 /= n;
-
-        // 눈의 반지름. 흰자와 홍채를 여기에 맞춘다 — 숫자로 박아 두면
-        // 모델을 바꿨을 때 눈 밖으로 삐져나온다.
-        float halfW = Mathf.Max(0.001f, (hiX - loX) * 0.5f);
-        float halfH = Mathf.Max(0.001f, (topY - loY) * 0.5f);
-
-        // 눈알은 **공의 한 조각**이라 가장자리가 가운데보다 뒤에 있다
-        // (여기서 frontZ - backZ = 그 깊이). 이걸 모르면 눈알 앞에
-        // 덧대는 것이 전부 어긋난다 — 납작한 흰 판을 얹었더니 가운데만
-        // 덮이고 가장자리가 눈꺼풀을 뚫고 나와서, 감은 눈이 뜬 눈과
-        // 똑같이 찍혔다.
-        //
-        // 흰자는 눈꺼풀과 **같은 껍질**이라 깊이 걱정이 없다. 문제는
-        // 홍채와 빛점이다 — 작고 동그래야 해서 껍질을 못 뜨고 납작한
-        // 판으로 둘 수밖에 없는데, 1.5 mm 안에 끼워 넣으려다 세 번
-        // 틀렸다.
-        //
-        //   포물면으로 어림  → 이 눈은 공이 아니라 각진 덩어리라
-        //                      어림이 더 깊게 나와 홍채가 흰자 속으로
-        //                      가라앉았다
-        //   눈꺼풀 꼭짓점을  → 저해상도라 홍채 반지름 안에 꼭짓점이
-        //   훑어서 재기         하나도 없어 늘 최대값으로 떨어졌다
-        //
-        // 깊이로 가리려는 걸 그만둔다. 감을 때 **그냥 끈다.** 깜빡임은
-        // 0.22 초라 켜고 끄는 게 눈에 띄지 않고, 어떤 모델을 붙여도
-        // 틀릴 데가 없다.
 
         // 경첩은 눈 **맨 위**다. 눈꺼풀은 위에서 내려오는 것이니
         // 축도 위에 있어야 한다. 아래에 두면 눈이 밑에서 차오른다.
@@ -2004,63 +1968,20 @@ public class MirrorRig : MonoBehaviour
                                   lidMat, lidName + "_Mesh");
         if (go != null) go.transform.SetParent(pivot.transform, false);
 
-        // 흰자. **이게 없으면 눈이 눈이 아니다.**
+        // 흰자·홍채·빛점은 지었다가 **도로 뺐다.**
         //
         // 이 모델의 눈 서브메시는 통째로 거의 까맣다(재질 밝기 0.19).
-        // 그래서 얼굴을 찍어 보면 눈썹 막대 밑에 까만 네모가 하나
-        // 붙은 모양이라, 눈을 뜨고 있어도 노려보는 만화가 된다
-        // (eyes_open.png 에서 그렇게 나왔다).
+        // 그래서 눈을 뜨고 있어도 눈썹 막대 밑에 까만 네모가 붙은
+        // 모양이고, 그걸 고치려고 눈꺼풀과 같은 껍질로 흰자를 깔고
+        // 그 앞에 납작한 공으로 홍채와 빛점을 얹었다. 감을 때는 앞엣
+        // 것만 껐다 (깊이로 가리려다 세 번 틀려서).
         //
-        // 눈꺼풀과 **같은 껍질을 한 겹 더** 뜬다. 납작한 판을 얹어
-        // 봤는데, 눈알은 공의 한 조각이라 판이 가장자리에서 눈꺼풀을
-        // 뚫고 나왔다 — 감은 눈이 뜬 눈과 똑같이 찍혔다. 같은 껍질을
-        // 쓰면 어디서나 눈꺼풀보다 꼭 1 mm 뒤라 그럴 수가 없다.
-        GameObject white = ShellCopy(keep, tri, P, 1.12f, 0.0005f, c0, Vector3.zero,
-                                     ToolModels.MakeMaterial(
-                                         new Color(0.93f, 0.93f, 0.91f), 0f, 0.22f),
-                                     left ? "EyeWhite.L" : "EyeWhite.R");
-        if (white != null) white.transform.SetParent(headPivot, false);
-
-        // 홍채. 0.78 로 뒀더니 흰자를 거의 다 덮어서 눈 속이 도로
-        // 까맸다 — 흰자를 깐 보람이 없었다. 흰자가 홍채 좌우로 보여야
-        // 눈을 "뜨고 있다"로 읽는다.
+        // 지어 놓고 보니 **검은 눈 쪽이 낫다.** 이 사람은 면이 성긴
+        // 저폴리곤이라, 눈만 사실적이면 거기만 따로 놀고 얼굴과 안
+        // 붙는다. 들인 공이 아까워서 남겨 둘 이유는 없다.
         //
-        // 홍채. 눈을 감으면 통째로 꺼지는 가지에 매단다 (UpdateFace).
-        //
-        // 세로 한가운데는 c0.y 가 아니라 **네모의 가운데**다. c0 는
-        // 삼각형이 몰린 쪽으로 끌려가는데 이 눈은 위쪽이 촘촘해서,
-        // c0 에 뒀더니 홍채가 눈썹에 붙어 치뜬 눈이 됐다.
-        //
-        // 거기서 한 번 더 내린다. 눈알 윗부분이 눈썹 막대 뒤로 들어가
-        // 있어서, **보이는** 흰자의 한가운데는 네모의 한가운데보다
-        // 아래다 — 네모 가운데에 뒀을 때도 아직 치떠 보였다.
-        float irisR = Mathf.Min(halfW, halfH) * 0.50f;
-        float midY = (topY + loY) * 0.5f - halfH * 0.20f;
-
-        GameObject front = new GameObject(left ? "EyeFront.L" : "EyeFront.R");
-        front.transform.SetParent(headPivot, false);
-        eyeFront[left ? 0 : 1] = front.transform;
-
-        Prim(front.transform, PrimitiveType.Sphere,
-             ToolModels.MakeMaterial(new Color(0.20f, 0.15f, 0.11f), 0f, 0.45f),
-             new Vector3(c0.x, midY, frontZ + 0.0011f), Quaternion.identity,
-             new Vector3(irisR * 2f, irisR * 2f, 0.0004f),
-             left ? "EyeIris.L" : "EyeIris.R");
-
-        // 눈에 빛점 하나. 이게 없으면 까만 구슬이라 눈이 죽어 보인다.
-        // 공으로 만든다. 쿼드로 했더니 아무것도 안 보였는데, 유니티
-        // 기본 Quad 는 제 -Z 를 보고 있어서 얼굴 쪽으로 돌아앉아 있었다.
-        // 공은 어느 쪽을 봐도 같아서 그 실수를 할 수가 없다.
-        //
-        // 자리는 **홍채 기준**이다. 전에는 눈 한가운데서 3 mm 였는데,
-        // 흰자를 깔고 나니 그 자리가 흰자 위라 빛점이 안 보였다.
-        float glintR = irisR * 0.34f;
-        Prim(front.transform, PrimitiveType.Sphere, glintMat,
-             new Vector3(c0.x - Mathf.Sign(c0.x) * glintR,
-                         midY + glintR, frontZ + 0.0013f),
-             Quaternion.identity,
-             new Vector3(irisR * 0.46f, irisR * 0.46f, 0.0004f),
-             left ? "EyeGlint.L" : "EyeGlint.R");
+        // 지웠지만 없앤 건 아니다 — 커밋 f7ae63c 에 통째로 있다.
+        // 다시 쓸 일이 있으면 거기서 꺼내 오면 된다.
 
         return pivot.transform;
     }
@@ -2307,13 +2228,6 @@ public class MirrorRig : MonoBehaviour
                              BlinkAt(faceTime, current == Scenario.Dental));
         for (int i = 0; i < 2; i++)
             if (eyeLid[i] != null) eyeLid[i].localScale = new Vector3(1f, y, 1f);
-
-        // 홍채와 빛점은 눈꺼풀 앞에 떠 있으므로 반 넘게 감기면 끈다.
-        // 깊이로 가리려다 세 번 틀렸다 — OneLid 의 긴 주석 참고.
-        bool show = y < 0.55f;
-        for (int i = 0; i < 2; i++)
-            if (eyeFront[i] != null && eyeFront[i].gameObject.activeSelf != show)
-                eyeFront[i].gameObject.SetActive(show);
 
         // 눈썹은 **도구가 닿아 있는 동안** 찡그린다. 기계가 이를 갈고
         // 있는데 표정이 그대로면 그 얼굴이 내 얼굴로 안 읽힌다.
