@@ -417,6 +417,22 @@ public static class ToolPreview
         rig.StepForPreview(3.0f);
         ShootFrom(eye, viewerGo.transform.rotation, "mirror_turned.png", 75f);
 
+        // 집 쪽 좌우. 재 보니 여기가 치과보다 더 비어 있었다
+        // (RoomProbe: 왼쪽 끝 옆벽 40.0 %, 오른쪽 끝 38.5 %).
+        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Apple);
+        viewerGo.transform.rotation = Quaternion.Euler(0f, -60f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "home_left.png", 75f);
+
+        viewerGo.transform.rotation = Quaternion.Euler(0f, 60f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "home_right.png", 75f);
+
+        viewerGo.transform.rotation = Quaternion.Euler(28f, -10f, 0f);
+        rig.StepForPreview(2.4f);
+        ShootFrom(eye, viewerGo.transform.rotation, "home_down.png", 75f);
+
+
         // 옆에 선 치과의. 거울이 아니라 **왼쪽**을 봐야 보인다 —
         // 핸드피스가 -X 에서 들어오니 사람도 그쪽에 선다.
         viewerGo.transform.rotation = Quaternion.Euler(-8f, -42f, 0f);
@@ -429,7 +445,7 @@ public static class ToolPreview
         rig.StepForPreview(2.4f);
         ShootFrom(eye, viewerGo.transform.rotation, "dental_doctor_up.png", 85f);
 
-        // 환자 오른쪽. 재 보니 여기가 아무것도 없던 쪽이다 (ClinicProbe:
+        // 환자 오른쪽. 재 보니 여기가 아무것도 없던 쪽이다 (RoomProbe:
         // 오른쪽 끝에서 민무늬 옆벽 하나가 화면의 43 %였다).
         viewerGo.transform.rotation = Quaternion.Euler(-8f, 42f, 0f);
         rig.StepForPreview(2.4f);

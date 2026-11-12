@@ -5,14 +5,14 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 
 /// <summary>
-/// 치과 방이 **화면의 몇 %를 뭘로 채우고 있는지** 잰다. 눈으로 보고
+/// 방이 **화면의 몇 %를 뭘로 채우고 있는지** 잰다. 눈으로 보고
 /// "휑하다" 고 말하기는 쉬운데, 그러면 어디에 뭘 놓아야 하는지가 안 나온다.
 /// 참가자 눈에서 격자로 광선을 쏴서 맞은 물건 이름과 거리를 모은다.
 ///
 /// 배치모드 실행:
-///   Unity.exe -batchmode -quit -projectPath &lt;proj&gt; -executeMethod ClinicProbe.Dump
+///   Unity.exe -batchmode -quit -projectPath &lt;proj&gt; -executeMethod RoomProbe.Dump
 /// </summary>
-public static class ClinicProbe
+public static class RoomProbe
 {
     private const int GX = 60;
     private const int GY = 40;
@@ -27,13 +27,16 @@ public static class ClinicProbe
         viewerGo.transform.SetPositionAndRotation(new Vector3(0f, 1.15f, 0f),
                                                   Quaternion.identity);
         MirrorRig rig = MirrorRig.Create(viewerGo.transform);
-        if (rig == null) { Debug.LogError("[ClinicProbe] 리그 없음"); return; }
+        if (rig == null) { Debug.LogError("[RoomProbe] 리그 없음"); return; }
 
+        // 충돌체는 **한 번만** 붙인다. 꺼진 방의 메시에도 같이 붙여
+        // 두면 그 방을 켤 때 그대로 쓸 수 있다 (꺼진 것은 광선에
+        // 안 걸린다).
         rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
         rig.StepForPreview(1.8f);
-
         Collide(rig.transform);
 
+        Debug.Log("[RoomProbe] ════ 치과 ════");
         Shot(rig, "올려다봄 (거울)", new Vector3(-35f, 0f, 0f));
         Shot(rig, "정면",            new Vector3(  0f, 0f, 0f));
         Shot(rig, "턱 당김",         new Vector3( 15f, 0f, 0f));
@@ -42,7 +45,23 @@ public static class ClinicProbe
         Shot(rig, "오른쪽 끝",       new Vector3(  0f,  70f, 0f));
         Shot(rig, "왼쪽 끝",         new Vector3(  0f, -70f, 0f));
 
-        Debug.Log("[ClinicProbe] 끝");
+        // 음식 쪽도 같은 자로 잰다. 치과만 두 번 채우고 이쪽은
+        // 안 재면, 두 상황의 실재감 차이가 진동이 아니라 방에서
+        // 날 수 있다 — 이 실험이 묻는 것이 바로 그 차이다.
+        rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Apple);
+        rig.StepForPreview(2.4f);
+
+        Debug.Log("[RoomProbe] ════ 집 (음식) ════");
+        Shot(rig, "올려다봄",   new Vector3(-30f,   0f, 0f));
+        Shot(rig, "정면",       new Vector3(  0f,   0f, 0f));
+        Shot(rig, "상 내려다봄", new Vector3( 25f,   0f, 0f));
+        Shot(rig, "접시",       new Vector3( 30f, -14f, 0f));
+        Shot(rig, "왼쪽",       new Vector3(  0f, -45f, 0f));
+        Shot(rig, "왼쪽 끝",    new Vector3(  0f, -75f, 0f));
+        Shot(rig, "오른쪽",     new Vector3(  0f,  45f, 0f));
+        Shot(rig, "오른쪽 끝",  new Vector3(  0f,  75f, 0f));
+
+        Debug.Log("[RoomProbe] 끝");
     }
 
     /// <summary>
@@ -75,7 +94,7 @@ public static class ClinicProbe
             mc.convex = false;
         }
         int skin = root.GetComponentsInChildren<SkinnedMeshRenderer>(true).Length;
-        Debug.Log("[ClinicProbe] 사람은 안 센다 — 스킨 메시 " + skin + " 개를 뺐다."
+        Debug.Log("[RoomProbe] 사람은 안 센다 — 스킨 메시 " + skin + " 개를 뺐다."
                   + " 아래 벽 비율은 사람이 가리기 전의 값이다.");
     }
 
@@ -126,7 +145,7 @@ public static class ClinicProbe
         keys.Sort((a, b) => area[b].CompareTo(area[a]));
 
         var sb = new StringBuilder();
-        sb.AppendLine("[ClinicProbe] ── " + title + " ──");
+        sb.AppendLine("[RoomProbe] ── " + title + " ──");
         sb.AppendLine(string.Format("  빈 화면 {0:0.0}%   평균 거리 {1:0.00} m   {2:0.00}~{3:0.00} m",
                                     100f * miss / total,
                                     sum / Mathf.Max(1, total - miss), near, far));
@@ -147,7 +166,7 @@ public static class ClinicProbe
         foreach (string k in keys)
             if (ai < Alpha.Length) mark[k] = Alpha[ai++];
         var map = new StringBuilder();
-        map.AppendLine("[ClinicProbe] 자리 — " + title);
+        map.AppendLine("[RoomProbe] 자리 — " + title);
         for (int iy = GY - 1; iy >= 0; iy -= 2)
         {
             map.Append("  ");

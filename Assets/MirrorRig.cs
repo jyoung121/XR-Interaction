@@ -892,7 +892,7 @@ public class MirrorRig : MonoBehaviour
         const float Clear = 0.40f;     // 치료등과 손잡이가 차지하는 반지름
         // 눈금을 깔 범위. **1.00 m 로 잘라 두고 있었다** — 정면만 보고 고른
         // 값이다. 눈에서 격자로 광선을 쏴 화면을 뭐가 채우는지 재 보니
-        // (ClinicProbe) 어느 쪽을 보든 민무늬 거울 벽이 22~33 % 였고,
+        // (RoomProbe) 어느 쪽을 보든 민무늬 거울 벽이 22~33 % 였고,
         // 오른쪽으로 70도 돌리면 눈금이 안 깔린 바깥쪽만 보였다. 누운
         // 사람은 고개를 돌린다. 벽 끝까지 깐다 — 줄 열여섯 개가 는다.
         // 바깥 36 cm 는 단차(Bulkhead)가 덮으므로 눈금은 거기까지만.
@@ -1613,6 +1613,174 @@ public class MirrorRig : MonoBehaviour
              clockAt + new Vector3(0.030f, 0.030f, 0.026f), new Vector3(0f, 0f, -42f),
              new Vector3(0.010f, 0.098f, 0.006f), "ClockHandM");
 
+        // ── 이 방도 **옆이 통째로 비어 있었다** ──
+        //
+        // 치과를 두 번 채우고 나서 같은 자를 이 방에 댔다 (RoomProbe 에
+        // 음식 쪽 여덟 시야를 넣었다). 결과가 치과보다 나빴다:
+        //
+        //   왼쪽 끝   옆벽 40.0 %      오른쪽 끝  옆벽 38.5 %
+        //   왼쪽      옆벽 22.7 %      오른쪽     옆벽 21.0 %
+        //   접시      마루 20.8 %      상        마루 15.5 %
+        //
+        // 치과는 한쪽만 비었는데 여기는 **양쪽 다** 비었다. 당연했다 —
+        // 문·액자·화분·시계가 전부 뒷벽이고, 서랍장 하나를 빼면 옆벽에는
+        // 아무것도 없다. 걸레받이조차 없었다. 거울에 비치는 것만 꾸며
+        // 왔으니 거울에 안 비치는 데가 빌 수밖에 없다.
+        //
+        // 상판이 정면의 30.6 % 인 것은 **고치지 않는다.** 상에 앉아 상
+        // 위의 것을 집어 먹는 그림이니 눈앞이 상인 게 맞다.
+
+        Material cream  = ToolModels.MakeMaterial(new Color(0.84f, 0.80f, 0.73f), 0f, 0.08f);
+        Material trimLo = ToolModels.MakeMaterial(new Color(0.62f, 0.56f, 0.47f), 0f, 0.12f);
+
+        // 걸레받이와 허리 몰딩. 선 둘이면 벽 한 장이 세 켜가 된다.
+        // 천장 몰딩(Crown)이 이미 위를 끊고 있으니 아래와 가운데를 맞춘다.
+        BothBox(r, trimLo, new Vector3(0f, -eyeHeight + 0.07f, BackWall + 0.01f),
+                new Vector3(RoomHalfW * 2f, 0.14f, 0.02f), "Base");
+        for (int s2 = -1; s2 <= 1; s2 += 2)
+        {
+            BothBox(r, trimLo,
+                    new Vector3(s2 * (RoomHalfW - 0.01f), -eyeHeight + 0.07f,
+                                D - RoomDepth * 0.5f),
+                    new Vector3(0.02f, 0.14f, RoomDepth), "BaseSide" + s2);
+            BothBox(r, trimLo,
+                    new Vector3(s2 * (RoomHalfW - 0.015f), -eyeHeight + 0.86f,
+                                D - RoomDepth * 0.5f),
+                    new Vector3(0.03f, 0.05f, RoomDepth), "Rail" + s2);
+        }
+
+        // ── 왼쪽 벽: 창 ──
+        //
+        // 치과에도 창을 냈지만 여기 것에는 커튼이 달린다. 천 한 쪽이
+        // 들어가면 진료실이 아니라 집이 된다 — 거기에 블라인드를 단 것과
+        // 같은 이유로, 반대 방향이다.
+        Material glass = ToolModels.MakeMaterial(new Color(0.70f, 0.78f, 0.84f), 0.2f, 0.55f);
+        float winY = -eyeHeight + 1.32f;
+        float winZ = D - 1.15f;
+        BothBox(r, glass, new Vector3(-(RoomHalfW - 0.02f), winY, winZ),
+                new Vector3(0.03f, 0.88f, 1.00f), "WinGlass");
+        for (int i = 0; i < 2; i++)
+        {
+            BothBox(r, cream, new Vector3(-(RoomHalfW - 0.05f), winY + (i * 2 - 1) * 0.47f, winZ),
+                    new Vector3(0.09f, 0.07f, 1.14f), "WinFrameH" + i);
+            BothBox(r, cream, new Vector3(-(RoomHalfW - 0.05f), winY, winZ + (i * 2 - 1) * 0.535f),
+                    new Vector3(0.09f, 1.01f, 0.07f), "WinFrameV" + i);
+        }
+        BothBox(r, cream, new Vector3(-(RoomHalfW - 0.045f), winY, winZ),
+                new Vector3(0.07f, 0.88f, 0.05f), "WinMullion");
+        BothBox(r, cream, new Vector3(-(RoomHalfW - 0.09f), winY - 0.52f, winZ),
+                new Vector3(0.18f, 0.05f, 1.14f), "WinSill");
+        // 커튼 둘과 봉.
+        BothBox(r, wood, new Vector3(-(RoomHalfW - 0.14f), winY + 0.56f, winZ),
+                new Vector3(0.035f, 0.035f, 1.32f), "CurtainRod");
+        for (int i = 0; i < 2; i++)
+            BothBox(r, cloth,
+                    new Vector3(-(RoomHalfW - 0.13f), winY - 0.02f, winZ + (i * 2 - 1) * 0.56f),
+                    new Vector3(0.05f, 1.12f, 0.26f), "Curtain" + i);
+
+        // 벽등 하나. 창 앞쪽, 앉은 눈보다 조금 위.
+        BothBox(r, wood, new Vector3(-(RoomHalfW - 0.04f), -eyeHeight + 1.30f, D - 0.30f),
+                new Vector3(0.05f, 0.16f, 0.10f), "SconceBack");
+        Both(r, PrimitiveType.Cylinder, ToolModels.MakeGlow(new Color(1f, 0.95f, 0.84f)),
+             new Vector3(-(RoomHalfW - 0.14f), -eyeHeight + 1.36f, D - 0.30f),
+             Vector3.zero, new Vector3(0.17f, 0.09f, 0.17f), "SconceShade");
+
+        // ── 오른쪽 벽: 책장 ──
+        //
+        // 큰 판 하나가 아니라 칸과 책등으로 채운다. 네모 한 장을 세우면
+        // 빈 면이 하나 더 생길 뿐이라는 것은 치과에서 이미 겪었다.
+        // **속을 비운다.** 처음에 0.32 x 1.24 x 0.92 짜리 상자 하나를
+        // 세우고 그 안에 책을 꽂았더니, 책 열여덟 권이 통째로 상자 속에
+        // 묻혀 하나도 안 보였다 (home_right.png). 궤짝을 세운 셈이다.
+        // 책장은 판 다섯 장이지 덩어리가 아니다.
+        float shZ = D - 1.25f;
+        float shY = -eyeHeight + 0.62f;
+        BothBox(r, wood, new Vector3(RoomHalfW - 0.035f, shY, shZ),
+                new Vector3(0.03f, 1.24f, 0.92f), "ShelfBack");
+        for (int i = 0; i < 2; i++)
+            BothBox(r, wood,
+                    new Vector3(RoomHalfW - 0.17f, shY, shZ + (i * 2 - 1) * 0.445f),
+                    new Vector3(0.30f, 1.24f, 0.03f), "ShelfEnd" + i);
+        for (int i = 0; i < 2; i++)
+            BothBox(r, wood,
+                    new Vector3(RoomHalfW - 0.17f, shY + (i * 2 - 1) * 0.605f, shZ),
+                    new Vector3(0.30f, 0.03f, 0.92f), "ShelfCap" + i);
+        Material shelfDark = ToolModels.MakeMaterial(new Color(0.34f, 0.23f, 0.14f), 0f, 0.26f);
+        for (int i = 0; i < 3; i++)
+            BothBox(r, shelfDark,
+                    new Vector3(RoomHalfW - 0.175f, -eyeHeight + 0.30f + i * 0.33f, shZ),
+                    new Vector3(0.28f, 0.025f, 0.86f), "ShelfBoard" + i);
+        // 책등. 색이 다른 묶음 몇이면 책장이 된다.
+        Color[] spine = {
+            new Color(0.56f, 0.25f, 0.22f), new Color(0.26f, 0.36f, 0.46f),
+            new Color(0.70f, 0.62f, 0.40f), new Color(0.32f, 0.44f, 0.32f),
+            new Color(0.48f, 0.34f, 0.46f), new Color(0.74f, 0.52f, 0.28f),
+        };
+        for (int row = 0; row < 3; row++)
+            for (int i = 0; i < 6; i++)
+                BothBox(r, ToolModels.MakeMaterial(spine[(i + row * 2) % spine.Length], 0f, 0.14f),
+                        new Vector3(RoomHalfW - 0.175f,
+                                    -eyeHeight + 0.44f + row * 0.33f,
+                                    shZ - 0.36f + i * 0.145f),
+                        new Vector3(0.24f, 0.24f, 0.10f), "Book" + row + i);
+
+        // 액자 하나. 서랍장 위 벽 — 뒷벽 액자 둘과 짝이 된다.
+        BothBox(r, wood, new Vector3(RoomHalfW - 0.02f, -eyeHeight + 1.28f, D - 0.28f),
+                new Vector3(0.03f, 0.42f, 0.54f), "SidePictureFrame");
+        BothBox(r, ToolModels.MakeMaterial(new Color(0.66f, 0.68f, 0.62f), 0f, 0.10f),
+                new Vector3(RoomHalfW - 0.035f, -eyeHeight + 1.28f, D - 0.28f),
+                new Vector3(0.02f, 0.35f, 0.46f), "SidePicture");
+
+        // ── 거울이 걸린 벽 ──
+        //
+        // 옆벽을 채우고 다시 재니 제일 큰 민무늬 면이 여기로 바뀌었다
+        // (옆 시야에서 17.3~17.5 %). 거울 양옆의 벽인데, 서랍장 하나가
+        // 앞에 서 있을 뿐 벽 자체에는 아무것도 없다.
+        //
+        // 여기는 **적게** 올린다. 참가자가 내내 보는 면이고, 거울 둘레가
+        // 시끄러우면 정작 봐야 할 거울 속이 묻힌다. 걸레받이를 돌리고,
+        // 허리 몰딩을 거울 좌우로 이어 주고, 작은 것 몇 개만.
+        float mwZ = D - 0.02f;
+        BothBox(r, trimLo, new Vector3(0f, -eyeHeight + 0.07f, mwZ),
+                new Vector3(RoomHalfW * 2f, 0.14f, 0.02f), "BaseFront");
+        for (int s3 = -1; s3 <= 1; s3 += 2)
+            BothBox(r, trimLo,
+                    new Vector3(s3 * (RoomHalfW + 0.38f) * 0.5f, -eyeHeight + 0.86f, mwZ),
+                    new Vector3(RoomHalfW - 0.38f, 0.05f, 0.03f), "RailFront" + s3);
+
+        // 사진 셋. 서랍장 위 벽 — 거울 오른쪽.
+        for (int i = 0; i < 3; i++)
+        {
+            float px = 0.72f + i * 0.30f;
+            BothBox(r, wood, new Vector3(px, -eyeHeight + 1.34f, mwZ),
+                    new Vector3(0.24f, 0.30f, 0.02f), "PhotoFrame" + i);
+            BothBox(r, ToolModels.MakeMaterial(
+                        new Color(0.70f - i * 0.06f, 0.72f, 0.66f + i * 0.05f), 0f, 0.10f),
+                    new Vector3(px, -eyeHeight + 1.34f, mwZ - 0.012f),
+                    new Vector3(0.19f, 0.24f, 0.01f), "Photo" + i);
+        }
+
+        // 옷걸이 판과 걸린 겉옷. 거울 왼쪽 — 현관 쪽에 하나 있을 법한
+        // 물건이고, 천이 하나 더 들어가면 방이 쓰이는 데로 보인다.
+        BothBox(r, wood, new Vector3(-1.02f, -eyeHeight + 1.22f, mwZ),
+                new Vector3(0.52f, 0.11f, 0.025f), "HookRail");
+        for (int i = 0; i < 3; i++)
+            BothBox(r, trimLo, new Vector3(-1.22f + i * 0.20f, -eyeHeight + 1.16f, mwZ - 0.03f),
+                    new Vector3(0.025f, 0.025f, 0.06f), "Hook" + i);
+        BothBox(r, cloth, new Vector3(-1.12f, -eyeHeight + 0.84f, mwZ - 0.05f),
+                new Vector3(0.30f, 0.62f, 0.09f), "Coat");
+        // ── 마루: 양탄자 ──
+        //
+        // 내려다보면 마루가 15~21 % 다. 나뭇결 하나짜리 넓은 판이라
+        // 치과 바닥에 줄눈을 깔았던 것과 같은 문제인데, 집에는 줄눈
+        // 대신 깔 것이 있다. 서랍장과 화분의 접촉 그림자를 덮지 않도록
+        // 왼쪽으로 비켜 깐다 (그림자는 바닥에서 2 mm 위에 있다).
+        BothBox(r, ToolModels.MakeMaterial(new Color(0.42f, 0.27f, 0.25f), 0f, 0.10f),
+                new Vector3(-0.45f, -eyeHeight + 0.004f, D - 0.55f),
+                new Vector3(1.90f, 0.008f, 1.10f), "Rug");
+        BothBox(r, ToolModels.MakeMaterial(new Color(0.60f, 0.42f, 0.33f), 0f, 0.10f),
+                new Vector3(-0.45f, -eyeHeight + 0.006f, D - 0.55f),
+                new Vector3(1.70f, 0.008f, 0.90f), "RugField");
         // 천장 몰딩. 벽과 천장이 맞닿는 선 하나로 방에 모서리가 생긴다
         // (걸레받이와 같은 이유 — 아래 RoomShell 참고).
         Material trim = ToolModels.MakeMaterial(new Color(0.88f, 0.85f, 0.80f), 0f, 0.08f);
@@ -1656,7 +1824,7 @@ public class MirrorRig : MonoBehaviour
         // 하나 있어서 "천장이 구멍으로 보인다" 며 0.68 로 내렸었다.
         // 화소가 (247,250,255) 였는데 그건 0.97/0.98/1.00 — 형광등
         // 재질(MakeGlow)의 색 그대로다. 천장이 아니라 **등**이었고,
-        // 등은 하얀 게 맞다. 자리 지도를 찍고서야 알았다 (ClinicProbe).
+        // 등은 하얀 게 맞다. 자리 지도를 찍고서야 알았다 (RoomProbe).
         Material ceil  = ToolModels.MakeMaterial(new Color(0.90f, 0.92f, 0.93f), 0f, 0.03f);
         Material shell = ToolModels.MakeMaterial(new Color(0.92f, 0.93f, 0.94f), 0.1f, 0.42f);
         Material teal  = ToolModels.MakeMaterial(new Color(0.42f, 0.66f, 0.70f), 0f, 0.12f);
@@ -1819,7 +1987,7 @@ public class MirrorRig : MonoBehaviour
         // ── 방이 **한쪽뿐이었다** ──
         //
         // 눈에서 격자(60 x 40)로 광선을 쏴 화면의 몇 %를 뭐가 채우는지
-        // 쟀다(ClinicProbe). 오른쪽 끝을 보면 민무늬 옆벽 하나가 43 %,
+        // 쟀다(RoomProbe). 오른쪽 끝을 보면 민무늬 옆벽 하나가 43 %,
         // 거울 벽이 29 % — 화면의 72 %가 빈 판 둘이다. 당연했다. 쟁반도
         // 수납장도 치과의도 전부 -X 에 있고 **+X 에는 아무것도 없었다.**
         // 빈 데를 눈으로 찾으려 했으면 못 찾았을 것이다. 거울 속만 보고
