@@ -113,8 +113,11 @@ public class ExperimentController : MonoBehaviour
     [Header("진단 / 테스트")]
     [Tooltip("켜면 시행 수를 줄여 빠르게 한 바퀴 돌린다. 본 실험에서는 꺼야 한다")]
     public bool testMode = false;
-    [Tooltip("앱 시작 시 참가자 번호를 화면에서 고른다. 끄면 위 participantId 값을 그대로 쓴다")]
-    public bool askParticipantId = true;
+    [Tooltip("앱 시작 시 참가자 번호를 화면에서 고른다. 끄면 위 participantId 값을 그대로 쓴다. " +
+             "**꺼 두었다** — 폰에 올려 눈으로 볼 때 거칠 게 없도록. " +
+             "본 실험에서는 반드시 다시 켤 것: 꺼 두면 매번 P00 에 같은 블록 순서라 " +
+             "라틴방격이 무너지고 CSV 도 같은 번호로 쌓인다")]
+    public bool askParticipantId = false;
     [Tooltip("앱 시작 시 햅틱을 점검한다. 시스템 햅틱이 꺼진 폰을 걸러낸다. " +
              "**꺼 두었다** — 켜면 시작하자마자 진동부터 울린다. " +
              "폰에서 아무것도 안 느껴지면 이것부터 다시 켜 볼 것")]
@@ -239,7 +242,10 @@ public class ExperimentController : MonoBehaviour
     }
 
     /// <summary>
-    /// 참가자 번호 선택 → 첫 블록.
+    /// 바로 첫 블록으로 간다.
+    ///
+    /// **시작 화면을 셋 다 꺼 두었다** — 진동 자가진단, 진동 패턴 확인,
+    /// 참가자 번호 선택. 폰에 올려 한 번 보려 할 때마다 셋을 거쳐야 했다.
     ///
     /// **시작 진동은 둘 다 꺼 두었다.** 자가진단(runHapticSelfTest)은
     /// 짧은 버즈 하나, 패턴 확인(runPatternTest)은 열 가지를 하나씩
@@ -247,9 +253,16 @@ public class ExperimentController : MonoBehaviour
     /// 거쳐야 했다. 패턴 확인은 원래 본 실험에서 꺼야 하는 것이고,
     /// 자가진동은 안전장치지만 시작마다 울릴 이유는 없다.
     ///
-    /// 대신 **아무것도 안 느껴질 때 의심할 곳이 하나 늘었다.**
-    /// 폰의 시스템 햅틱이 꺼져 있어도 이제 아무 경고가 없다.
-    /// 그럴 때는 runHapticSelfTest 를 다시 켜서 가려낸다.
+    /// **본 실험 전에 셋 중 둘은 도로 켜야 한다.**
+    ///
+    /// - `askParticipantId` — 꺼 두면 participantId 가 0 에 머문다.
+    ///   라틴방격이 참가자마다 같은 순서가 되고(LatinSquare[0]),
+    ///   CSV 가 전부 `results_P00_…` 으로 쌓인다. 반드시 켠다.
+    /// - `runHapticSelfTest` — 폰의 시스템 햅틱이 꺼져 있어도 이제
+    ///   아무 경고가 없다. 아무것도 안 느껴질 때 이것부터 켜서
+    ///   폰 설정 탓인지 가려낸다.
+    ///
+    /// `runPatternTest` 하나만 원래부터 본 실험에서 꺼야 하는 것이다.
     /// </summary>
     private IEnumerator Startup()
     {
