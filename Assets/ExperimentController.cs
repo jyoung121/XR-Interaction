@@ -115,14 +115,16 @@ public class ExperimentController : MonoBehaviour
     public bool testMode = false;
     [Tooltip("앱 시작 시 참가자 번호를 화면에서 고른다. 끄면 위 participantId 값을 그대로 쓴다")]
     public bool askParticipantId = true;
-    [Tooltip("앱 시작 시 햅틱을 점검한다. 시스템 햅틱이 꺼진 폰을 걸러내므로 켜 두는 것을 권한다")]
-    public bool runHapticSelfTest = true;
+    [Tooltip("앱 시작 시 햅틱을 점검한다. 시스템 햅틱이 꺼진 폰을 걸러낸다. " +
+             "**꺼 두었다** — 켜면 시작하자마자 진동부터 울린다. " +
+             "폰에서 아무것도 안 느껴지면 이것부터 다시 켜 볼 것")]
+    public bool runHapticSelfTest = false;
     [Tooltip("켜면 시작할 때 진동 프리셋을 비교하는 화면을 띄운다. 값을 정하는 용도이므로 " +
              "본 실험에서는 반드시 꺼야 한다")]
     public bool runHapticTuning = false;
     [Tooltip("켜면 시작할 때 진동 패턴 10가지를 하나씩 확인하는 화면을 띄운다. " +
              "아이폰에서 패턴이 되는지 보는 용도이므로 본 실험에서는 꺼야 한다")]
-    public bool runPatternTest = true;
+    public bool runPatternTest = false;
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
 
@@ -236,7 +238,19 @@ public class ExperimentController : MonoBehaviour
         StartCoroutine(Startup());
     }
 
-    /// <summary>참가자 번호 선택 → 햅틱 점검 → 첫 블록.</summary>
+    /// <summary>
+    /// 참가자 번호 선택 → 첫 블록.
+    ///
+    /// **시작 진동은 둘 다 꺼 두었다.** 자가진단(runHapticSelfTest)은
+    /// 짧은 버즈 하나, 패턴 확인(runPatternTest)은 열 가지를 하나씩
+    /// 눌러 넘기는 화면인데, 폰에 올려 한 번 보려 할 때마다 둘을
+    /// 거쳐야 했다. 패턴 확인은 원래 본 실험에서 꺼야 하는 것이고,
+    /// 자가진동은 안전장치지만 시작마다 울릴 이유는 없다.
+    ///
+    /// 대신 **아무것도 안 느껴질 때 의심할 곳이 하나 늘었다.**
+    /// 폰의 시스템 햅틱이 꺼져 있어도 이제 아무 경고가 없다.
+    /// 그럴 때는 runHapticSelfTest 를 다시 켜서 가려낸다.
+    /// </summary>
     private IEnumerator Startup()
     {
         // 튜닝 모드에서는 자가진단을 먼저 돌린다. 아무것도 안 느껴질 때
