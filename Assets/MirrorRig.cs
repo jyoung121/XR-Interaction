@@ -895,7 +895,9 @@ public class MirrorRig : MonoBehaviour
         // (ClinicProbe) 어느 쪽을 보든 민무늬 거울 벽이 22~33 % 였고,
         // 오른쪽으로 70도 돌리면 눈금이 안 깔린 바깥쪽만 보였다. 누운
         // 사람은 고개를 돌린다. 벽 끝까지 깐다 — 줄 열여섯 개가 는다.
-        float Half = RoomHalfW;
+        // 바깥 36 cm 는 단차(Bulkhead)가 덮으므로 눈금은 거기까지만.
+        const float Edge = 0.36f;
+        float Half = RoomHalfW - Edge;
         // **벽은 두께가 2 cm 다** (BuildMirrorWall 의 t). Box 는 가운데로
         // 자리를 잡으므로 벽 앞면은 z = D - 0.01 에 있다. D - 0.004 에
         // 뒀더니 눈금이 통째로 벽 **속에** 박혀서 하나도 안 보였다.
@@ -903,6 +905,32 @@ public class MirrorRig : MonoBehaviour
         float yLo = Mathf.Max(-eyeHeight + 0.05f, m.centerY - Half);
         float yHi = Mathf.Min(CeilUp - 0.05f, m.centerY + Half);
 
+        // ── 눈금은 **칠해 놓은 선**이었다 ──
+        //
+        // 등·환기구·화면을 올리고 가장자리에 단차까지 세웠는데 정면은
+        // 19.0 → 16.8 % 로 꿈쩍도 안 했다. 맞은 자리를 방 좌표로 찍게
+        // 하고서야 알았다: 빈 데가 **x -1.15~1.15, y -1.34~-0.25** 짜리
+        // 한 덩어리다. 2.3 x 1.1 m — 소품 몇 개로 덮을 넓이가 아니고,
+        // 덮어서도 안 된다. 누운 사람에게 이 판은 천장이고, 천장은
+        // 천장이어야 한다.
+        //
+        // 진짜 문제는 비율이 아니라 **이게 천장이 아니라는 것**이었다.
+        // 달린 천장은 판 위에 줄을 그은 게 아니라, 타일이 한 단 들어가
+        // 있고 그 사이로 T 바가 튀어나온 물건이다. 지금은 벽에 7 mm 선을
+        // 칠해 놓은 것뿐이라 45 cm 앞에서 평평하다.
+        //
+        // 그래서 타일 면을 따로 깐다. 벽보다 10 % 어둡고 윤기 없는
+        // 재질로, 눈금보다 4 mm 뒤에. 그러면 눈금이 칠한 선이 아니라
+        // 솟은 바가 되고, 벽 판은 더 이상 보이는 면이 아니게 된다.
+        Material tile = ToolModels.MakeMaterial(new Color(0.72f, 0.73f, 0.71f), 0f, 0.02f);
+        float tz = D - 0.012f;
+        Box(root, tile, new Vector3(0f, (m.centerY + Clear + yHi) * 0.5f, tz),
+            new Vector3(Half * 2f, yHi - m.centerY - Clear, 0.008f), "TileTop");
+        Box(root, tile, new Vector3(0f, (yLo + m.centerY - Clear) * 0.5f, tz),
+            new Vector3(Half * 2f, m.centerY - Clear - yLo, 0.008f), "TileBottom");
+        for (int sx = -1; sx <= 1; sx += 2)
+            Box(root, tile, new Vector3(sx * (Clear + Half) * 0.5f, m.centerY, tz),
+                new Vector3(Half - Clear, Clear * 2f, 0.008f), "TileSide" + sx);
         // 줄을 칸칸이 끊지 않고 **한 줄로 긋되 치료등 자리만 비운다.**
         // 칸마다 상자를 놓으면 250 개가 넘는데, 폰에서는 그게 그대로
         // 드로우콜이고 스테레오라 두 배다.
@@ -921,6 +949,29 @@ public class MirrorRig : MonoBehaviour
             Span(root, seam, false, x, m.centerY + h, yHi, z);
         }
 
+        // ── 가장자리는 물건이 아니라 **단차**로 끊는다 ──
+        //
+        // 아래 장에 등·환기구·화면을 올렸더니 19.0 → 16.5 % 밖에 안
+        // 줄었다. 자리 지도를 보니 올린 것들이 전부 안쪽에 몰려 있었고,
+        // 남은 빈 데는 판의 **좌우 가장자리** — 화면 왼쪽 끝과 오른쪽
+        // 끝의 세로 띠 — 였다. 거기는 소품을 놓을 자리가 아니다. 천장이
+        // 벽으로 꺾이는 데니까.
+        //
+        // 그래서 꺾어 준다. 천장이 한 단 내려앉는 띠를 양쪽에 세우고,
+        // 안쪽 모서리에 그림자 골을 하나 판다. 상자 넷으로 판의 양
+        // 가장자리가 통째로 사라진다.
+        float bLo = -eyeHeight + 0.05f;
+        float bHi = CeilUp - 0.05f;
+        for (int sx = -1; sx <= 1; sx += 2)
+        {
+            float cx = sx * (RoomHalfW - Edge * 0.5f);
+            Box(root, shell, new Vector3(cx, (bLo + bHi) * 0.5f, z - 0.055f),
+                new Vector3(Edge, bHi - bLo, 0.012f), "Bulkhead" + sx);
+            // 안쪽 모서리의 골. 띠가 그냥 더 밝은 판이 되지 않게 한다.
+            Box(root, seam,
+                new Vector3(sx * (RoomHalfW - Edge), (bLo + bHi) * 0.5f, z - 0.028f),
+                new Vector3(0.016f, bHi - bLo, 0.050f), "BulkheadLip" + sx);
+        }
         // 형광등 한 짝. 치과 천장에서 제일 먼저 눈에 들어오는 물건이고,
         // 빈 회색 면에 **밝기 차이**를 주는 것이 눈금보다 크게 먹는다.
         // 빛을 내는 재질이라 (MakeGlow) 그늘에서도 하얗게 남는다.
@@ -936,6 +987,71 @@ public class MirrorRig : MonoBehaviour
             Box(root, steel,
                 vent + new Vector3(0f, 0.070f - i * 0.045f, -0.006f),
                 new Vector3(0.23f, 0.012f, 0.004f), "VentFin" + i);
+
+        // ── 비어 있던 것은 이 판의 **아래쪽**이었다 ──
+        //
+        // 프로브가 거울 벽 네 장을 한 이름으로 묶어 찍고 있어서 "거울 벽
+        // 22~32 %" 가 어느 장인지 알 수가 없었다. 갈라 세어 보니 답이
+        // 하나로 떨어졌다 — 위 장 3.8~6.5 %, 옆 장 2.9~8.3 %, 그리고
+        // **아래 장이 정면 19.0 %, 턱 당김 20.6 %.** 거울 아래로 발치까지
+        // 뻗은 그 판이다.
+        //
+        // 눈금을 더 촘촘히 깔아 봐야 소용없다. 이미 겪었다 — 7 mm 짜리
+        // 선은 아무리 많이 그어도 면적을 못 채운다. 선 폭을 키우는 것도
+        // 아니다: 7 mm 는 타일 20 cm 과 같은 자로 (보이는 각으로) 뽑은
+        // 값이라 넓히면 눈금만 굵고 촌스러워진다. **물건을 올려야 한다.**
+        // 그리고 이 판은 누운 사람에게 천장이니, 천장에 있을 법한 것만
+        // 올린다.
+
+        // 등 한 짝 더. 위에 형광등 둘이 있으니 아래에도 둘 — 진짜 치과
+        // 천장이 그렇다. 갓은 띠보다 넓어야 면적이 되므로 통째로 판이다.
+        for (int sx = -1; sx <= 1; sx += 2)
+        {
+            Vector3 at = new Vector3(sx * 0.95f, m.centerY - 0.50f, z - 0.004f);
+            Box(root, shell, at, new Vector3(0.64f, 0.30f, 0.010f), "Troffer" + sx);
+            Box(root, tube, at + new Vector3(0f, 0f, -0.006f),
+                new Vector3(0.56f, 0.20f, 0.008f), "TrofferLamp" + sx);
+            for (int i = 0; i < 3; i++)
+                Box(root, steel, at + new Vector3(-0.18f + i * 0.18f, 0f, -0.012f),
+                    new Vector3(0.012f, 0.20f, 0.004f), "TrofferRib" + sx + i);
+        }
+
+        // 환기구 하나 더. 하나만 있으면 한쪽으로 쏠린다.
+        Vector3 vent2 = new Vector3(-0.62f, m.centerY - 0.52f, z - 0.006f);
+        Box(root, shell, vent2, new Vector3(0.26f, 0.20f, 0.010f), "Vent2");
+        for (int i = 0; i < 4; i++)
+            Box(root, steel,
+                vent2 + new Vector3(0f, 0.070f - i * 0.045f, -0.006f),
+                new Vector3(0.23f, 0.012f, 0.004f), "Vent2Fin" + i);
+
+        // 환자용 화면. 요즘 치과 천장에 흔히 달려 있고, 여기서는 그보다
+        // **어두운 면이 하나 필요해서**다. 왼쪽 벽에 모니터를 달았을 때
+        // 먹혔던 것과 같은 이유 — 밝은 회색 판 한가운데 0.10 이 있으면
+        // 면이 아니라 물건으로 읽힌다.
+        Material darkFace = ToolModels.MakeMaterial(new Color(0.10f, 0.12f, 0.14f), 0.2f, 0.62f);
+        Vector3 tv = new Vector3(-0.05f, m.centerY - 1.10f, z - 0.010f);
+        Box(root, steel, tv, new Vector3(0.62f, 0.40f, 0.014f), "CeilTvBack");
+        Box(root, darkFace, tv + new Vector3(0f, 0f, -0.009f),
+            new Vector3(0.56f, 0.34f, 0.006f), "CeilTv");
+        Box(root, steel, tv + new Vector3(0f, 0.22f, 0.004f),
+            new Vector3(0.10f, 0.05f, 0.020f), "CeilTvMount");
+
+        // 작은 것 셋. 스프링클러·연기 감지기·스피커. 하나하나는 2 %도
+        // 안 되지만, 큰 판 위에 **흩어진 작은 것**이 있어야 그 판이
+        // 얼마나 큰지가 읽힌다.
+        Prim(root, PrimitiveType.Cylinder, steel,
+             new Vector3(0.45f, m.centerY - 0.86f, z - 0.012f),
+             Quaternion.Euler(90f, 0f, 0f), new Vector3(0.055f, 0.012f, 0.055f),
+             "Sprinkler");
+        Prim(root, PrimitiveType.Cylinder, shell,
+             new Vector3(-1.18f, m.centerY - 0.24f, z - 0.010f),
+             Quaternion.Euler(90f, 0f, 0f), new Vector3(0.13f, 0.008f, 0.13f),
+             "SmokeAlarm");
+        Prim(root, PrimitiveType.Cylinder, steel,
+             new Vector3(1.16f, m.centerY - 0.98f, z - 0.010f),
+             Quaternion.Euler(90f, 0f, 0f), new Vector3(0.17f, 0.008f, 0.17f),
+             "Speaker");
+
     }
 
     /// <summary>천장 눈금 한 토막. 비어 있는 구간은 그냥 넘긴다.</summary>

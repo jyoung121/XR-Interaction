@@ -89,6 +89,11 @@ public static class ClinicProbe
 
         var area = new Dictionary<string, int>();
         var dist = new Dictionary<string, float>();
+        // 맞은 자리를 **방 좌표로** 모은다. 글자 지도에서 "왼쪽쯤" 을
+        // 읽어 내는 것도 결국 짐작이다. 두 번 엉뚱한 데를 채우고 나서
+        // 넣었다 — 어디를 채워야 하는지는 x, y 로 나와야 한다.
+        var lo = new Dictionary<string, Vector3>();
+        var hi = new Dictionary<string, Vector3>();
         int miss = 0, total = 0;
         float near = 99f, far = 0f, sum = 0f;
 
@@ -102,7 +107,14 @@ public static class ClinicProbe
             RaycastHit h;
             if (!Physics.Raycast(eye, dir, out h, 60f)) { miss++; continue; }
             string n = Name(h.collider.transform);
-            if (!area.ContainsKey(n)) { area[n] = 0; dist[n] = 0f; }
+            Vector3 lp = RoomLocal(h.collider.transform, h.point);
+            if (!area.ContainsKey(n))
+            {
+                area[n] = 0; dist[n] = 0f;
+                lo[n] = lp; hi[n] = lp;
+            }
+            lo[n] = Vector3.Min(lo[n], lp);
+            hi[n] = Vector3.Max(hi[n], lp);
             area[n]++;
             dist[n] += h.distance;
             sum += h.distance;
@@ -122,8 +134,10 @@ public static class ClinicProbe
         foreach (string k in keys)
         {
             if (shown++ >= 14) break;
-            sb.AppendLine(string.Format("  {0,-22} {1,5:0.0}%  {2:0.00} m",
-                                        k, 100f * area[k] / total, dist[k] / area[k]));
+            sb.AppendLine(string.Format(
+                "  {0,-22} {1,5:0.0}%  {2:0.00} m   방 x {3,5:0.00}~{4,5:0.00}  y {5,5:0.00}~{6,5:0.00}  z {7,5:0.00}~{8,5:0.00}",
+                k, 100f * area[k] / total, dist[k] / area[k],
+                lo[k].x, hi[k].x, lo[k].y, hi[k].y, lo[k].z, hi[k].z));
         }
         // 어디에 있는지도 찍는다. "옆벽이 43 %" 만으로는 그게 화면
         // 어느 쪽인지 몰라서, 뭘 어디다 놓아야 하는지가 안 나온다.
@@ -160,6 +174,14 @@ public static class ClinicProbe
         Debug.Log(map.ToString());
     }
 
+    /// <summary>맞은 자리를 그 물건이 속한 방의 좌표로 옮긴다.</summary>
+    private static Vector3 RoomLocal(Transform t, Vector3 world)
+    {
+        Transform cur = t;
+        while (cur != null && !cur.name.StartsWith("Room_")) cur = cur.parent;
+        return cur == null ? world : cur.InverseTransformPoint(world);
+    }
+
     /// <summary>이름을 쓸 만하게 줄인다. 모델 내부 조각은 뿌리 이름으로 묶는다.</summary>
     private static string Name(Transform t)
     {
@@ -168,6 +190,9 @@ public static class ClinicProbe
         {
             string n = cur.name;
             if (n.StartsWith("Room_") || n == "MirrorRig") break;
+            // 거울 벽은 **묶지 않는다.** 위·아래·양옆 네 장이 한 이름으로
+            // 찍히니 "거울 벽 28 %" 가 어느 장인지 알 수가 없었다.
+            if (cur.parent != null && cur.parent.name == "MirrorWall") return n;
             if (cur.parent != null && (cur.parent.name.StartsWith("Room_")
                                        || cur.parent.name == "MirrorRig"
                                        || cur.parent.name == "CeilPlane"))
