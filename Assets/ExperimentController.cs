@@ -128,6 +128,12 @@ public class ExperimentController : MonoBehaviour
     [Tooltip("켜면 시작할 때 진동 패턴 10가지를 하나씩 확인하는 화면을 띄운다. " +
              "아이폰에서 패턴이 되는지 보는 용도이므로 본 실험에서는 꺼야 한다")]
     public bool runPatternTest = false;
+
+    [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다. 치과와 음식 일곱 블록을 " +
+             "트리거로 넘기며 본다. 끄면 옛 빨간 네모 탐색 실험으로 간다. " +
+             "본 실험에서 탐색 과제를 돌릴 때는 꺼야 한다")]
+    public bool goStraightToMirror = true;
+
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
 
@@ -242,16 +248,17 @@ public class ExperimentController : MonoBehaviour
     }
 
     /// <summary>
-    /// 바로 첫 블록으로 간다.
+    /// 켜자마자 거울 방으로 간다 (goStraightToMirror).
     ///
     /// **시작 화면을 셋 다 꺼 두었다** — 진동 자가진단, 진동 패턴 확인,
     /// 참가자 번호 선택. 폰에 올려 한 번 보려 할 때마다 셋을 거쳐야 했다.
     ///
-    /// **시작 진동은 둘 다 꺼 두었다.** 자가진단(runHapticSelfTest)은
-    /// 짧은 버즈 하나, 패턴 확인(runPatternTest)은 열 가지를 하나씩
-    /// 눌러 넘기는 화면인데, 폰에 올려 한 번 보려 할 때마다 둘을
-    /// 거쳐야 했다. 패턴 확인은 원래 본 실험에서 꺼야 하는 것이고,
-    /// 자가진동은 안전장치지만 시작마다 울릴 이유는 없다.
+    /// 그런데 셋을 끄자 **거울 방까지 같이 사라졌다.** 거울 방으로 가는
+    /// 길이 패턴 설정 화면 안에만 있었던 탓이다. 11/14 에 폰에 올려 보고
+    /// 알았다 — 빨간 네모 탐색 실험이 떴다. 그래서 위에 직통 문을 냈다.
+    ///
+    /// 남길 교훈: **곁가지 화면을 끄는 일이 본 화면을 끄는 일이 되면
+    /// 안 된다.** 보고 싶은 것에는 자기 문이 있어야 한다.
     ///
     /// **본 실험 전에 셋 중 둘은 도로 켜야 한다.**
     ///
@@ -266,6 +273,29 @@ public class ExperimentController : MonoBehaviour
     /// </summary>
     private IEnumerator Startup()
     {
+        // ── 거울 방으로 **곧장** ──
+        //
+        // 여기 통로가 없어서 한 번 크게 헛돌았다. 거울 방으로 가는 길이
+        // 패턴 설정 화면 안에만 있었다 (PatternSettings → RunMirrorScene).
+        // 시작 화면들이 번거롭다고 runPatternTest 를 끄자 **그 문까지 같이
+        // 닫혀서**, 폰에 올린 앱이 곧장 StartBlock() 으로 — 옛 빨간 네모
+        // 탐색 실험으로 가 버렸다. 거울 방을 몇 주 손봐 놓고 정작 폰에서는
+        // 한 번도 안 보이는 상태였다.
+        //
+        // 부수적인 화면을 끄는 일이 본 화면을 끄는 일이 되면 안 된다.
+        // 그래서 거울 방에는 **자기 문**을 준다.
+        if (goStraightToMirror)
+        {
+            yield return StartCoroutine(StartXR());
+            if (!xrOk) yield break;      // ShowError 가 화면을 띄워 뒀다
+
+            // 마지막 블록 다음에 트리거를 누르면 처음부터 다시 돈다.
+            // MirrorScene 은 끝에서 rig.Dispose() 로 치우므로 다시 들어가도
+            // 쌓이지 않는다. 눈으로 보는 단계에서는 빈 화면에 남는 것보다
+            // 처음으로 돌아가는 편이 쓸모 있다.
+            while (true) yield return StartCoroutine(MirrorScene());
+        }
+
         // 튜닝 모드에서는 자가진단을 먼저 돌린다. 아무것도 안 느껴질 때
         // 프리셋 탓인지 폰의 시스템 햅틱 설정 탓인지 헷갈리지 않게 하려고.
         if (runHapticTuning)
