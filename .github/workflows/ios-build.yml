@@ -49,7 +49,27 @@ jobs:
       - name: 압축 풀기
         run: |
           mkdir -p xcode
-          unzip -q "${{ github.event.inputs.asset_name }}" -d xcode
+
+          # unzip 은 **경고만 나도 종료코드 1** 을 낸다. 여기 셸이 bash -e 라
+          # 그 1에 그대로 죽는다. 실제로 #17 이 이렇게 끝났다 — 로그 전체가
+          # 여덟 줄이고, 압축을 11 초 동안 멀쩡히 푼 뒤 이 한 줄만 남았다:
+          #   warning: iOSBuild.zip appears to use backslashes as path separators
+          #
+          # 이름에 역슬래시는 하나도 없다(4793 개 전부 확인). 윈도우에서
+          # .NET 의 ZipFile.CreateFromDirectory 로 묶어서 항목마다 호스트가
+          # DOS/FAT(create_system 0) 으로 적혀 있을 뿐이고, 새 러너의 unzip 이
+          # 그걸 보고 경고를 낸다. macos-14 에서는 안 나던 경고다.
+          #
+          # 그러므로 1 은 넘기고 2 이상만 실패로 본다. 제대로 풀렸는지는
+          # 어차피 아래 test -d 가 판정한다 — 그게 진짜 관문이다.
+          rc=0
+          unzip -q "${{ github.event.inputs.asset_name }}" -d xcode || rc=$?
+          echo "unzip 종료코드: $rc"
+          if [ "$rc" -gt 1 ]; then
+            echo "unzip 이 경고가 아니라 오류로 끝났다"
+            exit "$rc"
+          fi
+
           cd xcode && ls -la
           test -d Unity-iPhone.xcodeproj || { echo "Unity-iPhone.xcodeproj 없음"; exit 1; }
 
