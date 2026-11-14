@@ -19,7 +19,12 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-14 는 2026-11 에 퇴역했다. 11/04 까지 멀쩡히 돌던 워크플로가
+    # 11/14 에 2 초 만에 cancelled 로 끝났는데, 빌드가 깨진 게 아니라
+    # "The configuration 'macos-14-arm64-us-default' is not supported" —
+    # 없는 기계를 달라고 한 것이었다. 버전을 박아 두면 이렇게 소리 없이
+    # 만료되므로 latest 로 둔다.
+    runs-on: macos-latest
     timeout-minutes: 90
 
     steps:
