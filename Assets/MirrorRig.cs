@@ -2594,6 +2594,31 @@ public class MirrorRig : MonoBehaviour
         Mesh src = head.sharedMesh;
         if (src == null || browSub < 0) return;
 
+        // **플레이어에서는 읽기 불가 메시의 vertices 가 빈 배열이다.**
+        //
+        // 에디터는 어떤 메시든 읽히므로 여기까지 아무 일 없이 온다.
+        // 폰에서는 아래 src.vertices[0] 이 그대로 IndexOutOfRange 로
+        // 터지고, 코루틴이 조용히 멈춰 얼굴을 깎다 만 덩어리만 남는다.
+        // 11/15 에 이것 때문에 하룻밤을 썼다 — Person.fbx 의
+        // Read/Write Enabled 가 꺼져 있었다.
+        //
+        // 설정은 고쳤지만 확인은 남긴다. 다음에 모델을 갈아 끼우거나
+        // 임포터 설정이 되돌아가면 **터지는 대신 이 줄이 뜬다.**
+        if (!src.isReadable)
+        {
+            Debug.LogWarning("[MirrorRig] 머리 메시가 읽기 불가다 ("
+                + src.name + ") — 모델의 Read/Write Enabled 를 켤 것. "
+                + "눈썹·볼을 안 움직인다");
+            return;
+        }
+        if (P == null || P.Length < src.vertexCount)
+        {
+            Debug.LogWarning("[MirrorRig] 구운 꼭짓점이 모자란다 ("
+                + (P == null ? 0 : P.Length) + " < " + src.vertexCount
+                + ") — 눈썹·볼을 안 움직인다");
+            return;
+        }
+
         Transform[] bones = head.bones;
         int headIdx = -1;
         for (int i = 0; i < bones.Length; i++)

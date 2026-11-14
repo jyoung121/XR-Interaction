@@ -127,7 +127,7 @@ public class ExperimentController : MonoBehaviour
     public bool runHapticTuning = false;
     [Tooltip("켜면 시작할 때 진동 패턴 10가지를 하나씩 확인하는 화면을 띄운다. " +
              "아이폰에서 패턴이 되는지 보는 용도이므로 본 실험에서는 꺼야 한다")]
-    public bool runPatternTest = false;
+    public bool runPatternTest = true;
 
     /// <summary>
     /// 이 빌드를 알아보는 표시. **빌드할 때마다 손으로 올린다.**
@@ -136,12 +136,12 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1114-E";
+    public const string BuildStamp = "1115-F";
 
-    [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다. 치과와 음식 일곱 블록을 " +
-             "트리거로 넘기며 본다. 끄면 옛 빨간 네모 탐색 실험으로 간다. " +
-             "본 실험에서 탐색 과제를 돌릴 때는 꺼야 한다")]
-    public bool goStraightToMirror = true;
+    [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다 — 설정창을 건너뛴다. " +
+             "꺼 두면 설정창(runPatternTest)이 먼저 나오고, 거기서 " +
+             "거울 방으로 들어간다. 지금은 설정창을 첫 화면으로 쓴다")]
+    public bool goStraightToMirror = false;
 
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
     public bool showHud = true;
