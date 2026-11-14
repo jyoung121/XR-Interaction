@@ -20,14 +20,17 @@ public class DebugHud : MonoBehaviour
 
         GameObject root = new GameObject("DebugHud");
         root.transform.SetParent(parent, false);
-        root.transform.localPosition = new Vector3(0f, -0.35f, 2.0f);
+        // 2 m 앞에 두었더니 **코앞을 덮은 물건 뒤로 들어가** 안 보였다.
+        // 진단판이 사고를 당하면 진단을 못 한다. 가까이 당기고,
+        // 아래에서 깊이 검사를 꺼서 무조건 맨 앞에 그린다.
+        root.transform.localPosition = new Vector3(0f, -0.22f, 0.6f);
         root.transform.localRotation = Quaternion.identity;
 
         Canvas canvas = root.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         RectTransform rt = canvas.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(1200f, 500f);
-        rt.localScale = Vector3.one * 0.0012f;   // 월드 기준 약 1.4m 폭
+        rt.localScale = Vector3.one * 0.00036f;  // 0.6 m 앞에서 약 0.43 m 폭
 
         GameObject tgo = new GameObject("Text");
         tgo.transform.SetParent(root.transform, false);
@@ -46,6 +49,16 @@ public class DebugHud : MonoBehaviour
         trt.anchorMax = Vector2.one;
         trt.offsetMin = new Vector2(20f, 20f);
         trt.offsetMax = new Vector2(-20f, -20f);
+
+        // **깊이 검사를 끈다.** 무엇에 파묻혀 있든 글자는 보여야 한다.
+        Shader sh = Shader.Find("UI/Default");
+        if (sh != null)
+        {
+            Material m = new Material(sh);
+            m.SetInt("unity_GUIZTestMode",
+                     (int)UnityEngine.Rendering.CompareFunction.Always);
+            t.material = m;
+        }
 
         // 글자가 배경에 묻히지 않게 외곽선
         Outline o = tgo.AddComponent<Outline>();

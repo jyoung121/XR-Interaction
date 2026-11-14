@@ -129,6 +129,15 @@ public class ExperimentController : MonoBehaviour
              "아이폰에서 패턴이 되는지 보는 용도이므로 본 실험에서는 꺼야 한다")]
     public bool runPatternTest = false;
 
+    /// <summary>
+    /// 이 빌드를 알아보는 표시. **빌드할 때마다 손으로 올린다.**
+    ///
+    /// 11/14 에 고친 걸 올리고도 폰 화면이 그대로여서, 고친 게 안 먹은
+    /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
+    /// 화면에 적어 두면 한 번에 끝난다.
+    /// </summary>
+    public const string BuildStamp = "1114-D";
+
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다. 치과와 음식 일곱 블록을 " +
              "트리거로 넘기며 본다. 끄면 옛 빨간 네모 탐색 실험으로 간다. " +
              "본 실험에서 탐색 과제를 돌릴 때는 꺼야 한다")]
@@ -558,7 +567,8 @@ public class ExperimentController : MonoBehaviour
     {
         phase = Phase.Ready;
         HideAll();
-        DebugHud.Show(false);
+        DebugHud.Show(showHud);
+        DebugHud.Set("BUILD " + BuildStamp + "  starting XR...");
 
         // 방을 **참가자가 보고 있는 쪽으로** 짓는다. 그러려면 카메라
         // 자세가 들어온 뒤라야 한다. 자세가 들어오기 전에는 카메라가
@@ -629,6 +639,19 @@ public class ExperimentController : MonoBehaviour
             }
 
             ApplyContactHaptics(rig);
+
+            // 폰이 스스로 상태를 말하게 한다. 에디터에서 폰 화면을
+            // 재현하려다 두 번 빗나간 뒤에 둔 것이다 (MirrorRig.NearInfo).
+            if (showHud)
+            {
+                DebugHud.Set("BUILD " + BuildStamp
+                    + "  blk " + idx + "/" + (order.Length - 1)
+                    + " " + order[idx]
+                    + (order[idx] == MirrorRig.Scenario.Dental
+                        ? " " + tools[idx] : " " + foods[idx])
+                    + "\n" + rig.NearInfo());
+            }
+
             yield return null;
         }
 

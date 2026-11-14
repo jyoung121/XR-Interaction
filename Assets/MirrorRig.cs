@@ -561,6 +561,38 @@ public class MirrorRig : MonoBehaviour
         return OnPlate + ApproachTime + SpecOf(k).hold * 0.5f;
     }
 
+    /// <summary>
+    /// 폰 화면에 띄울 진단 한 줄 (ASCII 만 — HUD 글꼴에 한글 글리프가 없다).
+    ///
+    /// 11/14 에 폰에서 보이는 화면을 에디터로 두 번 재현하려다 두 번 다
+    /// 빗나갔다. 스크린샷만 보고 "저게 뭐다" 를 맞히려 든 게 잘못이다.
+    /// 폰이 직접 숫자를 말하게 한다: 눈이 리그 어디에 있는지, 코앞에
+    /// 있는 물건이 무엇인지, 지금 켜진 렌더러가 몇 개인지.
+    ///
+    /// 렌더러 개수가 요긴하다 — 방이 통째로 꺼져 있으면 수십 개로
+    /// 떨어진다. 하늘만 파랗게 보이는 화면이 그래서 나올 수 있다.
+    /// </summary>
+    public string NearInfo()
+    {
+        if (viewer == null) return "viewer=null";
+
+        Vector3 p = transform.InverseTransformPoint(viewer.position);
+        Renderer best = null;
+        float bd = float.MaxValue;
+        int n = 0;
+
+        foreach (Renderer r in GetComponentsInChildren<Renderer>(false))
+        {
+            n++;
+            float d = Vector3.Distance(r.bounds.ClosestPoint(viewer.position), viewer.position);
+            if (d < bd) { bd = d; best = r; }
+        }
+
+        return string.Format("eye({0:0.00},{1:0.00},{2:0.00}) rend={3} near={4} {5:0.00}m",
+                             p.x, p.y, p.z, n,
+                             best != null ? best.name : "-", bd);
+    }
+
     /// <summary>지금 입에 닿고 있는 치과 도구. 진동 쪽에서 날카로움을 여기에 맞춘다.</summary>
     public DentalKind CurrentDental { get { return dentalKind; } }
 
