@@ -136,7 +136,7 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1115-H";
+    public const string BuildStamp = "1115-I";
 
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다 — 설정창을 건너뛴다. " +
              "꺼 두면 설정창(runPatternTest)이 먼저 나오고, 거기서 " +
@@ -558,7 +558,7 @@ public class ExperimentController : MonoBehaviour
     /// 솔이 이를 쓸고 지나가는 "샤샥" 은 세기가 아니라 **박자**가
     /// 만든다 — 세기를 낮추고 보이는 솔질에 맞춰 오르내리게 한다.
     /// </summary>
-    private const float BrushAmp = 0.34f;
+    private const float BrushAmp = 0.18f;
 
     private bool scenarioBuzzing;
     private int lastChewBeat;        // 지난 프레임의 MirrorRig.ChewBeat
@@ -780,10 +780,23 @@ public class ExperimentController : MonoBehaviour
             float amp = 1f;
             if (isBrush)
             {
+                // **양치할 때 손에 오는 진동이다.** 전동칫솔이 아니다.
+                //
+                // 전동칫솔은 한 가지 세기로 계속 운다. 손으로 닦을 때
+                // 손에 오는 건 솔이 이를 긁을 때마다 올라왔다 잦아드는
+                // **마찰**이다. 그래서 세기를 왕복에 묶는다 — 쓱 할 때
+                // 올라오고 방향을 바꿀 때 가라앉는다.
+                //
+                // 박자는 소리와 **같은 수**를 쓴다(ScenarioAudio.StrokeHz).
+                // 귀로는 쓱쓱 하는데 손은 딴 박자로 떨면 그 어긋남이
+                // 바로 "진동이 가짜 같다" 로 적힌다.
                 float t2 = rig.Seconds;
-                float stroke = Mathf.Abs(Mathf.Sin(t2 * 2.2f));
-                float grain = 0.82f + 0.18f * Mathf.Sin(t2 * 13f);
-                amp = BrushAmp * (0.30f + 0.70f * stroke) * grain;
+                float stroke = Mathf.Abs(
+                    Mathf.Sin(Mathf.PI * ScenarioAudio.StrokeHz * t2));
+                // 솔이 법랑질 위에서 튀는 잔결. 세기를 바꾸는 게 아니라
+                // 매끄러운 산을 **까끌하게** 만드는 것이라 폭이 좁다.
+                float grain = 0.88f + 0.12f * Mathf.Sin(t2 * 41f);
+                amp = BrushAmp * (0.22f + 0.78f * stroke) * grain;
             }
             HapticManager.SetContinuous(Mathf.Clamp(
                 Mathf.RoundToInt(waveHighAmplitude * amp), 1, 255));

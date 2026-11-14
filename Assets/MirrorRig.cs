@@ -47,7 +47,7 @@ public class MirrorRig : MonoBehaviour
     private class FoodSpec
     {
         public string model;     // Resources/Models 아래 이름
-        public string label;     // 거울 밑 안내 글자 (내장 폰트에 한글이 없다)
+        public string label;     // 로그·probe 에만 쓴다 (화면에는 안 나온다)
         public float size;       // 손에 드는 것의 가장 긴 변 (m)
         public int bites;        // 1 = 한 입에 통째로, 2 이상 = 그 횟수에 걸쳐
         public bool carve;       // 깨문 자리를 파낼지 (안 파면 작아지기만 한다)
@@ -79,6 +79,10 @@ public class MirrorRig : MonoBehaviour
         public int pCount;       // 접시에 담은 알 수
         public float pRing;      // 알들을 놓는 원의 반지름 (m)
         public float pYaw;       // 알을 돌려 놓는 각 (도)
+        // 알을 **앞으로 눕히는** 각 (도, X 축). 0 이면 선 채로 놓인다.
+        // 곰 젤리처럼 세로로 긴 모델은 접시에서 꼿꼿이 서 있는데,
+        // 젤리는 누워 있는 게 맞다.
+        public float pPitch;
     }
 
     /// <summary>
@@ -104,7 +108,7 @@ public class MirrorRig : MonoBehaviour
                        grip = 0f, curl = 42f, thumb = 46f, fold = 78f,
                        frags = 3, peak = 1.00f, bright = 0.70f,
                        pSize = 0.075f, pCount = 3, pRing = 0.050f,
-                       pYaw = 40f },
+                       pYaw = 40f, pPitch = 0f },
 
         // 젤리 — 쫀득 눌린다. 한 알이니 통째로 들어간다. 부서지는 게 아니라
         // 이에 붙었다 떨어지는 느낌이라 진동은 조각이 적고 약하다.
@@ -119,8 +123,17 @@ public class MirrorRig : MonoBehaviour
                        open = 0.45f, spin = 22f, tilt = 0f, smooth = 0.74f,
                        grip = 0f, curl = 63f, thumb = 67f, fold = 101f,
                        frags = 2, peak = 0.55f, bright = 0.25f,
-                       pSize = 0.058f, pCount = 5, pRing = 0.042f,
-                       pYaw = 150f },
+                       // 곰 젤리 모델은 세로로 길어서(y 가 가장 긴 축)
+                       // 그냥 놓으면 접시 위에 **차렷 자세로 선다.**
+                       // 90도 앞으로 눕힌다. 눕히면 키가 두께가 되므로
+                       // 접시에 닿는 높이도 pSize 기준으로 달라진다.
+                       // 눕히면 세로로 길던 곰이 **옆으로** 길어진다.
+                       // 서 있을 땐 지름 4 cm 면 되던 것이 누우니 6 cm 가
+                       // 되어 이웃과 겹쳤다. 고리를 넓힌다 — 알을 줄이는
+                       // 것보다 낫다. 이웃 사이 2·0.055·sin(36도)=0.065 이고
+                       // 고리 끝은 0.055+0.031=0.086 으로 접시(0.10) 안이다.
+                       pSize = 0.058f, pCount = 5, pRing = 0.055f,
+                       pYaw = 150f, pPitch = 90f },
 
         // 고기 — 세워서 든다. 납작한 조각이라 눕혀 들면 두께 1 cm 짜리
         // 선으로만 보이고, 그 선마저 주먹 안에 들어가 아예 안 보였다.
@@ -129,25 +142,36 @@ public class MirrorRig : MonoBehaviour
         // 적으면서 둔하다. 세 입에 걸쳐 먹는데 **깨문 자리는 안 판다** —
         // 납작한 조각이라 구를 파면 구멍이 뚫린다(PrepareBites 주석).
         new FoodSpec { model = "Steak", label = "MEAT",
-                       size = 0.085f, bites = 3, carve = false,
+                       size = 0.115f, bites = 3, carve = false,
                        hold = 0.60f, chew = 8.00f, rate = 6f, depth = 0.17f,
                        open = 0.60f, spin = 18f, tilt = 90f, smooth = 0.26f,
                        grip = 0.023f, curl = 40f, thumb = 44f, fold = 74f,
                        frags = 2, peak = 0.70f, bright = 0.18f,
-                       pSize = 0.080f, pCount = 3, pRing = 0.052f,
-                       pYaw = 90f },
+                       // **접시에 깔아 두는 알이 없다 (pCount 0).**
+                       // 접시 한가운데는 늘 비워 뒀다 — 집어 드는 조각이
+                       // 거기서 뜨기 때문이다. 고기는 그 한 조각이
+                       // 전부여야 하므로 둘레에 깔던 셋을 치운다.
+                       // 그러면 접시에 보이는 유일한 고기가 곧 집는 고기다.
+                       pSize = 0.080f, pCount = 0, pRing = 0.052f,
+                       pYaw = 90f, pPitch = 0f },
 
         // 푸딩 — 거의 안 씹힌다. 혀로 누르면 사라지니 씹는 구간을 가장
         // 짧게, 오물거림도 가장 얕게 둔다. 진동은 한 번, 아주 약하게 —
         // 다섯 중 아래 끝을 잡아 주는 조건이다.
-        new FoodSpec { model = "Flan", label = "PUDDING",
-                       size = 0.070f, bites = 1, carve = false,
+        // 모델이 **FlanOnly** 다. 원본 Flan.obj 는 푸딩이 접시에
+        // 담긴 채로 한 덩어리라, 상 위의 접시에 올리면 접시 위에 접시가
+        // 됐다. 받침을 잘라 낸 것이 FlanOnly.obj 다.
+        new FoodSpec { model = "FlanOnly", label = "PUDDING",
+                       size = 0.095f, bites = 1, carve = false,
                        hold = 0.80f, chew = 5.00f, rate = 5f, depth = 0.09f,
                        open = 0.45f, spin = 14f, tilt = 0f, smooth = 0.55f,
                        grip = 0.024f, curl = 46f, thumb = 50f, fold = 80f,
                        frags = 1, peak = 0.30f, bright = 0.08f,
-                       pSize = 0.065f, pCount = 4, pRing = 0.048f,
-                       pYaw = 0f },
+                       // 0.072 는 접시에서 **서로 겹쳤다.** 알 넷을 반지름
+                       // 0.048 원에 두면 이웃 사이가 2·0.048·sin(45도)=0.068 이라
+                       // 알 지름이 그보다 작아야 한다 (FoodSpecs 주석의 계산).
+                       pSize = 0.058f, pCount = 4, pRing = 0.048f,
+                       pYaw = 0f, pPitch = 0f },
 
         // 사탕 — 납작한 알이라 고기와 같이 세워서 든다. 세워야 거울에서
         // 빨간 소용돌이 무늬가 보이고, 그게 "사탕" 으로 읽히는 유일한 단서다.
@@ -166,7 +190,7 @@ public class MirrorRig : MonoBehaviour
                        grip = 0.026f, curl = 44f, thumb = 48f, fold = 78f,
                        frags = 4, peak = 1.00f, bright = 1.00f,
                        pSize = 0.052f, pCount = 5, pRing = 0.045f,
-                       pYaw = 0f },
+                       pYaw = 0f, pPitch = 0f },
     };
 
     private static FoodSpec SpecOf(FoodKind k)
@@ -332,7 +356,6 @@ public class MirrorRig : MonoBehaviour
     private FoodItem foodNow;        // 지금 켜져 있는 쪽
     // 입술 — 다문 선에서 피부로 그러데이션으로 건너간다 (JawPiece).
     private Material lipMatUp, lipMatLow;
-    private TextMesh[] labelEdge;    // 안내 글자의 어두운 외곽선
     private const bool FakeContactShadows = true;   // 가짜 원반 그림자
     // 깨무는 순간을 한 번만 세려고 둔다. 몇 입에 걸쳐 먹는지는 음식마다
     // 다르므로(FoodSpec.bites) 단계 수는 여기 두지 않는다.
@@ -399,8 +422,6 @@ public class MirrorRig : MonoBehaviour
         new Color(0.58f, 0.26f, 0.78f),   // 보라
     };
 
-    private TextMesh label;
-    private float labelUntil;
 
     private Scenario current = Scenario.None;
     private FoodKind foodKind = FoodKind.Apple;
@@ -748,7 +769,13 @@ public class MirrorRig : MonoBehaviour
 
         BuildTools();
         BuildCast();
-        BuildLabel();
+
+        // BuildLabel() 은 **11/15 에 뺐다.** 거울 밑 벽에 「EATING (APPLE)」
+        // 같은 글자를 2 초 띄우던 것이다. 내가 어느 조건을 보고 있는지
+        // 확인하려고 둔 것인데, 참가자에게는 방 안에 뜬금없이 글자가
+        // 떠 있는 것이다. 실재감을 재는 실험에서 그 글자가 제일 먼저
+        // "이건 화면이다" 라고 알려 준다. 조건은 내가 설정창에서 고르니
+        // 방 안에 적어 둘 이유가 없다.
     }
 
     // ───────────────────────── 방 ─────────────────────────
@@ -1377,6 +1404,45 @@ public class MirrorRig : MonoBehaviour
     /// 접시에 담는 것들을 묶어 두는 빈 통. 원점에 두므로 거울 뒤쪽 복제
     /// 좌표 계산(Z)은 그대로 맞는다. 조건이 바뀌면 통째로 켜고 끈다.
     /// </summary>
+    /// <summary>
+    /// 방금 놓은 접시 알을 **제자리에 앉힌다.**
+    ///
+    /// 모델 원점은 바닥 한가운데라, 세워 둘 땐 그냥 놓으면 맞았다.
+    /// 그런데 눕히면(pPitch) 원점을 축으로 도는 바람에 두 가지가 어긋난다 —
+    /// 몸의 절반이 접시 **아래로** 들어가고, 나머지 절반이 놓으려던
+    /// 자리에서 **옆으로** 뻗어 나간다. 곰 젤리 다섯을 눕혔더니 접시
+    /// 한쪽에 무더기로 쏠리고 제 그림자에서 떨어져 나왔던 게 그것이다.
+    ///
+    /// 치수를 표에 적어 두면 모델이나 각을 바꿀 때마다 같이 고쳐야 한다.
+    /// 그러지 말고 **놓아 보고 재서** 바닥은 접시에 닿게, 가운데는
+    /// 겨눈 자리에 오게 옮긴다. 어떤 모델을 어떻게 돌려 놓아도 맞는다.
+    /// </summary>
+    private static void SitOnPlate(Transform group, string name, Vector3 at)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            bool m = i == 1;
+            Transform t = group.Find((m ? "M_" : "R_") + name);
+            if (t == null) continue;
+
+            Renderer[] rs = t.GetComponentsInChildren<Renderer>(true);
+            if (rs.Length == 0) continue;
+
+            Bounds b = rs[0].bounds;
+            for (int k = 1; k < rs.Length; k++) b.Encapsulate(rs[k].bounds);
+
+            // 경계는 월드 기준이다. 리그 밑으로 가져와서 견준다.
+            Vector3 lo  = group.InverseTransformPoint(b.min);
+            Vector3 hi  = group.InverseTransformPoint(b.max);
+            Vector3 mid = (lo + hi) * 0.5f;
+
+            // 겨눈 자리도 거울 쪽은 뒤집힌 z 다 (BothModel 과 같은 규칙).
+            t.localPosition += new Vector3(at.x - mid.x,
+                                           at.y - Mathf.Min(lo.y, hi.y),
+                                           Z(at.z, m) - mid.z);
+        }
+    }
+
     private Transform PlateGroup(Transform room, string name)
     {
         GameObject go = new GameObject(name);
@@ -1624,8 +1690,21 @@ public class MirrorRig : MonoBehaviour
                           JellyColors[(i + 1) % JellyColors.Length], 0f, fs.smooth)
                     : null;
                 BothModel(g, "Models/" + fs.model, mat,
-                          at, a * Mathf.Rad2Deg + fs.pYaw,
+                          at, new Vector3(fs.pPitch,
+                                          a * Mathf.Rad2Deg + fs.pYaw, 0f),
                           Vector3.one * fs.pSize, fs.model + i);
+                // 접시에 **앉힌다.**
+                //
+                // 모델 원점은 바닥이라 세워 둘 땐 그냥 놓으면 맞았다.
+                // 그런데 눕히면(pPitch) 원점을 축으로 도는 바람에 몸의
+                // 절반이 접시 아래로 들어간다. 누운 곰 젤리가 접시에
+                // 반쯤 잠겨 보이던 게 그것이다.
+                //
+                // 치수를 표에 적어 두면 모델이나 크기를 바꿀 때마다
+                // 같이 고쳐야 한다. 그러지 말고 **놓아 보고 재서**
+                // 내려앉은 만큼 들어 올린다. 그러면 어떤 모델을 어떻게
+                // 돌려 놓아도 바닥이 접시에 닿는다.
+                SitOnPlate(g, fs.model + i, at);
                 ContactShadow(g, at + new Vector3(0f, 0.0005f, 0f),
                               fs.pSize * 0.9f, fs.pSize * 0.9f,
                               plateColor, fs.model + "Shadow" + i);
@@ -5634,6 +5713,24 @@ public class MirrorRig : MonoBehaviour
 
         List<Vector3> v = new List<Vector3>();
         src.GetVertices(v);
+
+        // **메시를 못 읽으면 여기서 멈춘다.**
+        //
+        // Read/Write 가 꺼진 메시는 에디터에서는 멀쩡히 읽히고 폰에서만
+        // 빈 배열이 온다. 그대로 두면 깨문 자리가 빈 메시로 만들어지고,
+        // SetBiteStage 가 그 빈 메시를 끼워 넣어 **음식이 통째로 사라진다.**
+        // 폰에서 사과만 "손에 안 집힌다" 던 게 이것이었다 — 집긴 집는데
+        // 집을 물건이 안 보였다.
+        //
+        // 같은 함정에 오늘만 두 번 빠졌다(Person.fbx 의 BuildFlex). 그래서
+        // 이번엔 조용히 넘어가지 않고, 깎기를 포기해 **통사과로라도 남기고**
+        // 화면에 띄운다. 씹는 자국이 없는 것이 음식이 없는 것보다 낫다.
+        if (v.Count == 0)
+        {
+            Debug.LogError("[MirrorRig] " + fs.model
+                + " 메시를 못 읽는다 (Read/Write 꺼짐). 깨문 자국 없이 간다.");
+            return;
+        }
         List<int> tri = new List<int>();
         List<int> sub = new List<int>();
         for (int sm = 0; sm < subs; sm++)
@@ -5866,9 +5963,12 @@ public class MirrorRig : MonoBehaviour
     /// 쟀을 때의 반높이를 쓰면 접시에 박힌다 — 눕힌 고기는 반두께가
     /// 0.5 cm 인데, 세우고 나면 4.3 cm 가 필요하다.
     /// </summary>
-    private static float SitHeight(FoodItem it, FoodSpec fs)
+    /// <param name="tiltDeg">
+    /// 지금 세워져 있는 각. 접시 위에서는 0 이다 — 고기는 들 때만 세운다.
+    /// </param>
+    private static float SitHeight(FoodItem it, float tiltDeg)
     {
-        float r = fs.tilt * Mathf.Deg2Rad;
+        float r = tiltDeg * Mathf.Deg2Rad;
         return Mathf.Abs(Mathf.Cos(r)) * it.half.y + Mathf.Abs(Mathf.Sin(r)) * it.half.z;
     }
 
@@ -5931,10 +6031,6 @@ public class MirrorRig : MonoBehaviour
         // 거울도, 거울 속 사람의 자세도, 치과의가 들어오는 방향도 한꺼번에 따라온다.
         // 반사 계산은 전부 리그 좌표라서 젖혀도 그대로 성립한다.
         transform.rotation = baseRot * Quaternion.Euler(-spec.pitch, 0f, 0f);
-
-        if (label != null)
-            label.transform.localPosition =
-                new Vector3(0f, spec.centerY - (spec.Height * 0.5f + 0.085f), D - 0.02f);
 
         // 치과 도구도 둘 중 하나만 든다.
         bool atDentist = s == Scenario.Dental;
@@ -6014,15 +6110,11 @@ public class MirrorRig : MonoBehaviour
         if (dentist != null) dentist.reach.Rest();
         if (nearDentist != null) nearDentist.reach.Rest();
 
-        ShowLabel(s);
     }
 
     private void LateUpdate()
     {
         TrackViewer();
-
-        if (label != null && label.gameObject.activeSelf && Time.time > labelUntil)
-            label.gameObject.SetActive(false);
 
         // 상황을 안 켠 거울 앞에서도 사람은 눈을 깜빡인다. elapsed 는
         // 상황이 켜진 동안만 흐르므로 얼굴은 제 시계로 돈다.
@@ -6341,13 +6433,19 @@ public class MirrorRig : MonoBehaviour
     /// 먹을 때 실제로 하는 짓이기도 하다 — 한 입 베고 손을 내리면서
     /// 베어 문 자리를 들여다본다.
     /// </summary>
-    private Quaternion FoodSpin(FoodSpec fs, float toMouth)
+    /// <param name="stand01">
+    /// 0 이면 눕힌 채, 1 이면 FoodSpec.tilt 만큼 세운 채. 접시에서 집어
+    /// 올리는 동안 0 에서 1 로 간다 — 그래야 고기가 눕다가 서는 것이
+    /// 보이고, 들어 올리는 순간 툭 튀지 않는다.
+    /// </param>
+    private Quaternion FoodSpin(FoodSpec fs, float toMouth, float stand01)
     {
         // 세우기는 **돌리기 바깥**에 건다. Euler(tilt,0,0) * Euler(0,yaw,0)
         // 은 모델 좌표에서 먼저 돌리고 나서 세우는 것이라, 90° 세운 음식은
         // 제 앞면을 거울에 둔 채 그 자리에서 뱅글뱅글 돈다. 순서를 뒤집으면
         // 세운 것이 Y 축으로 돌아 반 바퀴마다 두께만 보인다.
-        Quaternion stand = Quaternion.Euler(fs.tilt, 0f, 0f);
+        Quaternion stand = Quaternion.Euler(fs.tilt * Mathf.Clamp01(stand01),
+                                            0f, 0f);
 
         // 깨문 자리를 파지 않는 음식은 돌려 봐야 보여 줄 자리가 없다.
         if (!fs.carve || foodNow == null || foodNow.stage <= 0)
@@ -6403,8 +6501,12 @@ public class MirrorRig : MonoBehaviour
         // 안 보였다는 뜻이다. 음식의 원점은 한가운데니까(BuildFoodItem),
         // 접시 바닥에 올려놓으려면 거기에 반높이를 더한다.
         float plateFloor = tableTopY + 0.010f;
+        // 접시 위에서는 **눕혀 둔다** (세운 각 0). 고기는 들 때 90도로
+        // 세우는데(FoodSpec.tilt), 그 각을 접시에까지 쓰면 두툼한 고기가
+        // 접시 위에 모로 **세워져** 있다. 접시에 깔아 두던 셋을 치우고
+        // 나니 그 한 덩이가 접시 한가운데 칼처럼 꽂혀 있었다.
         Vector3 plateRig = new Vector3(
-            -0.13f, plateFloor + SitHeight(foodNow, fs), 2f * D - (D - 0.25f));
+            -0.13f, plateFloor + SitHeight(foodNow, 0f), 2f * D - (D - 0.25f));
         Vector3 plateLocal = toolRoot.InverseTransformPoint(transform.TransformPoint(plateRig));
 
         // 음식의 원점은 한가운데라, 입술 지점에 그대로 놓으면 절반이 얼굴에 박힌다.
@@ -6434,7 +6536,7 @@ public class MirrorRig : MonoBehaviour
             food.transform.localPosition = plateLocal;
             // 접시에서 기다릴 땐 패인 쪽을 거울로 둔다. 어차피 아무
             // 쪽이나 될 자리고, 몇 입 먹었는지 눈에 보이는 쪽이 낫다.
-            food.transform.localRotation = FoodSpin(fs, 0f);
+            food.transform.localRotation = FoodSpin(fs, 0f, 0f);
             SetMouth(0f);
             Contact = 0f;
             FoodLeft = 1f;
@@ -6447,6 +6549,8 @@ public class MirrorRig : MonoBehaviour
         // 패인 쪽이 입을 보는 정도. 입으로 올리는 동안 돌려서 대고,
         // 씹으려고 내리는 동안 도로 거울 쪽으로 돌린다 (FoodSpin).
         float toMouth;
+        // 접시에서는 눕혀 두고 들어 올리면서 세운다 (FoodSpin 의 stand01).
+        float stand01;
 
         if (u < ApproachTime)
         {
@@ -6455,6 +6559,7 @@ public class MirrorRig : MonoBehaviour
             food.transform.localPosition =
                 Vector3.Lerp(plateLocal, rest, Ease(u / ApproachTime));
             toMouth = Ease(u / ApproachTime);
+            stand01 = toMouth;        // 올라오면서 선다
             // 치과에 맞춰 최대 벌림을 키웠더니(SetMouth 참고) 음식 쪽은 밥 먹는
             // 입이 아니라 비명 지르는 입이 됐다. 음식은 그 절반쯤이면 된다.
             // 얼마나 벌리는지도 음식마다 다르다 — 알사탕에 입을 크게
@@ -6475,6 +6580,7 @@ public class MirrorRig : MonoBehaviour
             Contact = 1f;
             FoodLeft = 1f;
             toMouth = 1f;   // 패인 쪽이 입에 닿아 있다
+            stand01 = 1f;
         }
         else
         {
@@ -6519,6 +6625,7 @@ public class MirrorRig : MonoBehaviour
             // 손을 내리면서 베어 문 자리를 들여다본다 — 패인 쪽이
             // 입에서 거울 쪽으로 돌아 나온다.
             toMouth = 1f - Ease(Mathf.Clamp01(c / Mathf.Max(fs.chew, 1e-3f)));
+            stand01 = 1f;   // 손에 든 동안은 계속 세워 둔다
 
             // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
             SetMouth(chewing ? ChewJawOf(foodKind, c) : 0f);
@@ -6545,7 +6652,7 @@ public class MirrorRig : MonoBehaviour
             }
         }
 
-        food.transform.localRotation = FoodSpin(fs, toMouth);
+        food.transform.localRotation = FoodSpin(fs, toMouth, stand01);
 
         // 남이 먹여 주는 게 아니라 제 손으로 먹는다. 음식이 보이는 동안만 팔을 올린다.
         if (selfArm != null)
@@ -6607,116 +6714,6 @@ public class MirrorRig : MonoBehaviour
             }
             else selfArm.Rest();
         }
-    }
-
-    // ───────────────────────── 안내 글자 ─────────────────────────
-
-    /// <summary>
-    /// 한글 대신 영어를 쓴다. 내장 폰트에 한글 글리프가 없어 기기에서 네모로 나올 수 있는데,
-    /// 그걸 빌드해서 폰에 올려 보기 전에는 알 수 없다.
-    /// </summary>
-    private void BuildLabel()
-    {
-        GameObject go = new GameObject("Label");
-        go.transform.SetParent(transform, false);
-        // 거울 아래 벽에 붙인다. 거울 안에 두면 머리를 가리고, 틀에 걸쳐 두면 잘린다.
-        // 거울 크기가 상황마다 달라서 자리는 ShowScenario 가 다시 잡는다.
-        go.transform.localPosition = new Vector3(0f, -0.40f, D - 0.02f);
-        go.transform.localScale = Vector3.one;
-
-        label = go.AddComponent<TextMesh>();
-        label.anchor = TextAnchor.MiddleCenter;
-        label.alignment = TextAlignment.Center;
-        // TextMesh 의 글자 높이는 대략 fontSize * characterSize / 10 월드 단위다.
-        // 100 x 0.004 → 4cm, 0.43m 거리에서 5도쯤 되어 읽힌다.
-        label.fontSize = 100;
-        label.characterSize = 0.0032f;
-        label.color = Color.white;
-
-        Font f = null;
-        try { f = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"); }
-        catch { }
-        if (f == null) { try { f = Resources.GetBuiltinResource<Font>("Arial.ttf"); } catch { } }
-
-        if (f != null)
-        {
-            label.font = f;
-            go.GetComponent<MeshRenderer>().sharedMaterial = f.material;
-        }
-        else Debug.LogWarning("[MirrorRig] 기본 폰트를 못 찾아 안내 글자가 안 보인다");
-
-        // 글자에 **외곽선**을 두른다.
-        //
-        // 흰 글자만 띄우면 배경이 밝을 때 사라진다. 치과 화면은 아래가 흰
-        // 기기 패널이라 「DENTAL DRILL」이 반쪽만 보였고, 조명을 밝힌
-        // 뒤로 더 심해졌다.
-        //
-        // 처음엔 뒤에 어두운 판을 깔았다. 그런데 TextMesh 는 한 번 그려
-        // 보기 전에는 경계 상자를 안 알려 줘서 판 크기를 글자 수로
-        // 짐작해야 했고, 세로로 계속 어긋났다. 같은 글자를 어두운 색으로
-        // 네 방향에 격자 넣어 깔면 크기를 재지 않고도 **글자 모양에**
-        // 정확히 붙는다. 자막이 밝은 화면 위에서도 읽히는 원리다.
-        float em = label.fontSize * label.characterSize / 10f;
-        float off = em * 0.075f;
-        Vector2[] dirs = {
-            new Vector2(-1f, 0f), new Vector2(1f, 0f),
-            new Vector2(0f, -1f), new Vector2(0f, 1f),
-        };
-        labelEdge = new TextMesh[dirs.Length];
-        for (int i = 0; i < dirs.Length; i++)
-        {
-            GameObject eg = new GameObject("LabelEdge" + i);
-            eg.transform.SetParent(go.transform, false);
-            // 살짝 뒤로 밀어야 흰 글자가 위에 그려진다.
-            eg.transform.localPosition =
-                new Vector3(dirs[i].x * off, dirs[i].y * off, 0.0006f);
-            TextMesh t = eg.AddComponent<TextMesh>();
-            t.anchor = label.anchor;
-            t.alignment = label.alignment;
-            t.fontSize = label.fontSize;
-            t.characterSize = label.characterSize;
-            t.color = new Color(0.03f, 0.03f, 0.05f);
-            if (f != null)
-            {
-                t.font = f;
-                eg.GetComponent<MeshRenderer>().sharedMaterial = f.material;
-            }
-            eg.GetComponent<MeshRenderer>().shadowCastingMode =
-                UnityEngine.Rendering.ShadowCastingMode.Off;
-            labelEdge[i] = t;
-        }
-
-        go.SetActive(false);
-    }
-
-    private void ShowLabel(Scenario s)
-    {
-        if (label == null) return;
-
-        string text;
-        switch (s)
-        {
-            case Scenario.Food:
-                text = "EATING  (" + SpecOf(foodKind).label + ")";
-                break;
-            case Scenario.Dental:
-                text = dentalKind == DentalKind.Brush ? "TOOTHBRUSH" : "DENTAL DRILL";
-                break;
-            default:
-                text = "";
-                break;
-        }
-
-        // 한때 여기에 ToolModels.BaseShaderName 을 같이 찍었다. 폰에서 화면이
-        // 통째로 분홍색으로 나왔을 때 어느 셰이더가 잡혔는지 보려던 것인데,
-        // 11/5 빌드에서 세 장면 다 정상으로 확인돼서 뺀다. 또 분홍색이 나오면
-        // 그 프로퍼티를 다시 여기에 붙여 보면 된다.
-        label.text = text;
-        label.gameObject.SetActive(text.Length > 0);
-        if (labelEdge != null)
-            foreach (TextMesh t in labelEdge)
-                if (t != null) t.text = text;
-        labelUntil = Time.time + 2f;
     }
 
     /// <summary>에디터 프리뷰에서도 쓰므로 Destroy 를 그대로 부르면 안 된다.</summary>

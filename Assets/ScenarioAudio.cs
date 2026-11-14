@@ -53,6 +53,13 @@ public static class ScenarioAudio
     // 이어지는 소리는 1 초를 만들어 돌려 쓴다.
     private const int LoopLen = Rate;
 
+    /// <summary>
+    /// 칫솔질 왕복 횟수 (초당). 소리와 진동이 **같은 박자**로 가도록
+    /// 양쪽이 이 값을 쓴다. 1 초 고리에 정수 번 들어가야 이어 붙인
+    /// 자리에서 박자가 안 튄다.
+    /// </summary>
+    public const float StrokeHz = 3f;
+
     private static AudioSource loopSrc;   // 드릴·칫솔
     private static AudioSource shotSrc;   // 깨무는 소리
     private static AudioClip drillClip, brushClip;
@@ -202,26 +209,40 @@ public static class ScenarioAudio
     }
 
     /// <summary>
-    /// 칫솔 — 둔한 모터 웅웅거림 + 솔이 이를 긁는 소리.
+    /// 칫솔 — **쓱쓱**. 솔이 이를 왕복으로 쓸고 지나가는 소리.
     ///
-    /// 드릴과 **같은 축에서 반대쪽**이어야 두 수준이 갈린다. 드릴이
-    /// 높고 날카로우면 칫솔은 낮고 둔하다.
+    /// 전에는 230 Hz 모터 배음을 깔았다. 그게 전동칫솔 소리였다 —
+    /// 모터를 작게 줄여도 음정이 있는 소리가 깔려 있으면 귀는 그걸
+    /// 기계로 듣는다. 손으로 닦는 칫솔에는 **음정이 없다.** 그래서
+    /// 사인을 한 줄도 안 쓴다. 전부 잡음이다.
+    ///
+    /// "쓱쓱" 을 만드는 건 음색이 아니라 **왕복**이다. 솔이 지나갈 때
+    /// 커졌다가 방향을 바꾸며 잦아든다. 그 리듬을 |sin| 으로 씌운다 —
+    /// 한 번의 |sin| 산이 한 번의 쓱이다.
+    ///
+    /// 초당 StrokeHz 번 쓴다. 1 초 고리에 정수 번 들어가므로 이어
+    /// 붙여도 박자가 안 어긋난다. 진동도 같은 값을 쓴다
+    /// (ExperimentController) — 소리는 쓱쓱인데 손은 딴 박자로 떨면
+    /// 그 어긋남이 바로 "가짜" 로 읽힌다.
     /// </summary>
     private static AudioClip BuildBrush()
     {
         float[] b = new float[LoopLen];
         System.Random rng = new System.Random(260);
 
-        // 230 Hz 모터. 배음을 1/n 로 쌓으면 사인보다 거칠어져서 플라스틱
-        // 통 안에서 도는 모터처럼 들린다. **전보다 작게** 깔았다 —
-        // 모터가 크면 전동칫솔이 되는데, 진동 쪽에서 그 느낌을 빼기로
-        // 했으니(ExperimentController.BrushAmp) 소리도 같이 가야 한다.
-        for (int h = 1; h <= 5; h++)
-            AddSine(b, 230 * h, 0.24f / h, h * 0.17f);
+        // 솔이 법랑질을 긁는 소리. 이게 전부다.
+        AddNoise(b, 1800, 7000, 0.62f, rng);   // 솔끝의 사각거림
+        AddNoise(b, 250, 900, 0.22f, rng);     // 잇몸에 눌리는 둔한 몸통
 
-        // 솔이 이를 쓸고 지나가는 소리. 이쪽이 주인공이다.
-        AddNoise(b, 900, 6500, 0.56f, rng);
-        AddNoise(b, 120, 500, 0.14f, rng);
+        // 왕복을 씌운다. 0 까지 안 내린다 — 완전히 끊으면 쓱쓱이 아니라
+        // 뚝뚝 끊기는 소리가 된다. 솔은 방향을 바꾸는 순간에도 이에
+        // 닿아 있다.
+        for (int i = 0; i < b.Length; i++)
+        {
+            float t = (float)i / Rate;
+            float stroke = Mathf.Abs(Mathf.Sin(Mathf.PI * StrokeHz * t));
+            b[i] *= 0.16f + 0.84f * stroke;
+        }
 
         return Clip("Toothbrush", b);
     }
