@@ -136,7 +136,7 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1115-F";
+    public const string BuildStamp = "1115-G";
 
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다 — 설정창을 건너뛴다. " +
              "꺼 두면 설정창(runPatternTest)이 먼저 나오고, 거기서 " +
@@ -144,7 +144,7 @@ public class ExperimentController : MonoBehaviour
     public bool goStraightToMirror = false;
 
     [Tooltip("VR 화면 안에 상태를 표시한다 (iOS 는 로그를 볼 수 없으므로 필요)")]
-    public bool showHud = true;
+    public bool showHud = false;
 
     [Header("진동 패턴 (패턴 확인 모드에서만 쓴다)")]
     // 조원 원본 ExperimentController 의 기본값과 같은 값이다. 본 실험(Case 1/2/3)은
@@ -551,7 +551,17 @@ public class ExperimentController : MonoBehaviour
 
     // ───────────────────── 거울 씬 (새 주제) ─────────────────────
 
+    /// <summary>
+    /// 칫솔 진동의 바탕 세기 (드릴 대비). **전동칫솔이 아니다.**
+    ///
+    /// 11/15 까지 드릴과 같은 세기로 울려서 "진동칫솔" 로 느껴졌다.
+    /// 솔이 이를 쓸고 지나가는 "샤샥" 은 세기가 아니라 **박자**가
+    /// 만든다 — 세기를 낮추고 보이는 솔질에 맞춰 오르내리게 한다.
+    /// </summary>
+    private const float BrushAmp = 0.34f;
+
     private bool scenarioBuzzing;
+    private int lastChewBeat;        // 지난 프레임의 MirrorRig.ChewBeat
     private int crunchSeed;
     private float prevMouth;      // 지난 프레임의 입 벌림 — 닫히는 속도를 잰다
     private float chewLevel;      // 씹는 소리의 세기. 빨리 오르고 천천히 꺼진다
@@ -696,8 +706,18 @@ public class ExperimentController : MonoBehaviour
 
         if (rig.Current == MirrorRig.Scenario.Food)
         {
-            // 씹기는 지속 진동이 아니라 짧은 탁이 여러 번이다. 닿는 순간 한 번만 쏜다.
-            if (touching && !scenarioBuzzing)
+            // 씹기는 지속 진동이 아니라 짧은 탁이 여러 번이다.
+            //
+            // **닿는 순간 한 번**만 쏘던 것을 고쳤다. 4~11 ms 짜리 탁
+            // 몇 개는 한 번 스치면 끝이라, 폰에서는 "먹을 때 진동이
+            // 없다" 로 느껴졌다. 이제 깨무는 순간에 한 번 크게 울리고,
+            // 그 뒤로 **이가 맞물릴 때마다** (MirrorRig.ChewBeat) 다시
+            // 울린다. 보이는 턱과 박자가 같다.
+            bool firstBite = touching && !scenarioBuzzing;
+            bool beat = touching && rig.ChewBeat != lastChewBeat;
+            lastChewBeat = rig.ChewBeat;
+
+            if (firstBite || beat)
             {
                 crunchSeed++;
 
@@ -706,13 +726,26 @@ public class ExperimentController : MonoBehaviour
                 // 두 파일에서 따로 굴러간다 — 다섯 가지가 되면서 값을 음식
                 // 표 한 군데로 모았다. BuildCrunch 주석의 기준(과자 4~6,
                 // 사과 2~3, 얼음 1~2)은 그 표에 그대로 들어가 있다.
-                int peak = Mathf.Max(
-                    1, Mathf.RoundToInt(waveHighAmplitude * rig.FoodPeakScale));
+                // 처음 깨물 때가 가장 세고, 오물거릴수록 잦아든다.
+                // 음식이 줄어드는 것을 세기로 낸다 (MirrorRig.FoodLeft) —
+                // 입에 가득할 때와 거의 다 먹었을 때가 같게 느껴지면
+                // 먹는 게 아니라 모터가 도는 것이다.
+                float strength = firstBite ? 1f : 0.28f + 0.72f * rig.FoodLeft;
 
-                ScenarioHaptics.PlayCrunch(rig.FoodFragments, peak, crunchSeed);
+                int peak = Mathf.Clamp(Mathf.RoundToInt(
+                    waveHighAmplitude * rig.FoodPeakScale * strength), 1, 255);
+
+                // 조각 수도 같이 준다. 다 부서진 뒤에 처음처럼 여러
+                // 조각이 깨지면 입 안에 없는 것이 깨지는 셈이다.
+                int frags = firstBite
+                          ? rig.FoodFragments
+                          : Mathf.Max(1, Mathf.RoundToInt(
+                                rig.FoodFragments * (0.35f + 0.65f * rig.FoodLeft)));
+
+                ScenarioHaptics.PlayCrunch(frags, peak, crunchSeed);
                 // **같은 세 값**을 소리 쪽에도 넘긴다. 그래야 조각이 터지는
                 // 시각과 세기가 글자 그대로 같아진다 (ScenarioAudio 주석).
-                ScenarioAudio.PlayCrunch(rig.FoodFragments, peak, crunchSeed,
+                ScenarioAudio.PlayCrunch(frags, peak, crunchSeed,
                                          rig.FoodBrightness);
             }
             scenarioBuzzing = touching;
@@ -736,9 +769,24 @@ public class ExperimentController : MonoBehaviour
         }
 
         // 치과는 지속 진동. 닿아 있는 동안만 켠다.
+        bool isBrush = rig.CurrentDental == MirrorRig.DentalKind.Brush;
         if (touching)
         {
-            HapticManager.SetContinuous(Mathf.Clamp(waveHighAmplitude, 1, 255));
+            // 드릴은 한 세기로 계속 간다 — 실제로 그렇다.
+            // 칫솔은 아니다. 솔이 좌우로 쓸리는 박자(AnimateDental 의
+            // 2.2)에 맞춰 세기가 오르내리고, 그 위에 솔이 이를 넘는
+            // 잔 떨림(같은 곳의 13)을 얹는다. 보이는 움직임과 **같은
+            // 두 수**를 쓰므로 눈과 손이 어긋날 수가 없다.
+            float amp = 1f;
+            if (isBrush)
+            {
+                float t2 = rig.Seconds;
+                float stroke = Mathf.Abs(Mathf.Sin(t2 * 2.2f));
+                float grain = 0.82f + 0.18f * Mathf.Sin(t2 * 13f);
+                amp = BrushAmp * (0.30f + 0.70f * stroke) * grain;
+            }
+            HapticManager.SetContinuous(Mathf.Clamp(
+                Mathf.RoundToInt(waveHighAmplitude * amp), 1, 255));
             scenarioBuzzing = true;
         }
         else if (scenarioBuzzing)
@@ -749,7 +797,7 @@ public class ExperimentController : MonoBehaviour
 
         // 소리도 닿아 있는 동안만. 드릴은 댔다 뗐다 하므로 뗀 동안은
         // 소리도 같이 멎는다 — 진동이 멎는 바로 그 순간이다.
-        bool brush = rig.CurrentDental == MirrorRig.DentalKind.Brush;
+        bool brush = isBrush;
         float level = 0f;
         if (touching)
         {

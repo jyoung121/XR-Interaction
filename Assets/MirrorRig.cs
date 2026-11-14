@@ -52,7 +52,12 @@ public class MirrorRig : MonoBehaviour
         public int bites;        // 1 = 한 입에 통째로, 2 이상 = 그 횟수에 걸쳐
         public bool carve;       // 깨문 자리를 파낼지 (안 파면 작아지기만 한다)
         public float hold;       // 입에 닿아 있는 시간 (s)
-        public float chew;       // 씹는 시간 (s)
+        // 씹는 시간 (s). **다섯 다 5 초를 넘긴다** — 11/15 에 폰에서
+        // 보니 집어 들자마자 삼키는 것으로 보였다. 서로 다른 순서
+        // (푸딩 5.0 < 사탕 5.4 < 사과 6.0 < 젤리 6.6 < 고기 8.0)는
+        // 그대로 뒀다. 이 연구가 재는 건 절대 길이가 아니라 다섯이
+        // 서로 다르다는 것이고, 진동(frags·peak)도 같은 순서다.
+        public float chew;
         public float rate;       // 오물거리는 속도
         public float depth;      // 오물거리는 폭
         public float open;       // 입을 벌리는 정도 (0~1)
@@ -94,7 +99,7 @@ public class MirrorRig : MonoBehaviour
         // 사과 — 아삭 부서진다. 네 입에 걸쳐 먹고 깨문 자리가 패인다.
         new FoodSpec { model = "Apple", label = "APPLE",
                        size = 0.075f, bites = 4, carve = true,
-                       hold = 0.50f, chew = 1.90f, rate = 12f, depth = 0.20f,
+                       hold = 0.50f, chew = 6.00f, rate = 12f, depth = 0.20f,
                        open = 0.55f, spin = 26f, tilt = 0f, smooth = 0.58f,
                        grip = 0f, curl = 42f, thumb = 46f, fold = 78f,
                        frags = 3, peak = 1.00f, bright = 0.70f,
@@ -110,7 +115,7 @@ public class MirrorRig : MonoBehaviour
         // 고리 안에 묻혀 손가락 뒤로 사라진다.
         new FoodSpec { model = "GummyBear", label = "JELLY",
                        size = 0.072f, bites = 1, carve = false,
-                       hold = 0.70f, chew = 2.40f, rate = 8f, depth = 0.14f,
+                       hold = 0.70f, chew = 6.60f, rate = 8f, depth = 0.14f,
                        open = 0.45f, spin = 22f, tilt = 0f, smooth = 0.74f,
                        grip = 0f, curl = 63f, thumb = 67f, fold = 101f,
                        frags = 2, peak = 0.55f, bright = 0.25f,
@@ -125,7 +130,7 @@ public class MirrorRig : MonoBehaviour
         // 납작한 조각이라 구를 파면 구멍이 뚫린다(PrepareBites 주석).
         new FoodSpec { model = "Steak", label = "MEAT",
                        size = 0.085f, bites = 3, carve = false,
-                       hold = 0.60f, chew = 3.40f, rate = 6f, depth = 0.17f,
+                       hold = 0.60f, chew = 8.00f, rate = 6f, depth = 0.17f,
                        open = 0.60f, spin = 18f, tilt = 90f, smooth = 0.26f,
                        grip = 0.023f, curl = 40f, thumb = 44f, fold = 74f,
                        frags = 2, peak = 0.70f, bright = 0.18f,
@@ -137,7 +142,7 @@ public class MirrorRig : MonoBehaviour
         // 다섯 중 아래 끝을 잡아 주는 조건이다.
         new FoodSpec { model = "Flan", label = "PUDDING",
                        size = 0.070f, bites = 1, carve = false,
-                       hold = 0.80f, chew = 1.10f, rate = 5f, depth = 0.09f,
+                       hold = 0.80f, chew = 5.00f, rate = 5f, depth = 0.09f,
                        open = 0.45f, spin = 14f, tilt = 0f, smooth = 0.55f,
                        grip = 0.024f, curl = 46f, thumb = 50f, fold = 80f,
                        frags = 1, peak = 0.30f, bright = 0.08f,
@@ -156,7 +161,7 @@ public class MirrorRig : MonoBehaviour
                        // 0.22 를 더했다 빼면 주기의 절반이 0 으로 잘려 나가
                        // (SetMouth 가 0~1 로 묶는다) 턱이 다물린 채 떨리는 것
                        // 처럼 보인다. 날카로움은 폭이 아니라 rate 가 맡는다.
-                       hold = 0.35f, chew = 1.50f, rate = 14f, depth = 0.12f,
+                       hold = 0.35f, chew = 5.40f, rate = 14f, depth = 0.12f,
                        open = 0.32f, spin = 40f, tilt = 90f, smooth = 0.86f,
                        grip = 0.026f, curl = 44f, thumb = 48f, fold = 78f,
                        frags = 4, peak = 1.00f, bright = 1.00f,
@@ -332,6 +337,7 @@ public class MirrorRig : MonoBehaviour
     // 깨무는 순간을 한 번만 세려고 둔다. 몇 입에 걸쳐 먹는지는 음식마다
     // 다르므로(FoodSpec.bites) 단계 수는 여기 두지 않는다.
     private int biteCycle = -1;
+    private int chewBeatAt = -1;   // 지난 프레임의 씹기 박자 번호 (ChewBeat)
     private float mouthOpen;
 
     // 눈꺼풀 두 짝 (0 = 왼쪽, x<0). 모델에 눈 뼈도 블렌드셰이프도 없어서
@@ -355,6 +361,22 @@ public class MirrorRig : MonoBehaviour
     private const float LipBulge = 0.0018f;  // 입술을 앞으로 내미는 양
     private Quaternion pivToMesh = Quaternion.identity;  // headPivot → 원본 메시 좌표
     private bool pivToMeshOK;
+
+    /// <summary>
+    /// headPivot 한 칸이 원본 메시 좌표로 몇 칸인가. **100 쯤 된다.**
+    ///
+    /// pivToMesh 는 노멀을 되돌리려고 만든 회전이라 길이를 안 들고 있다.
+    /// 노멀은 단위벡터니 그걸로 충분했는데, 윗입술을 앞으로 내미는
+    /// 1.8 mm 짜리 **자리 옮김**에까지 같은 회전을 썼다. 회전만 태우면
+    /// 1.8 mm 가 메시 좌표의 1.8 mm 로 들어가고, 스키닝이 거기에 배율을
+    /// 다시 곱해 **18 cm** 가 된다 — 11/15 에 얼굴에서 앞으로 뻗어
+    /// 나온 그 막대다. 재어 보니 깊이 18.5 cm 였다.
+    ///
+    /// BuildFlex 는 같은 함정을 이미 한 번 밟고 행렬로 바꿔 피했다
+    /// ("4 mm 를 밀었는데 5 cm 가 나간 이유"). 여기는 회전을 남겨 두는
+    /// 대신 길이를 따로 재서 나눈다.
+    /// </summary>
+    private float pivPerMesh = 1f;
     private const float LipBand = 0.0095f;   // 다문 선에서 입술 끝까지
     private GameObject food;          // 둘 중 지금 켜져 있는 쪽
     private float tableTopY;          // 집 식탁 상판 높이. 음식이 여기 놓인다
@@ -496,6 +518,29 @@ public class MirrorRig : MonoBehaviour
     /// 넘겨주면, 보이는 턱과 들리는 소리가 어긋날 길이 없다.
     /// </summary>
     public float MouthOpen { get { return mouthOpen; } }
+
+    /// <summary>
+    /// 씹으면서 **이가 맞물린 횟수.** 한 번 늘 때마다 진동을 한 번 쏜다.
+    ///
+    /// 11/15 까지는 입에 닿는 **순간에만** 한 다발 울리고 씹는 내내
+    /// 아무것도 없었다. 폰에서 "음식 먹을 때 진동이 없다" 고 느낀 게
+    /// 그래서다 — 4~11 ms 짜리 탁 몇 개는 한 번 스치면 끝이다.
+    ///
+    /// 박자를 여기서 세는 이유는 소리 쪽과 같다(ScenarioAudio.ChewLevel).
+    /// 오물거리는 속도는 음식마다 다른데(FoodSpec.rate 5~14), 진동 쪽에서
+    /// 같은 식을 또 세우면 한쪽만 고쳤을 때 보이는 턱과 어긋난다.
+    /// **보이는 턱이 닫힐 때 울린다** — 그 한 줄이 여기 있다.
+    /// </summary>
+    public int ChewBeat { get; private set; }
+
+    /// <summary>
+    /// 지금 입에 남은 양 (1 가득 ~ 0 다 먹음).
+    ///
+    /// 진동 세기를 여기에 물린다. 처음 깨물 때가 가장 세고 오물거릴수록
+    /// 잦아든다. 여러 입에 걸쳐 먹는 것(사과·고기)은 뒤 입일수록 손에
+    /// 남은 조각이 작으니 거기서 한 번 더 깎인다.
+    /// </summary>
+    public float FoodLeft { get; private set; }
 
     /// <summary>
     /// 거울 속 사람의 두 눈 한가운데 (리그 좌표).
@@ -3310,6 +3355,21 @@ public class MirrorRig : MonoBehaviour
                     pivToMesh = back;   // back 이 곧 headPivot → 메시 다
                     pivToMeshOK = true;
 
+                    // 길이 배율도 같이 잰다. 가장 멀리 떨어진 두 점으로
+                    // 재야 꼭짓점 좌표의 반올림 오차에 안 휘둘린다.
+                    float bestD = 0f, sc = 0f;
+                    for (int a2 = 0; a2 < cand.Count; a2++)
+                        for (int b2 = a2 + 1; b2 < cand.Count; b2++)
+                        {
+                            float dm = (V[cand[a2]] - V[cand[b2]]).magnitude;
+                            if (dm <= 1e-9f || dm <= bestD) continue;
+                            bestD = dm;
+                            sc = (P[cand[a2]] - P[cand[b2]]).magnitude / dm;
+                        }
+                    pivPerMesh = sc > 1e-6f ? sc : 1f;
+                    Debug.Log("[MirrorRig] 메시↔머리 길이 배율 "
+                              + pivPerMesh.ToString("F2"));
+
                     float worst = 0f;
                     for (int t = 0; t < cand.Count; t++)
                         worst = Mathf.Max(worst, Vector3.Angle(back * PN[cand[t]], N[cand[t]]));
@@ -3671,8 +3731,12 @@ public class MirrorRig : MonoBehaviour
                         Vector3 p = v[srcI];
                         // 입술을 앞으로 내미는 건 headPivot 좌표의 +Z 다.
                         // 메시 좌표로는 방향이 달라서 회전을 태워 보낸다.
+                        // **배율을 나눠서** 메시 단위로 넣는다. 안 나누면
+                        // 스키닝이 배율을 다시 곱해 1.8 mm 가 18 cm 가 된다
+                        // (pivPerMesh 주석).
                         if (pivToMeshOK)
-                            p += pivToMesh * new Vector3(0f, 0f, LipBulge * lip);
+                            p += pivToMesh * new Vector3(
+                                     0f, 0f, LipBulge * lip / pivPerMesh);
                         vs.Add(p);
                         vp.Add(piv[srcI] + new Vector3(0f, 0f, LipBulge * lip));
                         us.Add(new Vector2(0.5f, 1f - lip));
@@ -5853,6 +5917,9 @@ public class MirrorRig : MonoBehaviour
         dentalKind = dental;
         elapsed = 0f;
         Contact = 0f;
+        ChewBeat = 0;
+        chewBeatAt = -1;
+        FoodLeft = 1f;
 
         // 방을 통째로 갈아 끼운다. 집과 치과는 벽도 바닥도 거울도 다르다.
         spec = SpecFor(s);
@@ -6368,6 +6435,7 @@ public class MirrorRig : MonoBehaviour
             food.transform.localRotation = FoodSpin(fs, 0f);
             SetMouth(0f);
             Contact = 0f;
+            FoodLeft = 1f;
             if (selfArm != null) selfArm.Rest();
             return;
         }
@@ -6391,6 +6459,7 @@ public class MirrorRig : MonoBehaviour
             // 벌리면 사탕이 아니라 주먹을 넣는 것으로 보인다.
             SetMouth(Ease(u / ApproachTime) * fs.open);   // 올라오는 동안 벌린다
             Contact = 0f;
+            FoodLeft = 1f;
         }
         else if (u < ApproachTime + fs.hold)
         {
@@ -6402,6 +6471,7 @@ public class MirrorRig : MonoBehaviour
             SetMouth(Mathf.Lerp(fs.open, fs.open * ChewBase,
                                 (u - ApproachTime) / fs.hold));
             Contact = 1f;
+            FoodLeft = 1f;
             toMouth = 1f;   // 패인 쪽이 입에 닿아 있다
         }
         else
@@ -6451,6 +6521,26 @@ public class MirrorRig : MonoBehaviour
             // 씹는 동안 입이 오물거린다. 진동이 나는 구간과 맞아떨어진다.
             SetMouth(chewing ? ChewJawOf(foodKind, c) : 0f);
             Contact = chewing ? 1f : 0f;
+
+            // 입에 남은 양. 오물거릴수록 줄고, 여러 입에 걸쳐 먹는
+            // 것은 뒤 입일수록 손에 남은 조각이 작아 한 번 더 깎인다.
+            float inMouth = chewing
+                          ? 1f - Mathf.Clamp01(c / Mathf.Max(fs.chew, 1e-3f))
+                          : 0f;
+            float piece = fs.bites > 1
+                        ? Mathf.Max(0.3f,
+                              1f - Mathf.Clamp01((foodNow.stage - 1) / (float)fs.bites))
+                        : 1f;
+            FoodLeft = Mathf.Clamp01(inMouth * piece);
+
+            // 이가 맞물릴 때마다 한 번. 턱은 open×ChewBase + depth·sin(c·rate)
+            // 이므로 sin 이 -1 일 때가 다문 순간이고, 그게 c·rate = -π/2 다.
+            if (chewing)
+            {
+                int beat = Mathf.FloorToInt(
+                    (c * fs.rate + Mathf.PI * 0.5f) / (2f * Mathf.PI));
+                if (beat != chewBeatAt) { chewBeatAt = beat; ChewBeat++; }
+            }
         }
 
         food.transform.localRotation = FoodSpin(fs, toMouth);

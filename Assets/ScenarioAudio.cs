@@ -181,18 +181,22 @@ public static class ScenarioAudio
         float[] b = new float[LoopLen];
         System.Random rng = new System.Random(4700);
 
-        // 휘파람. 4700 Hz 를 기둥으로 두고 배음과 아래음을 얹는다.
-        // 아래음(2350)이 없으면 소리가 가늘어서 "삐—" 하는 경보음이 된다.
-        AddSine(b, 4700, 0.50f, 0f);
-        AddSine(b, 9400, 0.16f, 0.3f);
-        AddSine(b, 2350, 0.13f, 0.7f);
+        // 휘파람. 4700 Hz 를 기둥으로 두되 **정수배로만 쌓지 않는다.**
+        // 배음만 올리면 터빈이 아니라 악기가 된다. 터빈은 날이 여럿이라
+        // 딱 떨어지지 않는 성분이 같이 돈다.
+        AddSine(b, 4700, 0.42f, 0f);
+        AddSine(b, 7050, 0.12f, 0.3f);   // 1.5 배 — 배음이 아닌 성분
+        AddSine(b, 9400, 0.10f, 0.6f);
+        AddSine(b, 2350, 0.10f, 0.7f);   // 없으면 "삐—" 하는 경보음이 된다
 
         // 모터는 완벽하게 고르지 않다. 7 Hz 로 아주 조금 흔들어야 기계가
         // **돌고 있는** 것으로 들린다. 1 초에 7 바퀴라 이음매에서도 맞는다.
-        AddSine(b, 4707, 0.10f, 0.2f);
+        AddSine(b, 4707, 0.09f, 0.2f);
 
-        // 공기 새는 쉭. 2.5~9 kHz.
-        AddNoise(b, 2500, 9000, 150, 0.40f, rng);
+        // 공기 새는 쉭. **여기가 주인공이다** — 휘파람만 크면 경보음이고,
+        // 쉭이 같이 커야 드릴로 들린다.
+        AddNoise(b, 2500, 9000, 0.58f, rng);
+        AddNoise(b, 300, 1200, 0.12f, rng);   // 손잡이에서 도는 모터 몸통
 
         return Clip("DentalDrill", b);
     }
@@ -208,13 +212,16 @@ public static class ScenarioAudio
         float[] b = new float[LoopLen];
         System.Random rng = new System.Random(260);
 
-        // 260 Hz 모터. 배음을 1/n 로 쌓으면 사인보다 거칠어져서 플라스틱
-        // 통 안에서 도는 모터처럼 들린다.
-        for (int h = 1; h <= 6; h++)
-            AddSine(b, 260 * h, 0.42f / h, h * 0.17f);
+        // 230 Hz 모터. 배음을 1/n 로 쌓으면 사인보다 거칠어져서 플라스틱
+        // 통 안에서 도는 모터처럼 들린다. **전보다 작게** 깔았다 —
+        // 모터가 크면 전동칫솔이 되는데, 진동 쪽에서 그 느낌을 빼기로
+        // 했으니(ExperimentController.BrushAmp) 소리도 같이 가야 한다.
+        for (int h = 1; h <= 5; h++)
+            AddSine(b, 230 * h, 0.24f / h, h * 0.17f);
 
-        // 솔. 긁는 소리는 드릴의 쉭보다 낮고 성글다.
-        AddNoise(b, 800, 5000, 120, 0.26f, rng);
+        // 솔이 이를 쓸고 지나가는 소리. 이쪽이 주인공이다.
+        AddNoise(b, 900, 6500, 0.56f, rng);
+        AddNoise(b, 120, 500, 0.14f, rng);
 
         return Clip("Toothbrush", b);
     }
@@ -271,12 +278,18 @@ public static class ScenarioAudio
         float[] b = new float[LoopLen];
         System.Random rng = new System.Random(911 + Mathf.RoundToInt(bright * 100f));
 
-        // 살이 눌리는 둔한 소리. 밝은 음식일수록 바스락거리는 쪽이 는다.
-        AddNoise(b, 120, 700, 90, 0.40f, rng);
-        AddNoise(b, 700, 2200, 90, 0.14f + 0.26f * Mathf.Clamp01(bright), rng);
+        // 살이 눌리는 둔한 소리. **다섯 가지가 서로 다르게 들려야 한다** —
+        // 밝기로 세게 갈라 둔다. 푸딩(0.08)은 낮은 쪽만 남아 퍽퍽하고,
+        // 사탕(1.00)은 2 kHz 위까지 바스락거린다. 사과(0.70)·젤리(0.25)·
+        // 고기(0.18)가 그 사이를 메운다.
+        float br = Mathf.Clamp01(bright);
+        AddNoise(b, 110, 600, 0.46f - 0.20f * br, rng);
+        AddNoise(b, 600, 2000, 0.08f + 0.40f * br, rng);
+        AddNoise(b, 2000, 6000, 0.26f * br * br, rng);   // 사탕만 쨍하다
 
         // 턱뼈를 타고 오는 낮은 울림. 이게 없으면 종이 구기는 소리가 된다.
-        AddSine(b, 95, 0.10f, 0f);
+        // 무른 것일수록 이게 주인공이다.
+        AddSine(b, 95, 0.10f + 0.08f * (1f - br), 0f);
         AddSine(b, 143, 0.06f, 0.4f);
 
         got = Clip("Chew", b);
@@ -359,21 +372,58 @@ public static class ScenarioAudio
     /// <summary>
     /// 이음매 없는 잡음.
     ///
-    /// 흰 잡음을 1 초로 잘라 돌리면 이음매에서 파형이 뚝 끊겨 **1 초마다
-    /// "틱" 소리**가 난다. 드릴처럼 몇 초씩 이어지는 소리에서는 바로
-    /// 들린다. 그래서 잡음을 정수 Hz 사인의 더미로 만든다 — 정수 Hz 는
-    /// 1 초에 딱 떨어지므로 꼬리와 머리의 위상이 저절로 맞는다.
-    /// 위상만 제각각으로 흩어 주면 귀에는 잡음으로 들린다.
+    /// 전에는 정수 Hz 사인 90~150 개를 쌓아 잡음을 **흉내 냈다.** 1 초에
+    /// 딱 떨어지는 사인만 쓰면 꼬리와 머리의 위상이 저절로 맞아 이음매가
+    /// 안 들린다는 게 근거였고, 그 근거 자체는 맞다. 문제는 사인 백 개가
+    /// 잡음이 아니라 **빽빽한 화음**이라는 것이다. 드릴도 칫솔도 씹는
+    /// 소리도 쇳소리가 섞여 전자음처럼 들렸다 — 11/15 에 폰에서 "소리가
+    /// 다 이상하다" 고 한 게 이것이다.
+    ///
+    /// 이제 진짜 잡음을 만들고, 이음매는 **꼬리를 머리에 겹쳐 녹여서**
+    /// 없앤다. 겹치는 구간은 서로 다른 잡음 둘이 섞이는 것인데, 잡음끼리
+    /// 섞이면 귀에는 그냥 잡음이라 이음매가 안 생긴다.
+    ///
+    /// 통과 대역은 한 극 필터 둘로 만든다. 가파르지는 않지만 깨무는
+    /// 소리가 이미 같은 방식을 쓰고 있고(CrunchClip), 이 소리들은 대역
+    /// 모서리가 날카로울 이유가 없다.
     /// </summary>
-    private static void AddNoise(float[] b, int lo, int hi, int lines, float gain,
+    private static void AddNoise(float[] b, int lo, int hi, float gain,
                                  System.Random rng)
     {
-        float g = gain / Mathf.Sqrt(lines);
-        for (int k = 0; k < lines; k++)
+        int n = b.Length;
+        if (n < 16 || gain <= 0f) return;
+
+        int fade = Mathf.Clamp(n / 8, 1, n / 2);
+        int len = n + fade;
+
+        float kHi = Coef(hi);
+        float kLo = Coef(lo);
+        float[] t = new float[len];
+        float a = 0f, c = 0f;
+        for (int i = 0; i < len; i++)
         {
-            int hz = lo + rng.Next(0, hi - lo + 1);
-            AddSine(b, hz, g, (float)rng.NextDouble());
+            float x = (float)(rng.NextDouble() * 2.0 - 1.0);
+            a += (x - a) * kHi;      // hi 아래만 남는다
+            c += (a - c) * kLo;      // 그중 lo 아래를 덜어 낸다
+            t[i] = a - c;
         }
+
+        // 꼬리를 머리에 녹인다. 이걸 빼면 1 초마다 틱 소리가 난다.
+        for (int i = 0; i < fade; i++)
+        {
+            float w = (float)i / fade;
+            t[i] = t[i] * w + t[n + i] * (1f - w);
+        }
+
+        // 세기를 맞춘다. 한 극을 둘 거치면 진폭이 크게 줄어드는데 얼마나
+        // 줄지는 lo·hi 에 달려 있어 미리 적어 둘 수가 없다. 재서 맞춘다.
+        float rms = 0f;
+        for (int i = 0; i < n; i++) rms += t[i] * t[i];
+        rms = Mathf.Sqrt(rms / n);
+        if (rms < 1e-9f) return;
+
+        float k = gain / (rms * 3f);   // 잡음은 RMS 의 세 배쯤이 꼭대기다
+        for (int i = 0; i < n; i++) b[i] += t[i] * k;
     }
 
     /// <summary>한 극 저역통과의 계수. 자를 주파수를 넣는다.</summary>

@@ -272,17 +272,13 @@ public class PatternSettingsMenu : MonoBehaviour
             }
         }
 
-        GUILayout.BeginHorizontal();
+        // "Start experiment" 는 11/15 에 뺐다. 그 버튼은 옛 빨간 네모
+        // 탐색 과제로 가는 길이었는데, 본 실험은 거울 방에서의 진동
+        // 경험이다. 남겨 두면 실수로 눌러 엉뚱한 과제가 돌아간다.
         if (GUILayout.Button("Compare all 10", GUILayout.Height(48)))
         {
             if (Apply()) { StopBuzz(); RunPatternTest = true; RunMirrorScene = false; Done = true; }
         }
-        if (GUILayout.Button("Start experiment", GUILayout.Height(48)))
-        {
-            if (Apply()) { StopBuzz(); RunPatternTest = false; RunMirrorScene = false; Done = true; }
-        }
-        GUILayout.EndHorizontal();
-        GUILayout.Label("'Start experiment' still launches the OLD search task - not this study.");
 
         GUILayout.EndArea();
 

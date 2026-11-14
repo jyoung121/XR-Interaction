@@ -109,6 +109,17 @@ public class DebugHud : MonoBehaviour
         if (nlpos > 0) head = head.Substring(0, nlpos);
 
         lastError = "ERR " + Trim(condition, 90) + " @ " + Trim(head, 90);
+
+        // **에러가 나면 스스로 나타난다.**
+        //
+        // 평소에는 꺼 둔다 — 참가자가 볼 화면에 진단 글자가 떠 있으면
+        // 안 된다. 그렇다고 아주 없애면 11/14 처럼 또 장님이 된다.
+        // 그때는 코루틴이 조용히 죽어서 폰에 아무 말도 안 나왔고,
+        // 원인을 찾는 데 하룻밤이 걸렸다. 평소엔 조용히, 터질 때만
+        // 입을 연다.
+        if (instance != null && !instance.gameObject.activeSelf)
+            instance.gameObject.SetActive(true);
+
         Paint();
     }
 
