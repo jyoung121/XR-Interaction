@@ -5895,6 +5895,7 @@ public class MirrorRig : MonoBehaviour
 
     private void LateUpdate()
     {
+        FollowViewer();
         TrackViewer();
 
         if (label != null && label.gameObject.activeSelf && Time.time > labelUntil)
@@ -5931,12 +5932,50 @@ public class MirrorRig : MonoBehaviour
     /// </summary>
     public void StepForPreview(float seconds)
     {
+        // 폰에서 도는 LateUpdate 와 **같은 순서**로 해야 미리보기가
+        // 폰을 대신할 수 있다. FollowViewer 를 빼먹었더니 카메라가
+        // 리그에서 떨어져 나간 사고를 미리보기가 못 잡았다.
+        FollowViewer();
         TrackViewer();
         faceTime = seconds;
         UpdateFace();
         if (current == Scenario.None) { PoseLegs(true); return; }
         elapsed = seconds;
         Animate();
+    }
+
+    /// <summary>
+    /// 리그 원점을 **매 프레임 카메라에 붙여 둔다.**
+    ///
+    /// Create 는 리그를 만드는 그 순간의 카메라 자리에 원점을 박았다.
+    /// 그런데 ExperimentController 는 XR 을 켠 **바로 그 프레임에**
+    /// 거울 방으로 들어간다. 그 시점의 카메라는 아직 씬에 적힌 자리
+    /// (0,0,0) 라, 리그가 거기 박힌 뒤에 카메라만 제 자세로 옮겨 간다.
+    /// 그만큼 참가자가 방 안에서 엉뚱한 데 서게 된다.
+    ///
+    /// 11/14 에 폰에서 이렇게 됐다. 들어가자마자 시야가 시뻘건 덩어리로
+    /// 덮였는데, 천장 **속**에서 아래 거울을 내려다보고 있던 것이었다.
+    /// 에디터 미리보기는 카메라를 늘 리그 원점에 놓고 찍으니 한 번도
+    /// 안 보였다.
+    ///
+    /// 전에는 멀쩡했다. 패턴 설정 화면을 몇 초 거친 뒤에야 거울 방에
+    /// 들어갔으니 그때쯤 카메라 자세가 자리를 잡았기 때문이다. 시작
+    /// 화면을 끄면서 **그 유예 시간까지 같이 끈 것**이다. 같은 실수를
+    /// 두 번 했다 — 곁가지를 치웠더니 거기 기대고 있던 게 같이 무너졌다.
+    ///
+    /// 그래서 "언제 재느냐" 를 맞추는 대신 **아예 기대지 않게** 한다.
+    /// 원점을 카메라에 붙여 두면 언제 만들든 참가자는 늘 설계한 눈
+    /// 자리에 있다. 머리 회전(yaw)은 만들 때 잡은 것을 지킨다 — 매
+    /// 프레임 다시 잡으면 고개를 돌릴 때 방이 같이 돌아 버린다.
+    ///
+    /// 잃는 것: Cardboard 의 목 모형이 주는 몇 cm 짜리 눈 이동이 지워진다.
+    /// 3DOF 에서 그 정도는 실재감에 보태는 것보다 이런 사고를 내는 쪽이
+    /// 크다.
+    /// </summary>
+    private void FollowViewer()
+    {
+        if (viewer == null) return;
+        transform.position = viewer.position;
     }
 
     /// <summary>참가자 머리를 거울면 기준으로 반사시켜 거울 속 사람에게 옮긴다.</summary>

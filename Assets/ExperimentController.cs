@@ -560,6 +560,12 @@ public class ExperimentController : MonoBehaviour
         HideAll();
         DebugHud.Show(false);
 
+        // 방을 **참가자가 보고 있는 쪽으로** 짓는다. 그러려면 카메라
+        // 자세가 들어온 뒤라야 한다. 자세가 들어오기 전에는 카메라가
+        // 씬에 적힌 그대로(회전 없음)라, 그 상태로 지으면 방이 엉뚱한
+        // 쪽을 향한다 — 들어가자마자 옆벽을 보게 된다.
+        yield return StartCoroutine(WaitForHeadPose());
+
         MirrorRig rig = MirrorRig.Create(headCamera);
         if (rig == null)
         {
@@ -756,6 +762,34 @@ public class ExperimentController : MonoBehaviour
         }
 
         yield return null;
+    }
+
+    /// <summary>
+    /// Cardboard 가 카메라에 자세를 넣을 때까지 기다린다 (최대 1 초).
+    ///
+    /// StartXR 은 서브시스템을 켜고 **그 프레임에** 돌아온다. 카메라에
+    /// 머리 자세가 실리는 건 그다음 프레임부터다. 전에는 이 사이에
+    /// 패턴 설정 화면이 있어서 저절로 몇 초가 지났는데, 그 화면을 끄면서
+    /// 유예 시간도 같이 사라졌다.
+    ///
+    /// 자리(위치)가 어긋나는 쪽은 MirrorRig.FollowViewer 가 원점을 카메라에
+    /// 붙여 두는 것으로 아예 막았다. 여기서 기다리는 건 **방향** 때문이다 —
+    /// 방의 방위는 지을 때 한 번만 정해지므로 그 한 번을 제대로 재야 한다.
+    ///
+    /// 자이로는 가만히 들고 있어도 미세하게 흔들린다. 1 도만 움직이면
+    /// 자세가 들어온 것으로 본다. 끝내 안 움직이면 1 초 뒤 그냥 간다 —
+    /// 기다리다 멈춰 있는 것보다 방위가 조금 틀린 편이 낫다.
+    /// </summary>
+    private IEnumerator WaitForHeadPose()
+    {
+        if (headCamera == null) yield break;
+
+        Quaternion start = headCamera.rotation;
+        for (float t = 0f; t < 1.0f; t += Time.deltaTime)
+        {
+            if (Quaternion.Angle(start, headCamera.rotation) > 1f) yield break;
+            yield return null;
+        }
     }
 
     private IEnumerator StartXR()
