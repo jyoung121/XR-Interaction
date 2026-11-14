@@ -136,7 +136,7 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1114-D";
+    public const string BuildStamp = "1114-E";
 
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다. 치과와 음식 일곱 블록을 " +
              "트리거로 넘기며 본다. 끄면 옛 빨간 네모 탐색 실험으로 간다. " +
@@ -586,7 +586,7 @@ public class ExperimentController : MonoBehaviour
         // 소리는 진동과 **같은 자리에서** 켜고 끈다(ApplyContactHaptics).
         // 따로 돌리면 드릴 소리가 나는데 진동은 안 오는 순간이 생기고,
         // 참가자는 그 어긋남을 "진동이 가짜 같다" 로 적는다.
-        ScenarioAudio.Attach(headCamera);
+        SafeCall("ScenarioAudio.Attach", delegate { ScenarioAudio.Attach(headCamera); });
 
         // 바리깡을 빼고 치과와 음식 두 상황으로 간다. 음식은 11/11 에 두
         // 수준에서 다섯 가지로 늘렸으므로(MirrorRig.FoodKind) 블록은 일곱이다.
@@ -627,7 +627,7 @@ public class ExperimentController : MonoBehaviour
         };
 
         int idx = 0;
-        EnterScenario(rig, order[0], foods[0], tools[0]);
+        SafeCall("EnterScenario", delegate { EnterScenario(rig, order[0], foods[0], tools[0]); });
 
         while (true)
         {
@@ -635,10 +635,11 @@ public class ExperimentController : MonoBehaviour
             {
                 idx++;
                 if (idx >= order.Length) break;
-                EnterScenario(rig, order[idx], foods[idx], tools[idx]);
+                int i = idx;
+                SafeCall("EnterScenario", delegate { EnterScenario(rig, order[i], foods[i], tools[i]); });
             }
 
-            ApplyContactHaptics(rig);
+            SafeCall("ApplyContactHaptics", delegate { ApplyContactHaptics(rig); });
 
             // 폰이 스스로 상태를 말하게 한다. 에디터에서 폰 화면을
             // 재현하려다 두 번 빗나간 뒤에 둔 것이다 (MirrorRig.NearInfo).
@@ -803,6 +804,30 @@ public class ExperimentController : MonoBehaviour
     /// 자세가 들어온 것으로 본다. 끝내 안 움직이면 1 초 뒤 그냥 간다 —
     /// 기다리다 멈춰 있는 것보다 방위가 조금 틀린 편이 낫다.
     /// </summary>
+    /// <summary>
+    /// 터져도 코루틴을 죽이지 않고, **어디서 터졌는지 화면에 남긴다.**
+    ///
+    /// 코루틴 안에서 예외가 나면 Unity 는 그 코루틴을 조용히 멈춘다.
+    /// 11/14 에 거울 방이 그렇게 멈췄다 — 방은 세워졌는데 매 프레임 도는
+    /// 몸통이 첫 바퀴에 죽어서, HUD 가 들어가기 직전 글자("starting XR...")에
+    /// 멈춘 채로 남았다. iOS 라 로그를 볼 맥도 없어서 사흘치 추측을 했다.
+    ///
+    /// 그래서 네이티브(오디오·햅틱)를 건드리는 호출은 전부 여기를 거친다.
+    /// Debug.LogError 가 DebugHud 의 가로채기로 들어가므로 예외 종류와
+    /// 메시지가 폰 화면에 그대로 뜬다.
+    ///
+    /// 삼키기만 하면 안 된다 — 진동이 조용히 안 오는 실험이 되면 그게 더
+    /// 나쁘다. 그래서 **반드시 화면에 남긴다.**
+    /// </summary>
+    private void SafeCall(string where, System.Action body)
+    {
+        try { body(); }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[" + where + "] " + e.GetType().Name + ": " + e.Message);
+        }
+    }
+
     private IEnumerator WaitForHeadPose()
     {
         if (headCamera == null) yield break;

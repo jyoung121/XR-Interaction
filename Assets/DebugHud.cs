@@ -80,9 +80,58 @@ public class DebugHud : MonoBehaviour
         return f;
     }
 
+    /// <summary>
+    /// **예외를 화면에 띄운다.**
+    ///
+    /// 11/14 에 HUD 가 "starting XR..." 에서 멈춰 있었다. 거울 방에 들어가기
+    /// 직전에 한 번 찍는 글자였으니, 그 뒤 코루틴이 죽었다는 뜻이다.
+    /// 죽은 이유는 화면 어디에도 안 나왔다 — iOS 에서 Debug.Log 를 보려면
+    /// 맥이 필요하고, 우리는 윈도우뿐이다.
+    ///
+    /// 그래서 Unity 가 내는 오류·예외를 가로채 **마지막 한 건을 화면에
+    /// 남긴다.** 어느 줄에서 터졌는지가 폰 화면에 바로 적힌다.
+    /// 이게 없어서 같은 자리를 세 번 돌았다.
+    /// </summary>
+    private static string lastError = "";
+    private static string status = "";
+
+    private void OnEnable()  { Application.logMessageReceived += OnLog; }
+    private void OnDisable() { Application.logMessageReceived -= OnLog; }
+
+    private static void OnLog(string condition, string stack, LogType type)
+    {
+        if (type != LogType.Error && type != LogType.Exception
+            && type != LogType.Assert) return;
+
+        // 스택 첫 줄이 터진 자리다. 화면이 좁으니 거기까지만.
+        string head = stack ?? "";
+        int nlpos = head.IndexOf(CHR_LF);
+        if (nlpos > 0) head = head.Substring(0, nlpos);
+
+        lastError = "ERR " + Trim(condition, 90) + " @ " + Trim(head, 90);
+        Paint();
+    }
+
+    private const char CHR_LF = (char)10;
+
+    private static string Trim(string s, int n)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        return s.Length <= n ? s : s.Substring(0, n);
+    }
+
+    private static void Paint()
+    {
+        if (instance == null || instance.text == null) return;
+        instance.text.text = lastError.Length > 0
+            ? status + CHR_LF + lastError
+            : status;
+    }
+
     public static void Set(string s)
     {
-        if (instance != null && instance.text != null) instance.text.text = s;
+        status = s;
+        Paint();
     }
 
     public static void Show(bool on)
