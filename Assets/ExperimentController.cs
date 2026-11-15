@@ -136,7 +136,7 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1115-I";
+    public const string BuildStamp = "1115-J";
 
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다 — 설정창을 건너뛴다. " +
              "꺼 두면 설정창(runPatternTest)이 먼저 나오고, 거기서 " +
@@ -639,9 +639,22 @@ public class ExperimentController : MonoBehaviour
         int idx = 0;
         SafeCall("EnterScenario", delegate { EnterScenario(rig, order[0], foods[0], tools[0]); });
 
+        // 진동 설정창. **리그 뿌리**에 단다 — 머리에 달면 눈을 따라다녀서
+        // 쳐다볼 수가 없다 (HapticPanel 주석 (나)).
+        SafeCall("HapticPanel", delegate {
+            HapticPanel.Create(rig.transform, headCamera); });
+
         while (true)
         {
-            if (triggerPressedThisFrame)
+            // 탭은 하나뿐이라 **겨눈 쪽이 가져간다.** 설정창을 보고
+            // 있으면 설정창이 먹고, 아니면 원래대로 다음 블록으로 넘어간다.
+            bool onPanel = false;
+            SafeCall("HapticPanel.Step", delegate {
+                onPanel = HapticPanel.Step(
+                    triggerPressedThisFrame,
+                    order[idx] == MirrorRig.Scenario.Food); });
+
+            if (triggerPressedThisFrame && !onPanel)
             {
                 idx++;
                 if (idx >= order.Length) break;
@@ -655,7 +668,7 @@ public class ExperimentController : MonoBehaviour
             // 재현하려다 두 번 빗나간 뒤에 둔 것이다 (MirrorRig.NearInfo).
             if (showHud)
             {
-                DebugHud.Set("BUILD " + BuildStamp
+                DebugHud.Set("BUILD " + BuildStamp + "  " + HapticPanel.Info()
                     + "  blk " + idx + "/" + (order.Length - 1)
                     + " " + order[idx]
                     + (order[idx] == MirrorRig.Scenario.Dental
@@ -669,6 +682,7 @@ public class ExperimentController : MonoBehaviour
         HapticManager.StopContinuous();
         HapticManager.StopWaveform();
         ScenarioAudio.Detach();
+        HapticPanel.Dispose();
         scenarioBuzzing = false;
         rig.Dispose();
     }
@@ -732,8 +746,12 @@ public class ExperimentController : MonoBehaviour
                 // 먹는 게 아니라 모터가 도는 것이다.
                 float strength = firstBite ? 1f : 0.28f + 0.72f * rig.FoodLeft;
 
+                // 설정창의 **세기** 손잡이를 여기서 곱한다
+                // (HapticPanel.AmpScale). 진동이 나가는 자리는 음식과
+                // 치과 둘뿐이라 두 군데만 보면 된다.
                 int peak = Mathf.Clamp(Mathf.RoundToInt(
-                    waveHighAmplitude * rig.FoodPeakScale * strength), 1, 255);
+                    waveHighAmplitude * rig.FoodPeakScale * strength
+                    * HapticPanel.AmpScale), 1, 255);
 
                 // 조각 수도 같이 준다. 다 부서진 뒤에 처음처럼 여러
                 // 조각이 깨지면 입 안에 없는 것이 깨지는 셈이다.
@@ -799,7 +817,8 @@ public class ExperimentController : MonoBehaviour
                 amp = BrushAmp * (0.22f + 0.78f * stroke) * grain;
             }
             HapticManager.SetContinuous(Mathf.Clamp(
-                Mathf.RoundToInt(waveHighAmplitude * amp), 1, 255));
+                Mathf.RoundToInt(waveHighAmplitude * amp
+                                 * HapticPanel.AmpScale), 1, 255));
             scenarioBuzzing = true;
         }
         else if (scenarioBuzzing)

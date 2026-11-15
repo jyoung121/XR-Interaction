@@ -1,0 +1,12 @@
+# 푸딩 재질. 무늬를 안 쓴다 — Reskin 이 Kd 를 URP 색으로 옮긴다.
+newmtl caramel
+Kd 0.612 0.306 0.082
+Ka 0 0 0
+Ks 0.300 0.280 0.200
+Ns 48.0
+
+newmtl custard
+Kd 0.937 0.835 0.561
+Ka 0 0 0
+Ks 0.120 0.120 0.100
+Ns 24.0

@@ -158,10 +158,19 @@ public class MirrorRig : MonoBehaviour
         // 푸딩 — 거의 안 씹힌다. 혀로 누르면 사라지니 씹는 구간을 가장
         // 짧게, 오물거림도 가장 얕게 둔다. 진동은 한 번, 아주 약하게 —
         // 다섯 중 아래 끝을 잡아 주는 조건이다.
-        // 모델이 **FlanOnly** 다. 원본 Flan.obj 는 푸딩이 접시에
-        // 담긴 채로 한 덩어리라, 상 위의 접시에 올리면 접시 위에 접시가
-        // 됐다. 받침을 잘라 낸 것이 FlanOnly.obj 다.
-        new FoodSpec { model = "FlanOnly", label = "PUDDING",
+        // 모델은 **지어 넣은 Pudding.obj** 다 (generate 주석 참고).
+        // 받아온 Flan.obj 는 푸딩이 접시에 담긴 채로 한 덩어리라, 상
+        // 위의 접시에 올리면 접시 위에 접시가 됐다. 그래서 받침을 잘라
+        // 낸 FlanOnly.obj 를 만들어 썼는데, 그 에셋의 커스터드는 실제로
+        // 높이/지름 0.19 짜리 아주 납작한 원반이었다 — 보이던 부피는
+        // 전부 접시가 내던 것이었다. 받침만 떼니 햄 한 조각이 되고,
+        // 세로로 2.7 배 늘리니 옆면이 무늬의 캐러멜 띠만 훑어 온몸이
+        // 갈색이 됐다 (「푸딩 모양이 이상해 갈색밖에 없음」).
+        //
+        // 무늬를 안 쓰고 직접 짓는다. 위가 좁은 원뿔대에 캐러멜 자락을
+        // 흘리고, 재질을 custard·caramel 둘로 갈라 Reskin 이 Kd 를
+        // 그대로 URP 색으로 옮기게 한다. 모양과 색을 둘 다 쥐게 된다.
+        new FoodSpec { model = "Pudding", label = "PUDDING",
                        size = 0.095f, bites = 1, carve = false,
                        hold = 0.80f, chew = 5.00f, rate = 5f, depth = 0.09f,
                        open = 0.45f, spin = 14f, tilt = 0f, smooth = 0.55f,
@@ -320,6 +329,12 @@ public class MirrorRig : MonoBehaviour
     // 도구마다 한 번 잰 자루 반지름.
     private readonly System.Collections.Generic.Dictionary<Transform, float> toolR =
         new System.Collections.Generic.Dictionary<Transform, float>();
+
+    // 음식마다 (한가운데에서 쥐는 자리까지의 어긋남, 손가락 고리 반지름).
+    // FoodGrip 참고. 어긋남은 **벡터**다 — 아래로만이 아니라 테두리
+    // 쪽으로도 밀기 때문이다.
+    private readonly System.Collections.Generic.Dictionary<Transform, Vector4> foodR =
+        new System.Collections.Generic.Dictionary<Transform, Vector4>();
 
     private static Vector3 GripOn(bool brush)
     {
@@ -4613,6 +4628,306 @@ public class MirrorRig : MonoBehaviour
     }
 
     /// <summary>
+    /// 음식을 **어디서, 얼마나 벌려** 쥘지 한 번에 잰다.
+    ///
+    /// 음식이 손을 통과하던 원인이 두 값이 서로 **다른 자리**를 가리킨
+    /// 데 있었다. 쥐는 자리는 음식 한가운데에서 <c>grip</c> 미터만큼
+    /// 무조건 내렸고, 손가락 고리 반지름은 내린 자리가 아니라 음식
+    /// **한가운데**에서, 그것도 span 10 m 로 쟀다. span 10 m 는 축
+    /// 방향으로 아무리 먼 꼭짓점도 다 센다는 뜻이라 납작한 원반이면
+    /// 원반의 최대 반지름이 나온다. 그래서 손은 음식의 제일 굵은 데
+    /// 맞춰 크게 벌린 채, 음식 **밖**에 가 있었다 — 푸딩은 아래끝까지
+    /// 23 mm 인데 24 mm 를 내렸으니 주먹이 푸딩 밑 허공을 쥐었다.
+    ///
+    /// 그래서 (가) 내리는 양을 음식 아래끝에서 <paramref name="band"/>
+    /// 만큼 올라온 데까지로 묶고, (나) 고리는 **그 자리에서** 잰다.
+    ///
+    /// <see cref="ToolRadius"/> 를 쓰면 안 된다. 그쪽은 Transform 하나당
+    /// 값을 하나만 캐시해서, 두 번째로 넘긴 point·span 은 조용히 버려진다.
+    /// </summary>
+    /// <param name="axis">손가락 고리의 축 (이 축을 감아 쥔다).</param>
+    /// <param name="up">음식을 내릴 방향의 **반대**, 곧 손등 위쪽.</param>
+    /// <param name="band">손가락 반폭. 고리를 재는 띠 두께로도 쓴다.</param>
+    private void FoodGrip(Transform food, Vector3 axis, Vector3 up,
+                          float wantDrop, float band,
+                          out Vector3 hold, out float radius)
+    {
+        hold   = food == null ? Vector3.zero : food.position;
+        radius = 0f;
+        if (food == null) return;
+
+        // **transform 의 원점을 한가운데로 믿으면 안 된다.**
+        //
+        // 사과가 그렇다. 손가락 고리를 원점에 둘렀더니 손이 사과 **위**에
+        // 얹히고 사과가 주먹 밑으로 매달렸다. 재 보니 그 원점은 겉면에서
+        // 1.35 cm 밖에 안 들어간 자리였다 — 반지름 3.7 cm 짜리 사과의
+        // 한가운데라면 3.7 cm 가 나와야 한다. BuildFoodItem 이 홀더로
+        // 중심을 맞춰 주지만 그건 **처음 메시** 기준이고, 깨문 자국을
+        // 넣느라 메시를 갈아 끼우면(SetBiteStage) 그 중심이 따라오지
+        // 않는다. 그러니 지금 달려 있는 메시를 보고 한가운데를 잡는다.
+        Vector3 mid = WorldBounds(food.gameObject).center;
+
+        Vector4 got;
+        if (foodR.TryGetValue(food, out got))
+        {
+            hold   = mid + new Vector3(got.x, got.y, got.z);
+            radius = got.w;
+            return;
+        }
+
+        // (가) 아래끝까지 얼마인지 잰다.
+        float low = 0f;
+        int seen = 0;
+        foreach (MeshFilter mf in food.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh m = mf.sharedMesh;
+            if (m == null) continue;
+            Vector3[] vs = m.vertices;
+            for (int i = 0; i < vs.Length; i++)
+            {
+                float u = Vector3.Dot(
+                    mf.transform.TransformPoint(vs[i]) - mid, up);
+                if (u < low) low = u;
+                seen++;
+            }
+        }
+        if (seen == 0)
+        {
+            // Read/Write 가 꺼진 메시는 vertices 가 **빈 배열**로 온다.
+            // 경계는 설정과 상관없이 늘 읽히니 그걸로 어림한다.
+            // 네모 상자가 방향 d 로 뻗은 길이는 |e·|d|| 다.
+            Vector3 e = WorldBounds(food.gameObject).extents;
+            low = -(e.x * Mathf.Abs(up.x) + e.y * Mathf.Abs(up.y)
+                                          + e.z * Mathf.Abs(up.z));
+        }
+
+        float drop = Mathf.Clamp(wantDrop, 0f, Mathf.Max(0f, -low - band));
+        Vector3 at = mid - up * drop;
+
+        // 넓적한 건 한가운데 밑이 아니라 **가장자리**를 집는다.
+        //
+        // 푸딩이 9.5 cm 짜리라 아래로만 내려서는 안 됐다. 반지름 1.1 cm
+        // 짜리 고리를 9.5 cm 폭 한복판 밑에 두면 고리의 거의 전부가
+        // 음식 **속**이고, 검지 끝이 1.9 cm 파묻혔다. 접시만 한 걸
+        // 손가락으로 들 때 사람은 테두리를 잡는다.
+        //
+        // 그래서 고리 평면 안에서 **손목 쪽**으로 밀어 테두리에 붙인다.
+        // 감아쥐는 음식(사과·젤리)은 건드리지 않는다 — 걔들은 한가운데가
+        // 맞는 자리다.
+        Vector3 side = Vector3.Cross(axis, up).normalized;
+        if (wantDrop > 0f && selfArm != null && selfArm.wrist != null)
+        {
+            Vector3 toHand = selfArm.wrist.position - mid;
+            float s0 = Vector3.Dot(toHand, side);
+            Vector3 outDir = s0 >= 0f ? side : -side;
+            float edge = MeshExit(food, at, outDir);
+            float slide = edge - band;
+            if (slide > 0f) at += outDir * slide;
+        }
+
+        // (나) 손가락 고리를 얼마나 오므릴지 잰다.
+        //
+        // 고리 평면에서 방향을 24 갈래로 돌려 가며 겉면까지의 거리를
+        // 재고, 그 분포에서 고른다. 처음엔 가장 **먼** 꼭짓점을 썼는데
+        // 그건 둥근 사과에서만 맞는 수였다 — 고기는 11.5 cm 짜리
+        // 넓적한 조각이라 7.6 cm 가 나왔고, 손은 그만큼 벌린 채 굳어
+        // 손끝이 2.5 cm, 엄지가 5.1 cm 떠 있었다. 그래서 가장 **가까운**
+        // 쪽으로 바꿨더니 이번엔 사과가 망가졌다. 손가락이 2.2 cm 로
+        // 오므라들어 사과 속에 묻히고 사과가 주먹 **밑으로** 매달렸다.
+        //
+        // 스물넷을 찍어 보고서야 갈라야 할 것이 보였다.
+        //
+        //   사과  0.022 … 0.041, 짧은 쪽 셋뿐 — **깨문 자국**이다.
+        //   고기  0.006 … 0.074, 짧은 쪽이 아홉 개 **줄줄이** 붙어 있다.
+        //
+        // 깨문 자국 같은 좁은 홈은 손가락이 그냥 **타고 넘는다.** 반면
+        // 고기처럼 얇은 쪽이 줄줄이 이어지면 거기가 진짜 집는 자리다.
+        // 어느 쪽인지는 표가 이미 알고 있다 — grip 이 0 이면 통째로
+        // 감아쥐라는 뜻이고(사과·젤리), 0 보다 크면 아래 끝을 집으라는
+        // 뜻이다(고기·푸딩·사탕). 그 뜻대로 고른다.
+        const int Dirs = 24;
+        float[] reach = new float[Dirs];
+        for (int d = 0; d < Dirs; d++)
+        {
+            float a = Mathf.PI * 2f * d / Dirs;
+            reach[d] = MeshExit(food, at,
+                                up * Mathf.Cos(a) + side * Mathf.Sin(a));
+        }
+        System.Array.Sort(reach);
+
+        float r;
+        if (wantDrop <= 0f)
+        {
+            // 감아쥔다. 몸통 굵기를 쓴다 — 위쪽 4 분위. 홈 몇 개에
+            // 끌려 내려가지 않으면서 제일 두꺼운 혹에 벌어지지도 않는다.
+            r = reach[(Dirs * 3) / 4];
+        }
+        else
+        {
+            // 집는다. 제일 먼저 닿는 데까지만 오므린다. 0 은 그 방향에
+            // 아무것도 없다는 뜻이니 건너뛴다.
+            r = 0f;
+            for (int d = 0; d < Dirs; d++)
+                if (reach[d] > 0f) { r = reach[d]; break; }
+        }
+        if (r <= 0f)
+        {
+            // 쥐는 자리가 어느 메시 안에도 없거나 메시를 못 읽었다.
+            // 경계의 제일 얇은 쪽을 굵기로 본다 (자루에 쓰는 어림과 같다).
+            Vector3 sz = WorldBounds(food.gameObject).size;
+            r = Mathf.Min(sz.x, Mathf.Min(sz.y, sz.z)) * 0.5f;
+        }
+
+        Vector3 off = at - mid;
+        foodR[food] = new Vector4(off.x, off.y, off.z, r);
+        hold   = at;
+        radius = r;
+        gripDrop   = drop;
+        gripWant   = wantDrop;
+        gripRadius = r;
+        gripLow    = low;
+    }
+
+    // FoodGrip 이 마지막으로 고른 값. probe 에만 쓴다.
+    private float gripDrop, gripWant, gripRadius, gripLow;
+    private string gripSpread = "";
+
+    /// <summary>
+    /// 점이 음식 **겉면**에서 얼마나 떨어져 있는지 부호를 붙여 잰다
+    /// (음수 = 음식 안에 들어가 있다).
+    ///
+    /// 중심에서의 거리로는 이걸 알 수 없다. 전에 그렇게 재서, 손가락이
+    /// 음식을 뚫고 있는데도 "표면에서 −1.7 cm" 라는 수가 나왔고 나는
+    /// 그걸 "조금 묻혔다" 로 읽었다. 음식마다 메시 경계를 그 메시의
+    /// 제 좌표에서 보고, 네모 상자까지의 부호 있는 거리를 쓴다.
+    /// </summary>
+    // ─────────────── 메시를 상자가 아니라 **삼각형**으로 잰다 ───────────────
+    //
+    // 경계 상자로 재다가 두 번 속았다. 곰젤리는 상자가 몸보다 한참 크고,
+    // 푸딩은 원뿔대라 상자 네 귀퉁이가 비어 있다. 그래서 손끝이 겉면에
+    // 닿아 있는데도 "1.9 cm 뚫었다" 같은 수가 나왔다. 음식 메시는
+    // 72~338 꼭짓점짜리고 FoodGrip 은 음식마다 한 번만 재므로(캐시)
+    // 삼각형을 다 훑어도 값이 싸다.
+
+    /// <summary>
+    /// 광선이 삼각형을 뚫는 거리 (Möller–Trumbore). 안 뚫으면 음수.
+    /// </summary>
+    private static float RayTri(Vector3 o, Vector3 d,
+                                Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 e1 = b - a, e2 = c - a;
+        Vector3 h = Vector3.Cross(d, e2);
+        float det = Vector3.Dot(e1, h);
+        if (Mathf.Abs(det) < 1e-12f) return -1f;     // 광선이 면과 나란하다
+        float inv = 1f / det;
+        Vector3 s0 = o - a;
+        float u = Vector3.Dot(s0, h) * inv;
+        if (u < 0f || u > 1f) return -1f;
+        Vector3 q = Vector3.Cross(s0, e1);
+        float v = Vector3.Dot(d, q) * inv;
+        if (v < 0f || u + v > 1f) return -1f;
+        return Vector3.Dot(e2, q) * inv;
+    }
+
+    /// <summary>
+    /// <paramref name="world"/> 에서 <paramref name="dir"/> 쪽으로, 음식
+    /// 겉면을 **마지막으로** 지나는 거리. 밖에서 다가오는 손끝이 처음
+    /// 닿는 자리가 바로 여기다. 아무것도 안 맞으면 0.
+    /// </summary>
+    private static float MeshExit(Transform food, Vector3 world, Vector3 dir)
+    {
+        float far = 0f;
+        foreach (MeshFilter mf in food.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh m = mf.sharedMesh;
+            if (m == null || !m.isReadable) continue;
+            Vector3[] vs = m.vertices;
+            int[] tr = m.triangles;
+            if (vs.Length == 0 || tr.Length == 0) continue;
+            Transform mt = mf.transform;
+            Vector3 o = mt.InverseTransformPoint(world);
+            // 방향은 배율까지 포함해 옮긴다. 회전만 쓰면 한 축만 늘린
+            // 모델에서 거리가 어긋난다.
+            Vector3 d = mt.InverseTransformVector(dir);
+            float len = d.magnitude;
+            if (len < 1e-9f) continue;
+            d /= len;
+            for (int i = 0; i + 2 < tr.Length; i += 3)
+            {
+                float t = RayTri(o, d, vs[tr[i]], vs[tr[i + 1]], vs[tr[i + 2]]);
+                if (t <= 0f) continue;
+                float w = mt.TransformVector(d * t).magnitude;
+                if (w > far) far = w;
+            }
+        }
+        return far;
+    }
+
+    /// <summary>
+    /// 점이 음식 **겉면**에서 얼마나 떨어져 있는지, 부호를 붙여 (음수 =
+    /// 안에 들어가 있다). 삼각형까지의 실제 거리를 쓴다. 안인지 밖인지는
+    /// 한 방향으로 쏴서 겉면을 **몇 번** 지나는지(홀수면 안)로 가른다.
+    /// </summary>
+    private static float SurfaceGap(Transform food, Vector3 world)
+    {
+        float best = float.MaxValue;
+        int crossings = 0;
+        foreach (MeshFilter mf in food.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh m = mf.sharedMesh;
+            if (m == null || !m.isReadable) continue;
+            Vector3[] vs = m.vertices;
+            int[] tr = m.triangles;
+            if (vs.Length == 0 || tr.Length == 0) continue;
+            Transform mt = mf.transform;
+            Vector3 o = mt.InverseTransformPoint(world);
+            // 세는 방향은 아무래도 되지만, 축에 나란하면 모서리를 스쳐
+            // 두 번 세기 쉽다. 어디에도 안 나란한 쪽으로 쏜다.
+            Vector3 d = new Vector3(0.5774f, 0.5774f, 0.5774f);
+            // 제 좌표의 길이를 월드로 되돌릴 배율. 음식은 고르게 늘려
+            // 놓으므로 한 수로 충분하다.
+            Vector3 sc = mt.lossyScale;
+            float k = (Mathf.Abs(sc.x) + Mathf.Abs(sc.y) + Mathf.Abs(sc.z)) / 3f;
+            for (int i = 0; i + 2 < tr.Length; i += 3)
+            {
+                Vector3 a = vs[tr[i]], b = vs[tr[i + 1]], c = vs[tr[i + 2]];
+                float t = RayTri(o, d, a, b, c);
+                if (t > 1e-7f) crossings++;
+                float g = PointTri(o, a, b, c) * k;
+                if (g < best) best = g;
+            }
+        }
+        if (best == float.MaxValue) return 0f;
+        return (crossings % 2) == 1 ? -best : best;
+    }
+
+    /// <summary>점에서 삼각형까지의 가장 짧은 거리.</summary>
+    private static float PointTri(Vector3 p, Vector3 a, Vector3 b, Vector3 c)
+    {
+        Vector3 ab = b - a, ac = c - a, ap = p - a;
+        float d1 = Vector3.Dot(ab, ap), d2 = Vector3.Dot(ac, ap);
+        if (d1 <= 0f && d2 <= 0f) return (p - a).magnitude;
+        Vector3 bp = p - b;
+        float d3 = Vector3.Dot(ab, bp), d4 = Vector3.Dot(ac, bp);
+        if (d3 >= 0f && d4 <= d3) return (p - b).magnitude;
+        float vc = d1 * d4 - d3 * d2;
+        if (vc <= 0f && d1 >= 0f && d3 <= 0f)
+            return (p - (a + ab * (d1 / (d1 - d3)))).magnitude;
+        Vector3 cp = p - c;
+        float d5 = Vector3.Dot(ab, cp), d6 = Vector3.Dot(ac, cp);
+        if (d6 >= 0f && d5 <= d6) return (p - c).magnitude;
+        float vb = d5 * d2 - d1 * d6;
+        if (vb <= 0f && d2 >= 0f && d6 <= 0f)
+            return (p - (a + ac * (d2 / (d2 - d6)))).magnitude;
+        float va = d3 * d6 - d5 * d4;
+        if (va <= 0f && (d4 - d3) >= 0f && (d5 - d6) >= 0f)
+            return (p - (b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6))))).magnitude;
+        float den = 1f / (va + vb + vc);
+        return (p - (a + ab * (vb * den) + ac * (vc * den))).magnitude;
+    }
+
+
+    /// <summary>
     /// 주먹을 쥘 때 엄지를 자루에 붙인다.
     ///
     /// <see cref="Curl"/> 은 다섯 손가락을 **한 축으로** 만다. 네
@@ -4869,23 +5184,24 @@ public class MirrorRig : MonoBehaviour
         Vector3 ti = iEnd.position, tt = tEnd.position;
         Vector3 mid = (ti + tt) * 0.5f;
 
-        // 음식 반지름. 도구 자루를 잴 때 쓴 것과 같은 수다.
-        Vector3 ax = toolRoot != null ? toolRoot.forward : Vector3.forward;
-        float r = ToolRadius(food.transform, c, ax, 10f);
-
-        float di = Vector3.Distance(ti, c), dt = Vector3.Distance(tt, c);
-
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("[FoodGrip] " + fs.label
             + "  크기 " + fs.size.ToString("F3")
-            + "  잰 반지름 " + r.ToString("F4"));
-        sb.AppendLine("  검지끝→중심 " + di.ToString("F4")
-            + "   엄지끝→중심 " + dt.ToString("F4")
+            + "   내림 바람 " + gripWant.ToString("F4")
+            + " -> 실제 " + gripDrop.ToString("F4")
+            + "   아래끝 " + gripLow.ToString("F4")
+            + "   고리 " + gripRadius.ToString("F4"));
+        // **겉면** 기준으로 적는다. 중심에서의 거리로 재던 때는 손가락이
+        // 음식을 뚫고 있어도 수가 그럴듯하게 나왔다.
+        sb.AppendLine("  고리 방향별 겉면까지 (위에서 시계로): " + gripSpread);
+        sb.AppendLine("  겉면에서: 검지 " + SurfaceGap(food.transform, ti).ToString("F4")
+            + "   엄지 " + SurfaceGap(food.transform, tt).ToString("F4")
+            + "   쥔 자리 " + SurfaceGap(food.transform, mid).ToString("F4")
+            + "   (양수 = 떠 있다, 음수 = 뚫었다)");
+        sb.AppendLine("  검지끝→중심 " + Vector3.Distance(ti, c).ToString("F4")
+            + "   엄지끝→중심 " + Vector3.Distance(tt, c).ToString("F4")
             + "   벌어진 폭 " + Vector3.Distance(ti, tt).ToString("F4"));
-        sb.AppendLine("  표면에서: 검지 " + (di - r).ToString("F4")
-            + "   엄지 " + (dt - r).ToString("F4") + "   (양수 = 떠 있다)");
-        sb.Append("  쥔 자리→중심 " + Vector3.Distance(mid, c).ToString("F4")
-            + "   각 curl/thumb/fold "
+        sb.Append("  각 curl/thumb/fold "
             + fs.curl.ToString("F0") + "/" + fs.thumb.ToString("F0")
             + "/" + fs.fold.ToString("F0"));
         sb.AppendLine();
@@ -6615,11 +6931,15 @@ public class MirrorRig : MonoBehaviour
             // 어깨가 x +0.15 에 있으니 그쪽으로 빼면 손이 얼굴 밖으로
             // 나가고, 덤으로 팔을 덜 뻗게 돼 어깨보다 18 cm 앞으로
             // 튀어나와 있던 팔꿈치도 몸쪽으로 들어온다.
+            // 18 cm 를 내렸더니 씹는 내내 손이 가슴께에 가 있었다.
+            // 한 입 베어 물고 손을 **턱 옆에 든 채로** 씹는 것이 맞다 —
+            // 다음 입을 바로 가져가는 자세다. 옆으로는 더 빼서 얼굴을
+            // 안 가리게 하고, 아래로는 입에서 벗어날 만큼만 내린다.
             if (inHand)
                 food.transform.localPosition = Vector3.Lerp(rest,
-                    rest + Vector3.right * 0.13f
-                         - Vector3.up * 0.18f
-                         + Vector3.forward * 0.03f,
+                    rest + Vector3.right * 0.16f
+                         - Vector3.up * 0.05f
+                         + Vector3.forward * 0.02f,
                     Ease(Mathf.Clamp01(c / Mathf.Max(fs.chew, 1e-3f))));
 
             // 손을 내리면서 베어 문 자리를 들여다본다 — 패인 쪽이
@@ -6696,20 +7016,24 @@ public class MirrorRig : MonoBehaviour
                 // 고리 안에 들어가 손가락 뒤로 사라진다 — 실제로도 이런
                 // 건 아래쪽 끝을 집어 든다.
                 //
-                // 내리는 양은 **미터로 박는다.** 처음엔 음식 반높이에
+                // 내리는 양은 **미터로 적는다.** 처음엔 음식 반높이에
                 // 대한 비율로 뒀는데, 넓고 납작한 푸딩은 반높이가 8 mm
                 // 뿐이라 0.6 을 줘도 5 mm 밖에 안 내려가 그대로 묻혔다.
                 // 고리 크기는 음식이 아니라 **손**이 정하니 손 치수로
                 // 적는 게 맞다.
-                Vector3 hold = food.transform.position - toolRoot.up * fs.grip;
+                //
+                // 적은 값은 바라는 값일 뿐이고, 음식 안에 들어가는지는
+                // FoodGrip 이 **재서** 깎는다 — 음식이 주먹을 뚫고
+                // 지나가던 것이 이 때문이었다 (그쪽 주석 참고).
+                // 손가락 반폭 11 mm 는 자루를 쥘 때 쓰는 값과 같다.
+                Vector3 hold;
+                float r;
+                FoodGrip(food.transform, toolRoot.forward, toolRoot.up,
+                         fs.grip, 0.011f, out hold, out r);
+
                 GripAround(selfArm, hold,
                            toolRoot.forward, toolRoot.up, 0f,
-                           fs.curl, fs.thumb, fs.fold,
-                           // 쥘 반지름을 **잰다.** 자루 굵기를 재는 것과 같은 수다
-                           // (ToolRadius). 음식 크기를 바꾸면 손이 따라온다 —
-                           // 전에는 음식마다 손가락 각을 손으로 다시 맞춰 적었다.
-                           ToolRadius(food.transform, food.transform.position,
-                                      toolRoot.forward, 10f),
+                           fs.curl, fs.thumb, fs.fold, r,
                            (transform.up * 0.86f + transform.right * 0.45f).normalized);
             }
             else selfArm.Rest();

@@ -55,6 +55,14 @@ public static class FoodShot
             if (held != null) AimAt(cam, held.position, 0.30f, 6f);
             Shot(cam, rt, tex, Out + "/" + k + "_hand.png");
 
+            // 씹는 동안의 손. 「고기 먹고있을 때 손이 내려오는데 계속 입
+            // 근처에 있어야지」 — 베어 무는 순간만 찍어서는 이걸 못 본다.
+            // 손에 남는 건 여러 입 먹는 것들뿐이다 (사과·고기).
+            rig.StepForPreview(MirrorRig.BiteMomentOf(k) + 1.6f);
+            Transform chew = Held(rig);
+            if (chew != null) AimAt(cam, chew.position, 0.34f, 4f);
+            Shot(cam, rt, tex, Out + "/" + k + "_chew.png");
+
             sb.Append("  ").Append(k).Append(": ").Append(Sizes(rig, k)).Append('\n');
         }
 
@@ -141,7 +149,7 @@ public static class FoodShot
             case MirrorRig.FoodKind.Apple:   return "Apple";
             case MirrorRig.FoodKind.Jelly:   return "GummyBear";
             case MirrorRig.FoodKind.Meat:    return "Steak";
-            case MirrorRig.FoodKind.Pudding: return "FlanOnly";
+            case MirrorRig.FoodKind.Pudding: return "Pudding";
             default:                         return "Candy";
         }
     }

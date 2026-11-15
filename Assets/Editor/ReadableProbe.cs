@@ -15,7 +15,7 @@ public static class ReadableProbe
 {
     public static void Dump()
     {
-        string[] names = { "Apple", "GummyBear", "Steak", "FlanOnly", "Candy", "Plate" };
+        string[] names = { "Apple", "GummyBear", "Steak", "Pudding", "Candy", "Plate" };
         StringBuilder sb = new StringBuilder("[Readable] 모델 메시\n");
 
         foreach (string n in names)

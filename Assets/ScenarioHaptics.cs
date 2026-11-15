@@ -61,7 +61,14 @@ public static class ScenarioHaptics
             if (i < fragments - 1)
             {
                 // 조각 사이 침묵 — 15~65ms. 여기가 일정하면 리듬이 되어 씹는 느낌이 죽는다.
-                t.Add(15 + rng.Next(0, 51));
+                //
+                // 설정창의 **주기** 손잡이가 이 침묵을 늘이고 줄인다
+                // (HapticPanel.GapScale). 씹는 소리도 이 timings 를 그대로
+                // 읽어 만들므로(ScenarioAudio.CrunchClip) 소리와 진동이
+                // 같이 늘어난다 — 여기 한 군데만 건드려야 하는 이유다.
+                long gap = (long)Mathf.Round(
+                    (15 + rng.Next(0, 51)) * Mathf.Max(0.1f, HapticPanel.GapScale));
+                t.Add(System.Math.Max(5L, gap));
                 a.Add(0);
             }
 
