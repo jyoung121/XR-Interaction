@@ -227,21 +227,47 @@ public static class ScenarioAudio
     /// </summary>
     private static AudioClip BuildBrush()
     {
+        // 후보 여섯을 뽑아 놓고 고른 값이다 (BrushPicker).
+        //
+        //   왕복 3/s — 손으로 닦을 때 초당 2~3 번이고 3 이 보통 속도다.
+        //              2 는 느긋해서 닦는 것보다 문지르는 것 같고,
+        //              4 는 급해서 다시 기계로 들린다.
+        //   1400~6000 — 1800 위만 남기면 "쓱" 이 아니라 "쉭" 이 된다.
+        //              1200 까지 내리면 묵직한 대신 솔끝이 죽는다.
+        //   바닥 0.10 — 지나갈 때와 돌아설 때 차이를 지금(0.16)보다
+        //              벌려 왕복을 또렷하게 한다. 0.05 까지 내리면
+        //              쓱쓱이 아니라 뚝뚝 끊어진다.
+        return BrushVariant(StrokeHz, 1400, 6000, 0.62f, 0.27f, 0.10f);
+    }
+
+    /// <summary>
+    /// 칫솔 소리를 값으로 뽑는다. **고르려고 열어 둔 문이다** — 쓱쓱은
+    /// 말로 주고받기 어려워서, 몇 가지를 뽑아 들려주고 고른 값을
+    /// BuildBrush 에 박는 식으로 맞춘다.
+    /// </summary>
+    /// <param name="strokeHz">초당 왕복 횟수. 1 초 고리에 정수 번이라야 한다.</param>
+    /// <param name="lo">솔끝 사각거림의 아래 끝 (Hz). 높일수록 가늘고 날카롭다.</param>
+    /// <param name="hi">그 위 끝 (Hz).</param>
+    /// <param name="gain">사각거림의 크기.</param>
+    /// <param name="body">잇몸에 눌리는 둔한 몸통(250~900 Hz)의 크기.</param>
+    /// <param name="floor">
+    /// 방향을 바꾸는 순간에 남는 소리. 0 으로 두면 쓱쓱이 아니라
+    /// 뚝뚝 끊기는 소리가 된다 — 솔은 돌아설 때도 이에 닿아 있다.
+    /// </param>
+    public static AudioClip BrushVariant(float strokeHz, int lo, int hi,
+                                         float gain, float body, float floor)
+    {
         float[] b = new float[LoopLen];
         System.Random rng = new System.Random(260);
 
-        // 솔이 법랑질을 긁는 소리. 이게 전부다.
-        AddNoise(b, 1800, 7000, 0.62f, rng);   // 솔끝의 사각거림
-        AddNoise(b, 250, 900, 0.22f, rng);     // 잇몸에 눌리는 둔한 몸통
+        AddNoise(b, lo, hi, gain, rng);        // 솔끝의 사각거림
+        AddNoise(b, 250, 900, body, rng);      // 잇몸에 눌리는 둔한 몸통
 
-        // 왕복을 씌운다. 0 까지 안 내린다 — 완전히 끊으면 쓱쓱이 아니라
-        // 뚝뚝 끊기는 소리가 된다. 솔은 방향을 바꾸는 순간에도 이에
-        // 닿아 있다.
         for (int i = 0; i < b.Length; i++)
         {
             float t = (float)i / Rate;
-            float stroke = Mathf.Abs(Mathf.Sin(Mathf.PI * StrokeHz * t));
-            b[i] *= 0.16f + 0.84f * stroke;
+            float stroke = Mathf.Abs(Mathf.Sin(Mathf.PI * strokeHz * t));
+            b[i] *= floor + (1f - floor) * stroke;
         }
 
         return Clip("Toothbrush", b);
