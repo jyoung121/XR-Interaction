@@ -19,7 +19,16 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # 2026-11 초부터 GitHub 의 맥 러너가 모자라 "The job was not acquired by Runner"
+    # 로 시작도 못 하고 끝나는 일이 잦다. 어느 풀이 비어 있는지 미리 알 길이 없어
+    # 네 종류에 한꺼번에 건다. 하나라도 러너를 받으면 그 일감이 .ipa 를 만든다.
+    # 여럿이 받으면 같은 .ipa 가 여러 개 나올 뿐이다 — 아무거나 쓰면 된다.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-26-intel, macos-15, macos-26]
+    name: build (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
 
     steps:
@@ -134,7 +143,7 @@ jobs:
       - name: 결과물 올리기
         uses: actions/upload-artifact@v4
         with:
-          name: CardboardHapticSearch-ipa
+          name: CardboardHapticSearch-ipa-${{ matrix.runner }}
           path: xcode/CardboardHapticSearch-unsigned.ipa
           retention-days: 30
 
@@ -143,7 +152,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
+          name: build-log-${{ matrix.runner }}
           path: xcode/build.log
           retention-days: 14
           if-no-files-found: ignore
