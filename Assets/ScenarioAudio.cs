@@ -3,11 +3,21 @@ using UnityEngine;
 /// <summary>
 /// 시나리오별 소리를 만든다 — 치과 드릴 / 칫솔 모터 / 깨무는 소리.
 ///
-/// **파일을 받아오지 않고 코드로 합성한다.** 이 저장소에는 오디오 파일이
-/// 한 개도 없었고, 그대로 두는 편이 낫다. 방·사람·도구는 받아온 모델이지만
-/// 소리는 사정이 다르다 — 쓸 만한 치과 드릴 녹음은 거의 다 출처·라이선스가
-/// 불분명하고, 발표 자료에 출처를 적어야 하는 건 모델과 똑같다. 합성하면
-/// 출처가 이 파일이고, 빌드도 안 무거워지고, 무엇보다 **값을 돌릴 수 있다.**
+/// **드릴만 녹음이고 나머지는 코드로 합성한다.**
+///
+/// 한동안 전부 합성이었다. 근거는 "쓸 만한 치과 드릴 녹음은 출처가
+/// 불분명하다" 와 "합성하면 값을 돌릴 수 있다" 였는데, 둘 중 앞은
+/// 틀렸고(Pixabay Content License, 출처 표기 불필요) 뒤는 드릴에서는
+/// 오히려 **약점**이었다.
+///
+/// 합성 드릴은 사인 넷에 잡음 둘이라 크기가 내내 똑같다. 그런데 치과
+/// 소리에서 사람이 알아듣는 건 휘파람의 음색이 아니라 **날이 이에
+/// 닿을 때 소리가 처지고 커지는 것**이다. 그 처짐은 값으로 적을 수가
+/// 없다 — 날과 법랑질이 만나는 사정이 매번 다르다. 그래서 녹음을 받아
+/// 그 **크기의 움직임을 진동에 그대로 먹인다** (DrillLoad).
+///
+/// 칫솔과 씹는 소리는 합성을 유지한다. 그쪽은 박자를 **보이는 움직임과**
+/// 맞춰야 해서(StrokeHz, ChewLevel) 값으로 돌릴 수 있는 쪽이 낫다.
 ///
 /// 진동 쪽(ScenarioHaptics)과 짝을 맞추는 게 이 파일의 핵심이다.
 ///
@@ -59,6 +69,55 @@ public static class ScenarioAudio
     /// 자리에서 박자가 안 튄다.
     /// </summary>
     public const float StrokeHz = 3f;
+
+    // ─────────────── 받아온 드릴 녹음 ───────────────
+
+    /// <summary>Resources 아래 경로. 없으면 합성으로 떨어진다.</summary>
+    private const string DrillAsset = "Audio/DentalTurbine";
+
+    /// 42 초짜리 녹음에서 **떼어 낼 자리** (초). 눈으로 고르지 않고
+    /// 재서 골랐다 (Editor/DrillProbe.Loop).
+    ///
+    /// **한 번은 엉뚱한 것을 재서 틀린 데를 골랐다.** 구간 안의 위4분위
+    /// ÷아래4분위를 가장 크게 하는 데(3.95~15.95 초, 4.25 배)를 잡았는데,
+    /// 그 큰 차이는 날이 먹히는 깊이가 아니라 **드릴을 입에서 빼는**
+    /// 것이었다. 0.5 초 눈금으로 보니 1.5 초에서 0.11 까지 떨어졌다 —
+    /// 보이는 드릴은 갈고 있는데 소리와 진동이 사라지는 자극이 된다.
+    /// 그 어긋남이 바로 이 연구가 재려는 것이라, 자극에 넣으면 안 된다.
+    ///
+    /// 그래서 "내내 갈고 있어야 한다"(아래 5 % 가 가운데값의 45 % 위)를
+    /// 받침으로 걸고 그 안에서 다시 골랐다. 후보는 —
+    ///
+    ///   3 초 36.20~  전환 1.91 배  받침 0.81  이음매 3.4 %
+    ///   4 초 34.65~  전환 1.66 배  받침 0.83  이음매 1.9 %
+    ///   6 초 33.95~  전환 1.30 배  받침 0.81  이음매 9.0 %
+    ///   8 초 이상    없다
+    ///
+    /// 이 42 초 녹음에서 **내내 갈고 있는 데는 34~40 초 여섯 초뿐**이다.
+    /// 그중 4 초를 골랐다 — 이음매가 가장 깨끗하고(1.9 %), 받침이 가장
+    /// 높고(0.83), 전환도 쓸 만하다. 3 초는 접촉 한 번(2.1 초)보다
+    /// 겨우 길어 한 접촉 안에서 고리가 넘어간다. 6 초는 전환이 1.30
+    /// 배밖에 안 되고 이음매도 9 % 다.
+    ///
+    /// 전환이 4.25 배에서 1.66 배로 줄어든 것은 **잃은 것이 아니다.**
+    /// 사라진 2.6 배는 드릴을 빼는 것이었고, 그건 보이는 접촉으로
+    /// 소리와 진동을 통째로 끄는 것이 이미 하고 있다
+    /// (ExperimentController.ApplyContactHaptics). 여기 남은 1.66 배는
+    /// **갈고 있는 동안의 결**이다 — 겹쳐 넣으면 두 번 세는 셈이 된다.
+    private const float DrillFrom = 34.65f;
+    private const float DrillLen  =  4.00f;
+
+    /// 꼬리를 머리에 녹이는 길이 (초). AddNoise 가 쓰는 것과 같은 수법.
+    private const float Seam = 0.040f;
+
+    /// 포락선 한 칸 (초)과 한 칸을 잴 때 보는 폭.
+    /// 10 ms 면 100 Hz 까지 담기는데 SetContinuous 는 프레임마다
+    /// (60 Hz) 나가므로 어차피 그쪽이 병목이다. 더 잘게 잴 이유가 없다.
+    private const float EnvHop = 0.010f, EnvWin = 0.025f;
+
+    /// 드릴 소리의 크기 움직임. **녹음을 쓸 때만** 찬다 — null 이면
+    /// 합성이라는 뜻이고, 그때는 꿀렁일 거리가 없다.
+    private static float[] drillEnv;
 
     private static AudioSource loopSrc;   // 드릴·칫솔
     private static AudioSource shotSrc;   // 깨무는 소리
@@ -178,12 +237,160 @@ public static class ScenarioAudio
     }
 
     /// <summary>
-    /// 치과 드릴 — 에어터빈이 내는 날카로운 휘파람 + 공기 새는 쉭.
+    /// 지금 **들리고 있는** 드릴 소리의 크기. 센 데가 1 이고 공회전이
+    /// 0.2 쯤까지 내려간다.
+    ///
+    /// 치과 진동의 세기가 이 값을 그대로 쓴다
+    /// (ExperimentController.ApplyContactHaptics). 귀와 손이 **같은
+    /// 배열의 같은 칸**을 읽는 셈이다 — 소리는 클립에서 나오고 이
+    /// 포락선은 바로 그 클립을 재서 만든 것이라, 둘이 어긋날 자리가
+    /// 없다. 씹는 쪽에서 timings 배열 하나를 소리와 진동이 같이 읽는
+    /// 것과 같은 수법이다 (CrunchClip).
+    ///
+    /// 녹음이 없어 합성으로 떨어졌으면 **내내 1 이다.** 합성 드릴은
+    /// 크기가 안 변하니 꿀렁일 거리가 없고, 없는 것을 꾸며 내면 손은
+    /// 꿀렁이는데 귀는 안 꿀렁여서 그 어긋남이 그대로 "가짜" 로 적힌다.
+    ///
+    /// 소리 출력과 모터 사이에 수십 ms 지연이 있지만 보정하지 않는다.
+    /// 우리가 쓰는 결은 0.1 초보다 느린 것들이라 그 안에서는 안 보인다.
+    /// </summary>
+    public static float DrillLoad
+    {
+        get
+        {
+            if (drillEnv == null || drillEnv.Length == 0) return 1f;
+            if (loopSrc == null || now != Loop.Drill || !loopSrc.isPlaying) return 1f;
+            int k = (int)(loopSrc.time / EnvHop);
+            return drillEnv[Mathf.Clamp(k, 0, drillEnv.Length - 1)];
+        }
+    }
+
+    /// <summary>녹음을 쓰고 있나 (합성으로 떨어지지 않았나). 재 보려고.</summary>
+    public static bool DrillIsRecorded
+    {
+        get { return Drill != null && drillEnv != null; }
+    }
+
+    /// <summary>재 보려고 포락선을 그대로 내놓는다 (Editor/DrillProbe).</summary>
+    public static float[] DrillEnvelope
+    {
+        get { return Drill == null ? null : drillEnv; }
+    }
+
+    /// <summary>
+    /// 치과 드릴 — **받아온 녹음**에서 4 초를 떼어 고리로 만든다.
+    /// 못 받아오면 합성으로 떨어진다 (BuildSynthDrill).
+    /// </summary>
+    private static AudioClip BuildDrill()
+    {
+        AudioClip rec = Resources.Load<AudioClip>(DrillAsset);
+        if (rec != null)
+        {
+            int rate = rec.frequency;
+            float[] cut = CutLoop(rec, DrillFrom, DrillLen);
+            // 42 초를 통째로 들고 있을 이유가 없다 — 4 초만 썼다.
+            Resources.UnloadAsset(rec);
+            if (cut != null)
+            {
+                // Clip 이 제자리에서 크기를 맞추므로 **그 뒤에** 잰다.
+                AudioClip made = Clip("DentalDrill", cut);
+                drillEnv = Envelope(cut, rate);
+                return made;
+            }
+            Debug.LogWarning("[ScenarioAudio] 드릴 녹음을 잘라내지 못했다 "
+                             + "— 합성으로 간다");
+        }
+        else
+        {
+            Debug.LogWarning("[ScenarioAudio] 드릴 녹음이 없다 ("
+                             + DrillAsset + ") — 합성으로 간다");
+        }
+
+        drillEnv = null;        // 합성은 크기가 안 변한다 → DrillLoad 는 1
+        return BuildSynthDrill();
+    }
+
+    /// <summary>
+    /// 녹음에서 고리를 떼어 낸다. 꼬리를 머리에 녹여 이음매를 없앤다.
+    ///
+    /// 떼어 낼 자리는 **꼬리와 머리의 크기가 비슷한** 데로 미리 골라 뒀다
+    /// (DrillFrom 주석, 어긋남 0.6 %). 그래서 이 녹임이 할 일은 위상만
+    /// 맞추는 것이고, 40 ms 면 넉넉하다 — 드릴은 거의 다 넓은 잡음이라
+    /// 잡음끼리 섞이는 구간은 귀에 그냥 잡음이다.
+    /// </summary>
+    private static float[] CutLoop(AudioClip c, float from, float len)
+    {
+        int rate = c.frequency;
+        int ch = Mathf.Max(1, c.channels);
+        int at = Mathf.Max(0, (int)(from * rate));
+        int n = (int)(len * rate);
+        int seam = (int)(Seam * rate);
+        if (n < seam * 4 || at + n + seam > c.samples) return null;
+
+        float[] raw = new float[(n + seam) * ch];
+        if (!c.GetData(raw, at)) return null;
+
+        // 여러 줄이면 첫 줄만 쓴다. 메타에 forceToMono 가 켜져 있어
+        // 실제로는 한 줄로 들어오지만, 메타는 언제든 바뀔 수 있다.
+        float[] b = new float[n];
+        for (int i = 0; i < n; i++) b[i] = raw[i * ch];
+
+        for (int i = 0; i < seam; i++)
+        {
+            float w = (float)i / seam;
+            b[i] = b[i] * w + raw[(n + i) * ch] * (1f - w);
+        }
+        return b;
+    }
+
+    /// <summary>
+    /// 크기의 움직임을 뽑는다. **위 4분위를 1 로 맞춘다.**
+    ///
+    /// 가운데값으로 맞추면 안 된다. 지금 치과 진동은 세기 255 로
+    /// 꽉 차서 돌고 있어서(waveHighAmplitude = 255), 1 을 넘는 만큼은
+    /// 그냥 잘린다 — 꿀렁임의 **꼭대기만 뭉개진다.** 센 쪽을 1 에 두면
+    /// 오늘 느낌이 그대로 센 쪽이 되고 공회전이 그 아래로 내려간다.
+    /// 날이 이를 파고들 때 더 울리는 것이 실제와도 맞는다.
+    ///
+    /// 바닥을 0.10 으로 받친다. 0 까지 떨어뜨리면 공회전 동안 모터가
+    /// **아예 멎어서** 고장난 것처럼 느껴진다 — 실제 드릴은 발판을
+    /// 밟고 있는 동안 멎지 않는다.
+    /// </summary>
+    private static float[] Envelope(float[] b, int rate)
+    {
+        int hop = Mathf.Max(1, (int)(rate * EnvHop));
+        int win = Mathf.Max(hop, (int)(rate * EnvWin));
+        int n = (b.Length - win) / hop;
+        if (n < 4) return null;
+
+        float[] e = new float[n];
+        for (int k = 0; k < n; k++)
+        {
+            double acc = 0;
+            int at = k * hop;
+            for (int i = 0; i < win; i++) { float v = b[at + i]; acc += v * v; }
+            e[k] = Mathf.Sqrt((float)(acc / win));
+        }
+
+        float[] q = (float[])e.Clone();
+        System.Array.Sort(q);
+        float top = Mathf.Max(q[(q.Length * 3) / 4], 1e-6f);
+        for (int k = 0; k < n; k++)
+            e[k] = Mathf.Clamp(e[k] / top, 0.10f, 1.45f);
+        return e;
+    }
+
+    /// <summary>
+    /// 합성 드릴 — 에어터빈이 내는 날카로운 휘파람 + 공기 새는 쉭.
     ///
     /// 휘파람만 넣으면 전자음이 되고 쉭만 넣으면 수도꼭지가 된다. 둘이
     /// 같이 있어야 드릴로 들린다.
+    ///
+    /// **이제는 받침이다.** 녹음을 못 읽을 때만 쓴다. 지워 두지 않는
+    /// 이유는, 소리가 아예 안 나는 것보다는 합성이라도 나는 쪽이
+    /// 실험이 멈추지 않기 때문이다.
     /// </summary>
-    private static AudioClip BuildDrill()
+    private static AudioClip BuildSynthDrill()
     {
         float[] b = new float[LoopLen];
         System.Random rng = new System.Random(4700);

@@ -37,11 +37,33 @@ public static class HapticPanel
     /// </summary>
     public static float GapScale { get { return GapSteps[gapIdx]; } }
 
-    private static readonly float[] AmpSteps = { 0.30f, 0.60f, 1.00f, 1.40f, 1.80f };
-    private static readonly float[] GapSteps = { 0.40f, 0.70f, 1.00f, 1.50f, 2.20f };
+    /// <summary>
+    /// 치과 드릴 진동이 **녹음을 얼마나 따라갈지** (= 부하 깊이).
+    ///
+    /// 0 이면 내내 같은 세기로 운다 — 11/15 까지의 드릴이 이것이었다.
+    /// 1 이면 ScenarioAudio.DrillLoad 를 그대로 쓴다. 날이 이를 파고들며
+    /// 소리가 커질 때 손도 같이 세지고, 공회전으로 돌아오면 같이
+    /// 잦아든다. 1 을 넘기면 **녹음보다 더** 꿀렁인다.
+    ///
+    /// **드릴에서만 먹는다.** 같은 치과 블록의 칫솔은 조원이 맡은
+    /// 자극이라 손대지 않았다. 그래서 칫솔 블록에서는 이 줄이 흐리고,
+    /// 켜진 손잡이가 세기 하나뿐이다. 칫솔에서 무엇을 조절하게 할지는
+    /// 그쪽에서 정하면 여기에 들어온다.
+    ///
+    /// 1 이 기본이다. 「음성에 맞게」 가 글자 그대로 1 이고, 손잡이는
+    /// 거기서 양쪽으로 열려 있다 — 0 쪽은 베이스라인에 가깝고 1.4 쪽은
+    /// 실제보다 부풀린 쪽이다. 과장이 현장감을 올리는지 내리는지가
+    /// 이 연구가 물을 수 있는 것 중 하나다.
+    /// </summary>
+    public static float LoadDepth { get { return LoadSteps[loadIdx]; } }
+
+    private static readonly float[] AmpSteps  = { 0.30f, 0.60f, 1.00f, 1.40f, 1.80f };
+    private static readonly float[] GapSteps  = { 0.40f, 0.70f, 1.00f, 1.50f, 2.20f };
+    private static readonly float[] LoadSteps = { 0.00f, 0.35f, 0.70f, 1.00f, 1.40f };
 
     private static int ampIdx = 2;      // 가운데가 지금까지 쓰던 값이다
     private static int gapIdx = 2;
+    private static int loadIdx = 3;     // 1.00 = 녹음 그대로
 
     // ───────────────────────── 생김새 ─────────────────────────
 
@@ -68,8 +90,19 @@ public static class HapticPanel
     private const float Drop  = -0.05f; // 눈높이보다 살짝 아래
     private const int   Cells = 5;
 
+    /// <summary>
+    /// 손잡이 수. 셋이지만 **한 시나리오에서 먹는 것은 둘뿐이다** —
+    /// 세기는 늘, 주기는 음식에서만, 부하 깊이는 치과에서만.
+    /// </summary>
+    private const int Rows = 3;
+
     private const float CellW = 0.030f, CellH = 0.020f, CellGap = 0.007f;
-    private const float Row0Y = 0.042f, Row1Y = -0.042f;
+
+    /// 맨 윗줄의 y 와 줄 간격. 둘이던 때는 ±0.042 였고, 셋이 되면서
+    /// 판을 0.056 → 0.050 으로 낮추고 간격을 0.060 으로 잡았다 —
+    /// 판 사이에 0.010 이 남아 줄이 붙어 보이지 않는다.
+    private const float Row0Y = 0.060f, RowPitch = 0.060f;
+    private const float PlateH = 0.050f;
 
     private static readonly Color Back = new Color(0.09f, 0.10f, 0.13f);
     private static readonly Color Idle = new Color(0.22f, 0.24f, 0.29f);
@@ -80,13 +113,16 @@ public static class HapticPanel
     private static Transform root;
     private static Transform head;
     private static float bodyYaw;       // 창을 세워 둔 **몸의** 방향 (도)
-    private static readonly Transform[] rowPlate = new Transform[2];
-    private static readonly Transform[,] cell = new Transform[2, Cells];
+    private static readonly Transform[] rowPlate = new Transform[Rows];
+    private static readonly Transform[,] cell = new Transform[Rows, Cells];
     private static Material matBack, matIdle, matLit, matAim, matDull, matIcon;
     private static int aimedRow = -1;
 
     /// <summary>창이 서 있나.</summary>
     public static bool Alive { get { return root != null; } }
+
+    /// <summary>지금 겨눈 줄 (-1 = 안 겨눔). 재 보려고 (Editor/PanelShot).</summary>
+    public static int AimedRow { get { return aimedRow; } }
 
     /// <summary>
     /// 창을 세운다. <paramref name="body"/> 는 **머리가 아닌** 것이라야
@@ -123,21 +159,24 @@ public static class HapticPanel
         Place();
 
         Quad(root, matBack, Vector3.zero,
-             new Vector3(0.30f, 0.19f, 0.008f), "Back");
+             new Vector3(0.30f, 0.20f, 0.008f), "Back");
 
-        for (int row = 0; row < 2; row++)
+        for (int row = 0; row < Rows; row++)
         {
-            float y = row == 0 ? Row0Y : Row1Y;
+            float y = Row0Y - row * RowPitch;
             // x 는 **왼쪽이 양수**다. 창을 참가자 쪽으로 180° 돌려
             // 세우므로 로컬 +X 가 보는 사람의 왼쪽이 된다. 처음에 그냥
             // 적었더니 그림이 오른쪽에 붙고 눈금이 오른쪽부터 찼다.
             rowPlate[row] = Quad(root, matDull, new Vector3(-0.012f, y, 0.005f),
-                                 new Vector3(0.268f, 0.056f, 0.004f),
+                                 new Vector3(0.268f, PlateH, 0.004f),
                                  "Row" + row);
 
-            // 왼쪽 그림. 글자를 못 쓰니 이것이 이름표다.
-            if (row == 0) IconAmp(root, y);
-            else          IconGap(root, y);
+            // 왼쪽 그림. 글자를 못 쓰니 이것이 이름표다. 셋이 서로
+            // **다른 생김새**라야 한다 — 세기는 올라가는 계단,
+            // 주기는 간격이 벌어지는 막대, 부하는 부풀었다 꺼지는 산.
+            if (row == 0)      IconAmp(root, y);
+            else if (row == 1) IconGap(root, y);
+            else               IconLoad(root, y);
 
             for (int i = 0; i < Cells; i++)
                 cell[row, i] = Quad(root, matIdle,
@@ -145,7 +184,7 @@ public static class HapticPanel
                     new Vector3(CellW, CellH, 0.004f),
                     "R" + row + "C" + i);
         }
-        Paint(true);
+        Paint(true, true);
     }
 
     /// <summary>
@@ -153,46 +192,88 @@ public static class HapticPanel
     /// </summary>
     /// <param name="tapped">이 프레임에 탭이 시작됐나.</param>
     /// <param name="gapUseful">
-    /// 지금 시나리오에서 주기 줄이 쓸모 있나. 치과는 지속 진동이라
-    /// 조각 사이 침묵이란 것이 아예 없다 — 그럴 때는 줄을 흐리게 해서
-    /// **안 먹는다는 것을 보여 준다.** 안 그러면 눌러 보고 아무 일도
-    /// 안 일어나는 것을 고장으로 읽는다.
+    /// 주기 줄이 지금 먹나. 조각 사이 침묵이란 것은 음식에만 있다.
     /// </param>
-    public static bool Step(bool tapped, bool gapUseful)
+    /// <param name="loadUseful">
+    /// 부하 깊이 줄이 지금 먹나. 지금은 **치과의 드릴에서만**이다.
+    ///
+    /// 둘을 따로 받는 이유. 처음엔 "음식인가" 하나로 갈라서 음식이
+    /// 아니면 부하 줄을 켰는데, 치과 블록에는 드릴과 **칫솔**이 둘 다
+    /// 있다. 칫솔에서는 이 값이 쓰이는 데가 없으므로 그 줄은 켜 놓고
+    /// 눌러도 **아무 일이 없는 값**이 된다 — 흐린 줄을 눌러도 값이
+    /// 몰래 바뀌던 것과 같은 허물이다. 한동안 칫솔 쪽에도 이 값을
+    /// 먹여 두었다가, 조원이 맡은 자극이라 뺐다.
+    ///
+    /// 안 먹는 줄은 흐리게 해서 **안 먹는다는 것을 보여 준다.** 안
+    /// 그러면 눌러 보고 아무 일도 안 일어나는 것을 고장으로 읽는다.
+    /// </param>
+    public static bool Step(bool tapped, bool gapUseful, bool loadUseful)
     {
         if (root == null || head == null) return false;
 
         Place();
-
-        aimedRow = -1;
-        float best = 10f;
-        for (int row = 0; row < 2; row++)
-        {
-            if (rowPlate[row] == null) continue;
-            Vector3 to = rowPlate[row].position - head.position;
-            if (to.sqrMagnitude < 1e-6f) continue;
-            float a = Vector3.Angle(head.forward, to);
-            if (a < 9f && a < best) { best = a; aimedRow = row; }
-        }
+        aimedRow = Aimed();
 
         bool used = false;
         if (tapped && aimedRow >= 0)
         {
             // 끝 칸에서 한 번 더 누르면 처음으로 돌아간다. 탭이 하나뿐이라
             // 올리고 내리기를 둘 다 둘 수가 없다.
-            if (aimedRow == 0) ampIdx = (ampIdx + 1) % Cells;
-            else               gapIdx = (gapIdx + 1) % Cells;
+            //
+            // **안 먹는 줄은 값을 안 바꾸되 탭은 먹는다.** 전에는 흐린
+            // 줄을 눌러도 숨은 값(gapIdx)이 올라가고 탭도 사라졌다 —
+            // 보이는 것은 아무 일 없는데 값이 몰래 바뀌는 셈이었다.
+            // 그렇다고 탭을 흘려보내면 창을 겨누고 누른 것이 **다음
+            // 블록으로 넘어가** 버린다. 실험을 건너뛰는 쪽이 훨씬 나쁘다.
+            if (Live(aimedRow, gapUseful, loadUseful))
+            {
+                if (aimedRow == 0)      ampIdx  = (ampIdx  + 1) % Cells;
+                else if (aimedRow == 1) gapIdx  = (gapIdx  + 1) % Cells;
+                else                    loadIdx = (loadIdx + 1) % Cells;
+            }
             used = true;
         }
-        Paint(gapUseful);
+        Paint(gapUseful, loadUseful);
         return used;
+    }
+
+    /// <summary>이 줄이 지금 시나리오에서 먹나. 세기는 늘 먹는다.</summary>
+    private static bool Live(int row, bool gapUseful, bool loadUseful)
+    {
+        return row == 0 || (row == 1 ? gapUseful : loadUseful);
+    }
+
+    /// <summary>
+    /// 겨눈 줄. 눈길을 **창 평면에 꽂아** 어느 띠에 떨어지는지로 가린다.
+    ///
+    /// 전에는 줄 가운데에서 몇 도 안쪽이냐(9° 원뿔)로 봤다. 줄이 둘일
+    /// 때는 8° 씩 떨어져 있어 그걸로 됐다. 셋이 되면서 간격이 5.7° 로
+    /// 좁아져 원뿔이 이웃 줄까지 덮는다 — 가까운 쪽이 이기므로 줄
+    /// 사이를 겨누면 **1 도도 안 되는 차이로 승자가 바뀐다.** 평면에
+    /// 꽂으면 띠 경계가 그대로 경계라 그런 흔들림이 없다.
+    /// </summary>
+    private static int Aimed()
+    {
+        // 앞면(+Z)이 참가자를 보고 있으므로 법선은 root.forward 다.
+        Plane face = new Plane(root.forward, root.position);
+        Ray ray = new Ray(head.position, head.forward);
+        float hit;
+        if (!face.Raycast(ray, out hit)) return -1;
+
+        // InverseTransformPoint 가 배율까지 나눠 주므로, 아래 수들은
+        // 칸 치수를 적어 둔 것과 같은 단위다 (DesignDist 참고).
+        Vector3 at = root.InverseTransformPoint(ray.GetPoint(hit));
+        if (Mathf.Abs(at.x) > 0.15f || Mathf.Abs(at.y) > 0.10f) return -1;
+
+        int row = Mathf.RoundToInt((Row0Y - at.y) / RowPitch);
+        return row >= 0 && row < Rows ? row : -1;
     }
 
     public static void Dispose()
     {
         if (root != null) Kill(root.gameObject);
         root = null; head = null; aimedRow = -1;
-        for (int r = 0; r < 2; r++)
+        for (int r = 0; r < Rows; r++)
         {
             rowPlate[r] = null;
             for (int i = 0; i < Cells; i++) cell[r, i] = null;
@@ -203,7 +284,8 @@ public static class HapticPanel
     public static string Info()
     {
         return "amp x" + AmpScale.ToString("F2")
-             + "  gap x" + GapScale.ToString("F2");
+             + "  gap x" + GapScale.ToString("F2")
+             + "  load x" + LoadDepth.ToString("F2");
     }
 
     // ───────────────────────── 속 ─────────────────────────
@@ -223,12 +305,12 @@ public static class HapticPanel
         root.localScale = Vector3.one * (Dist / DesignDist);
     }
 
-    private static void Paint(bool gapUseful)
+    private static void Paint(bool gapUseful, bool loadUseful)
     {
-        for (int row = 0; row < 2; row++)
+        for (int row = 0; row < Rows; row++)
         {
-            bool live = row == 0 || gapUseful;
-            int lit = row == 0 ? ampIdx : gapIdx;
+            bool live = Live(row, gapUseful, loadUseful);
+            int lit = row == 0 ? ampIdx : row == 1 ? gapIdx : loadIdx;
             if (rowPlate[row] != null)
                 Set(rowPlate[row], aimedRow == row ? matAim : matDull);
             for (int i = 0; i < Cells; i++)
@@ -257,6 +339,20 @@ public static class HapticPanel
         for (int i = 0; i < 4; i++)
             Quad(p, matIcon, new Vector3(x[i], y, 0.009f),
                  new Vector3(0.004f, 0.020f, 0.004f), "IconGap" + i);
+    }
+
+    /// <summary>
+    /// 부하 깊이 — **부풀었다 꺼지는 산.** 가운데가 솟은 막대 다섯이다.
+    ///
+    /// 세기 그림(올라가는 계단)과 헷갈리면 안 되니 대칭으로 둔다.
+    /// 계단은 "끝이 더 세다", 산은 "오르내린다" 로 읽힌다.
+    /// </summary>
+    private static void IconLoad(Transform p, float y)
+    {
+        float[] h = { 0.008f, 0.017f, 0.026f, 0.017f, 0.008f };
+        for (int i = 0; i < 5; i++)
+            Quad(p, matIcon, new Vector3(0.130f - i * 0.009f, y, 0.009f),
+                 new Vector3(0.005f, h[i], 0.004f), "IconLoad" + i);
     }
 
     private static Transform Quad(Transform parent, Material mat,

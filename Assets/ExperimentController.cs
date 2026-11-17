@@ -136,7 +136,7 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1115-J";
+    public const string BuildStamp = "1116-A";
 
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다 — 설정창을 건너뛴다. " +
              "꺼 두면 설정창(runPatternTest)이 먼저 나오고, 거기서 " +
@@ -652,7 +652,12 @@ public class ExperimentController : MonoBehaviour
             SafeCall("HapticPanel.Step", delegate {
                 onPanel = HapticPanel.Step(
                     triggerPressedThisFrame,
-                    order[idx] == MirrorRig.Scenario.Food); });
+                    // 주기 — 조각 사이 침묵이라 음식에만 있다
+                    order[idx] == MirrorRig.Scenario.Food,
+                    // 부하 깊이 — 지금은 **드릴에만** 있다. 칫솔은
+                    // 조원 몫이라 안 건드린다 (ApplyContactHaptics 참고).
+                    order[idx] == MirrorRig.Scenario.Dental
+                        && tools[idx] == MirrorRig.DentalKind.Drill); });
 
             if (triggerPressedThisFrame && !onPanel)
             {
@@ -790,11 +795,19 @@ public class ExperimentController : MonoBehaviour
         bool isBrush = rig.CurrentDental == MirrorRig.DentalKind.Brush;
         if (touching)
         {
-            // 드릴은 한 세기로 계속 간다 — 실제로 그렇다.
-            // 칫솔은 아니다. 솔이 좌우로 쓸리는 박자(AnimateDental 의
-            // 2.2)에 맞춰 세기가 오르내리고, 그 위에 솔이 이를 넘는
-            // 잔 떨림(같은 곳의 13)을 얹는다. 보이는 움직임과 **같은
-            // 두 수**를 쓰므로 눈과 손이 어긋날 수가 없다.
+            // 둘 다 한 세기로 가지 않는다.
+            //
+            // 드릴은 11/15 까지 amp = 1 로 **내내 똑같이** 울렸다.
+            // 근거는 "실제로 그렇다" 였는데 틀렸다. 받아온 녹음을 재
+            // 보니 공회전과 부하가 4.25 배 차이로 오간다
+            // (ScenarioAudio.DrillFrom 주석). 날이 법랑질을 파고들면
+            // 소리가 커지고 손도 같이 세진다 — 치과에서 사람이
+            // 기억하는 것이 바로 그 오르내림이다.
+            //
+            // 칫솔은 솔이 좌우로 쓸리는 박자(AnimateDental 의 2.2)에
+            // 맞춰 세기가 오르내리고, 그 위에 솔이 이를 넘는 잔 떨림
+            // (같은 곳의 13)을 얹는다. 보이는 움직임과 **같은 두 수**를
+            // 쓰므로 눈과 손이 어긋날 수가 없다.
             float amp = 1f;
             if (isBrush)
             {
@@ -814,7 +827,32 @@ public class ExperimentController : MonoBehaviour
                 // 솔이 법랑질 위에서 튀는 잔결. 세기를 바꾸는 게 아니라
                 // 매끄러운 산을 **까끌하게** 만드는 것이라 폭이 좁다.
                 float grain = 0.88f + 0.12f * Mathf.Sin(t2 * 41f);
+
+                // **여기는 손대지 않는다.** 칫솔 시나리오는 조원이
+                // 맡았다. 한 번 설정창의 부하 깊이를 여기까지 먹였다가
+                // 뺐다 — 기본값에서는 식이 같았지만, 손잡이를 돌리면
+                // 남의 자극이 바뀐다. 칫솔에서 무엇을 조절하게 할지는
+                // 그쪽에서 정할 몫이다. 그때까지 부하 줄은 칫솔 블록
+                // 에서 흐리다 (HapticPanel.Step 의 loadUseful).
                 amp = BrushAmp * (0.22f + 0.78f * stroke) * grain;
+            }
+            else
+            {
+                // **지금 귀에 들리는 그 크기**를 그대로 쓴다
+                // (ScenarioAudio.DrillLoad). 소리는 클립에서 나오고
+                // 이 수는 바로 그 클립을 재서 만든 포락선에서 나오므로,
+                // 들리는 것과 느껴지는 것이 어긋날 자리가 없다 —
+                // 씹기에서 timings 배열 하나를 양쪽이 읽는 것과 같다.
+                //
+                // 얼마나 따라갈지는 설정창의 **부하 깊이**가 쥔다
+                // (HapticPanel.LoadDepth). 0 이면 11/15 까지의 평평한
+                // 진동이고 1 이면 녹음 그대로다. 1 을 넘기면 녹음보다
+                // 더 꿀렁이므로 1 아래로 내려갈 때는 음수가 될 수 있다 —
+                // 0.08 로 받친다. 모터가 접촉 중에 아예 멎으면 고장으로
+                // 느껴진다.
+                amp = Mathf.Max(0.08f,
+                    Mathf.LerpUnclamped(1f, ScenarioAudio.DrillLoad,
+                                        HapticPanel.LoadDepth));
             }
             HapticManager.SetContinuous(Mathf.Clamp(
                 Mathf.RoundToInt(waveHighAmplitude * amp
@@ -827,8 +865,24 @@ public class ExperimentController : MonoBehaviour
             scenarioBuzzing = false;
         }
 
-        // 소리도 닿아 있는 동안만. 드릴은 댔다 뗐다 하므로 뗀 동안은
-        // 소리도 같이 멎는다 — 진동이 멎는 바로 그 순간이다.
+        // 소리도 닿아 있는 동안만 **들린다.** 다만 클립을 **멈추지는
+        // 않는다** — 세기만 0 으로 내린다. 씹는 소리가 이미 같은
+        // 수법을 쓰고 있다 (위쪽 Loop.Chew 주석).
+        //
+        // 멈추면 다음 접촉에서 Play() 가 처음으로 되감는다. 그러면
+        // 접촉마다 **글자 그대로 같은 2.1 초**가 반복된다 —
+        // AnimateDental 의 주기가 3.2 초이고 그중 2.1 초가 접촉이라,
+        // 한 블록에 아홉 번쯤 된다. 아홉 번 똑같으면 귀가 그걸
+        // 녹음으로 알아챈다. 돌려 둔 채로 두면 접촉마다 녹음의 다른
+        // 자리를 긁어 와서 매번 조금씩 다르다. 실제 터빈도 의사가
+        // 자리를 옮기는 동안 계속 돌고 있다.
+        //
+        // 값을 치르는 쪽도 있다. 참가자마다 어느 자리에서 시작하는지가
+        // 달라서 자극이 조건마다 글자 그대로 같지 않다. 다만 그 어긋남은
+        // **한쪽으로 쏠리지 않으므로** 잡음만 늘고 편향은 안 생긴다.
+        // 반면 아홉 번 똑같은 소리는 "녹음이구나" 를 한 방향으로 심는다.
+        // 되감는 쪽으로 돌리려면 아래에서 !touching 일 때 Loop.None 을
+        // 주면 된다.
         bool brush = isBrush;
         float level = 0f;
         if (touching)
@@ -841,8 +895,7 @@ public class ExperimentController : MonoBehaviour
                 : 0.80f;
         }
         ScenarioAudio.SetLoop(
-            !touching ? ScenarioAudio.Loop.None
-                      : brush ? ScenarioAudio.Loop.Brush : ScenarioAudio.Loop.Drill,
+            brush ? ScenarioAudio.Loop.Brush : ScenarioAudio.Loop.Drill,
             level);
     }
 
