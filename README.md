@@ -92,7 +92,9 @@ SDK / NDK / JDK 까지 빠짐없이 설치해야 한다. 조각이 빠져 있으
 Assets/MirrorRig.cs               방·거울·등장인물·도구를 런타임에 세운다 (핵심)
 Assets/ToolModels.cs              드릴·전동칫솔·젤리 모델, 런타임 재질
 Assets/ScenarioHaptics.cs         상황별 진동 패턴
-Assets/ScenarioAudio.cs           상황별 소리 — 파일 없이 코드로 합성한다
+Assets/ScenarioAudio.cs           상황별 소리 — 드릴과 사과는 녹음, 나머지는 합성
+Assets/AppleSync.cs               사과 씬을 녹음한 씹는 소리에 맞춘다 (docs/apple-sound-sync.md)
+Assets/AppleCrunchData.cs         그 소리를 재서 뽑은 시간표 (자동 생성)
 Assets/HapticManager.cs           Android/iOS 공통 진동 창구
 Assets/AndroidVibrationManager.cs Android VibrationEffect
 Assets/Plugins/iOS/CardboardHaptics.mm   iOS CoreHaptics
@@ -157,6 +159,10 @@ Assets/ExperimentController.cs    예전 탐색 실험 러너 (교체 예정)
 에디터에서는 이 차이가 드러나지 않는다.
 
 ## 소리
+
+> **11/17 — 사과는 녹음으로 바꿨다.** 음식은 사과만 남기고, 사과 씬의 소리·턱·진동을
+> 녹음한 씹는 소리의 시간표에 맞췄다. 아래의 "깨무는 소리 / 씹는 소리" 합성은
+> 녹음을 껐을 때만 쓰인다. 자세한 것은 [docs/apple-sound-sync.md](docs/apple-sound-sync.md).
 
 11/11 에 넣었다. 그 전까지는 **완전히 무음**이었다 — 카메라에 Unity 가
 기본으로 달아 주는 `AudioListener` 만 있고 들을 것이 없었다.

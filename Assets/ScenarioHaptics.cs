@@ -22,8 +22,58 @@ using UnityEngine;
 ///             두 수준은 조각 수와 세기로 가른다 — 사과는 적고 세게,
 ///             무른 것은 더 적고 약하게 (ExperimentController.ApplyContactHaptics).
 /// </summary>
+/// <summary>
+/// 한 입(Crunch) 파형을 정하는 값 전부. 설정 화면(PatternSettingsMenu)의 Crunch 칸에서
+/// 고친다. 기본값은 지금까지 BuildCrunch 안에 박혀 있던 수 그대로다.
+/// </summary>
+public class CrunchSettings
+{
+    /// 깨지는 조각(탁) 수. 과자 4~6, 사과 2~3, 얼음 1~2 정도.
+    /// 사과 씬이 이 값을 쓴다 (음식 표의 frags 3 과 같은 값에서 출발한다).
+    public int fragments = 3;
+    /// 난수 씨앗. 같은 값이면 같은 파형.
+    public int seed = 1;
+    /// 켜면 재생할 때마다 seed 를 1 씩 올려 매번 다른 파형을 낸다.
+    public bool autoIncrementSeed = true;
+
+    /// 조각 하나의 길이 범위 (ms)
+    public int fragmentMinMs = 4;
+    public int fragmentMaxMs = 11;
+    /// 조각 사이 침묵 범위 (ms). 설정창의 주기 손잡이(HapticPanel.GapScale)가 곱해진다.
+    public int gapMinMs = 15;
+    public int gapMaxMs = 65;
+    /// 조각 세기 흔들림의 바닥 (0~1). 각 조각은 [이 값, 1] 사이 배율을 무작위로 받는다.
+    public float jitterFloor = 0.65f;
+    /// 조각이 하나 지날 때마다 세기에 곱하는 배율 범위 (0.05~1). 작을수록 빨리 약해진다.
+    public float decayMin = 0.70f;
+    public float decayMax = 0.92f;
+    /// iOS 전용. 이 길이(ms) 이하인 조각은 짧은 탁(transient)으로 낸다.
+    public int transientMaxMs = 12;
+
+    public void CopyFrom(CrunchSettings o)
+    {
+        fragments = o.fragments;
+        seed = o.seed;
+        autoIncrementSeed = o.autoIncrementSeed;
+        fragmentMinMs = o.fragmentMinMs;
+        fragmentMaxMs = o.fragmentMaxMs;
+        gapMinMs = o.gapMinMs;
+        gapMaxMs = o.gapMaxMs;
+        jitterFloor = o.jitterFloor;
+        decayMin = o.decayMin;
+        decayMax = o.decayMax;
+        transientMaxMs = o.transientMaxMs;
+    }
+}
+
 public static class ScenarioHaptics
 {
+    /// <summary>
+    /// 지금 쓰는 Crunch 값. BuildCrunch 가 읽는다 — 진동도, 그 timings 로 그리는
+    /// 합성 소리(ScenarioAudio.CrunchClip)도 여기 한 군데를 본다.
+    /// </summary>
+    public static readonly CrunchSettings Crunch = new CrunchSettings();
+
     /// <summary>
     /// 한 입 베어 무는 느낌의 파형을 만든다.
     ///
@@ -42,6 +92,22 @@ public static class ScenarioHaptics
         fragments = Mathf.Clamp(fragments, 1, 12);
         peak = Mathf.Clamp(peak, 1, 255);
 
+        // 조각 길이·침묵·흔들림·감쇠는 설정에서 온다 (Crunch). 기본값이면 예전에
+        // 여기 박혀 있던 수와 같고, 난수를 뽑는 순서도 그대로라 같은 seed 는 같은 파형이다.
+        CrunchSettings s = Crunch;
+        int onMin = Mathf.Clamp(s.fragmentMinMs, 1, 200);
+        int onMax = Mathf.Clamp(s.fragmentMaxMs, onMin, 200);
+        int gapMin = Mathf.Clamp(s.gapMinMs, 1, 1000);
+        int gapMax = Mathf.Clamp(s.gapMaxMs, gapMin, 1000);
+        float jitterFloor = Mathf.Clamp01(s.jitterFloor);
+        float decayMin = Mathf.Clamp(s.decayMin, 0.05f, 1f);
+        float decayMax = Mathf.Clamp(s.decayMax, decayMin, 1f);
+        // 기본값(0.70~0.92)에서는 예전 식의 0.22 를 글자 그대로 쓴다. 0.92f - 0.70f 는
+        // 부동소수점에서 0.22f 와 끝자리가 달라, 적어 둔 seed 의 파형이 1 단계 어긋날 수 있다.
+        float decaySpan = (decayMin == 0.70f && decayMax == 0.92f)
+                        ? 0.22f : decayMax - decayMin;
+        float jitterSpan = jitterFloor == 0.65f ? 0.35f : 1f - jitterFloor;   // 같은 이유
+
         System.Random rng = new System.Random(seed);
         List<long> t = new List<long>();
         List<int> a = new List<int>();
@@ -51,8 +117,8 @@ public static class ScenarioHaptics
         {
             // 조각 하나 — 4~11ms. 이 길이는 iOS 에서 transient(짧은 탁) 로 나간다.
             // continuous 로 내면 Taptic Engine 이 뜨는 시간 때문에 뭉개진다.
-            long on = 4 + rng.Next(0, 8);
-            float jitter = 0.65f + (float)rng.NextDouble() * 0.35f;
+            long on = onMin + rng.Next(0, onMax - onMin + 1);
+            float jitter = jitterFloor + (float)rng.NextDouble() * jitterSpan;
             int amp = Mathf.Clamp(Mathf.RoundToInt(peak * level * jitter), 1, 255);
 
             t.Add(on);
@@ -67,12 +133,13 @@ public static class ScenarioHaptics
                 // 읽어 만들므로(ScenarioAudio.CrunchClip) 소리와 진동이
                 // 같이 늘어난다 — 여기 한 군데만 건드려야 하는 이유다.
                 long gap = (long)Mathf.Round(
-                    (15 + rng.Next(0, 51)) * Mathf.Max(0.1f, HapticPanel.GapScale));
+                    (gapMin + rng.Next(0, gapMax - gapMin + 1))
+                    * Mathf.Max(0.1f, HapticPanel.GapScale));
                 t.Add(System.Math.Max(5L, gap));
                 a.Add(0);
             }
 
-            level *= 0.70f + (float)rng.NextDouble() * 0.22f;   // 약해지되 단조롭지 않게
+            level *= decayMin + (float)rng.NextDouble() * decaySpan;   // 약해지되 단조롭지 않게
         }
 
         timings = t.ToArray();
@@ -90,7 +157,8 @@ public static class ScenarioHaptics
         int[] amplitudes;
         BuildCrunch(fragments, peak, seed, out timings, out amplitudes);
         HapticManager.StopWaveform();
-        HapticManager.PlayWaveform(timings, amplitudes, 12);
+        HapticManager.PlayWaveform(timings, amplitudes,
+            Mathf.Clamp(Crunch.transientMaxMs, 0, 200));
     }
 
     /// <summary>

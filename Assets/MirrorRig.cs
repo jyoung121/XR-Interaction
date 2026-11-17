@@ -100,10 +100,17 @@ public class MirrorRig : MonoBehaviour
     /// </summary>
     private static readonly FoodSpec[] FoodSpecs =
     {
-        // 사과 — 아삭 부서진다. 네 입에 걸쳐 먹고 깨문 자리가 패인다.
+        // 사과 — 아삭 부서진다. 세 입에 걸쳐 먹고 깨문 자리가 패인다.
+        //
+        // **입 수와 무는 시간·씹는 시간은 녹음한 소리에서 온다** (AppleCrunchData).
+        // 소리 파일이 한 입 주기 세 번으로 되어 있고, 한 주기가 크게 베어 무는
+        // 소리 한 번(0.74 초)과 잘게 씹는 소리 열한 번(11.5 초)이다. 여기 수를
+        // 따로 적어 두면 소리를 바꿨을 때 턱과 소리가 어긋난다.
+        // rate 는 이제 안 쓴다 — 턱은 씹는 소리마다 다문다 (ChewJawOf).
         new FoodSpec { model = "Apple", label = "APPLE",
-                       size = 0.075f, bites = 4, carve = true,
-                       hold = 0.50f, chew = 6.00f, rate = 12f, depth = 0.20f,
+                       size = 0.075f, bites = AppleCrunchData.Segments, carve = true,
+                       hold = AppleCrunchData.HoldSeconds,
+                       chew = AppleCrunchData.ChewSeconds, rate = 12f, depth = 0.20f,
                        open = 0.55f, spin = 26f, tilt = 0f, smooth = 0.58f,
                        grip = 0f, curl = 42f, thumb = 46f, fold = 78f,
                        frags = 3, peak = 1.00f, bright = 0.70f,
@@ -615,8 +622,54 @@ public class MirrorRig : MonoBehaviour
     /// </summary>
     public static float ChewJawOf(FoodKind k, float c)
     {
+        if (k == FoodKind.Apple) return AppleJaw(c);
+
         FoodSpec fs = SpecOf(k);
         return Mathf.Clamp01(fs.open * ChewBase + fs.depth * Mathf.Sin(c * fs.rate));
+    }
+
+    /// <summary>
+    /// 사과의 턱. 일정한 박자로 오물거리지 않고 **녹음한 씹는 소리마다** 다문다.
+    ///
+    /// 씹는 소리가 시작되면 빠르게 다물고(소리 길이의 앞 60 %), 다음 소리까지
+    /// 천천히 다시 벌린다. 시각은 AppleCrunchData.ChewStart/ChewEnd — 소리 파일을
+    /// 재서 뽑은 표라, 들리는 것과 보이는 것이 같은 수를 쓴다.
+    /// </summary>
+    private static float AppleJaw(float c)
+    {
+        FoodSpec fs = SpecOf(FoodKind.Apple);
+        float rest = fs.open * ChewBase;                 // 물어 내린 자리
+        float wide = Mathf.Clamp01(rest + fs.depth);     // 씹으려고 벌린 자리
+        float shut = Mathf.Clamp01(rest - fs.depth);     // 맞물린 자리
+
+        float[] starts = AppleCrunchData.ChewStart;
+        float[] ends = AppleCrunchData.ChewEnd;
+        int n = Mathf.Min(starts.Length, ends.Length);
+
+        float prevEnd = 0f;
+        float begin = rest;
+        for (int i = 0; i < n; i++)
+        {
+            if (c < starts[i])
+                return Mathf.Lerp(begin, wide,
+                    Ease((c - prevEnd) / Mathf.Max(starts[i] - prevEnd, 0.05f)));
+            if (c <= ends[i])
+                return Mathf.Lerp(wide, shut,
+                    Ease((c - starts[i]) / Mathf.Max((ends[i] - starts[i]) * 0.6f, 0.05f)));
+            prevEnd = ends[i];
+            begin = shut;
+        }
+        // 마지막 씹는 소리 뒤 — 삼키기 전에 살짝만 벌린 채 멎는다
+        return Mathf.Lerp(shut, rest * 0.5f, Ease((c - prevEnd) / 0.5f));
+    }
+
+    /// <summary>씹기 시작한 뒤 c 초까지 시작된 씹는 소리의 수 (사과).</summary>
+    private static int AppleChewsStarted(float c)
+    {
+        float[] starts = AppleCrunchData.ChewStart;
+        int n = 0;
+        while (n < starts.Length && starts[n] <= c) n++;
+        return n;
     }
 
     /// <summary>오물거리는 시간 (s). 푸딩 1.1 초 ~ 고기 3.4 초.</summary>
@@ -5993,7 +6046,7 @@ public class MirrorRig : MonoBehaviour
     /// 사과를 깨문 단계별 메시를 미리 만들어 둔다.
     ///
     /// 한 입에 통째로 사라지면 먹는 게 아니라 지워지는 것으로 보인다.
-    /// 깨물 때마다 한 조각씩 패이고 네 입째에 없어지게 한다.
+    /// 깨물 때마다 한 조각씩 패이고 마지막 입째에 없어지게 한다.
     ///
     /// 받아 온 사과는 169 정점이라 한 입 자리를 패기엔 너무 거칠다 —
     /// 베어 문 자리가 육각형 구멍이 돼 버린다. 삼각형을 두 번 쪼개
@@ -6897,6 +6950,8 @@ public class MirrorRig : MonoBehaviour
             FoodLeft = 1f;
             toMouth = 1f;   // 패인 쪽이 입에 닿아 있다
             stand01 = 1f;
+            // 사과는 씹는 소리를 0 번부터 다시 센다 (아래 ChewBeat 참고).
+            if (foodKind == FoodKind.Apple) chewBeatAt = 0;
         }
         else
         {
@@ -6905,7 +6960,7 @@ public class MirrorRig : MonoBehaviour
             bool chewing = c < fs.chew;
 
             // 깨무는 순간은 한 번만 센다. 사과는 여기서 한 조각 패이고,
-            // 네 입째에 사라진다. 젤리는 한 알이니 통째로 들어간다.
+            // 마지막 입째에 사라진다. 젤리는 한 알이니 통째로 들어간다.
             int cyc = Mathf.FloorToInt(elapsed / bite);
             if (cyc != biteCycle)
             {
@@ -6964,7 +7019,17 @@ public class MirrorRig : MonoBehaviour
 
             // 이가 맞물릴 때마다 한 번. 턱은 open×ChewBase + depth·sin(c·rate)
             // 이므로 sin 이 -1 일 때가 다문 순간이고, 그게 c·rate = -π/2 다.
-            if (chewing)
+            //
+            // 사과는 박자가 식이 아니라 표다 — 녹음한 씹는 소리가 하나 시작될
+            // 때마다 한 번 센다. 턱(AppleJaw)이 같은 표를 읽으니 여전히
+            // "보이는 턱이 닫힐 때 울린다".
+            if (chewing && foodKind == FoodKind.Apple)
+            {
+                int started = AppleChewsStarted(c);
+                if (started > chewBeatAt) ChewBeat++;
+                chewBeatAt = started;
+            }
+            else if (chewing)
             {
                 int beat = Mathf.FloorToInt(
                     (c * fs.rate + Mathf.PI * 0.5f) / (2f * Mathf.PI));

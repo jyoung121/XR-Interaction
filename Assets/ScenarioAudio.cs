@@ -51,7 +51,7 @@ using UnityEngine;
 public static class ScenarioAudio
 {
     /// <summary>지금 이어서 낼 소리.</summary>
-    public enum Loop { None, Drill, Brush, Chew }
+    public enum Loop { None, Drill, Brush, Chew, Apple }
 
     /// <summary>무음 조건을 만들 때 끈다.</summary>
     public static bool Enabled = true;
@@ -122,6 +122,11 @@ public static class ScenarioAudio
     private static AudioSource loopSrc;   // 드릴·칫솔
     private static AudioSource shotSrc;   // 깨무는 소리
     private static AudioClip drillClip, brushClip;
+
+    // 녹음한 사과 씹는 소리 (AppleCrunchData.ClipResource). 한 번만 찾아본다.
+    private static AudioClip appleClip;
+    private static bool appleLooked;
+    private static float appleSyncedAt = -10f;   // 마지막으로 자리를 다시 맞춘 때
     private static Loop now = Loop.None;
 
     // 씹는 소리는 음식마다 다르다. 다섯 가지뿐이라 밝기로 적바림해 둔다.
@@ -179,6 +184,8 @@ public static class ScenarioAudio
     {
         if (loopSrc == null) return;
         if (!Enabled) kind = Loop.None;
+        // 사과 녹음이 없으면 낼 것이 없다. 조용히 끈다.
+        if (kind == Loop.Apple && Apple == null) kind = Loop.None;
 
         // 씹는 소리는 음식마다 클립이 다르므로 밝기가 바뀌어도 갈아 끼운다.
         bool swap = kind != now
@@ -195,6 +202,7 @@ public static class ScenarioAudio
             {
                 loopSrc.clip = kind == Loop.Drill ? Drill
                              : kind == Loop.Brush ? Brush
+                             : kind == Loop.Apple ? Apple
                              : ChewBed(bright);
                 loopSrc.Play();
             }
@@ -214,6 +222,58 @@ public static class ScenarioAudio
         if (!Enabled || shotSrc == null) return;
         AudioClip c = CrunchClip(fragments, peak, seed, bright);
         if (c != null) shotSrc.PlayOneShot(c);
+    }
+
+    // ───────────────────────── 녹음한 사과 소리 ─────────────────────────
+
+    /// <summary>
+    /// 녹음한 사과 씹는 소리. 한 입 주기가 세 번 이어진 파일이고, 파일의 0 초가
+    /// 장면의 0 초다 (AppleSync / AppleCrunchData 주석). 없으면 null.
+    /// </summary>
+    public static AudioClip Apple
+    {
+        get
+        {
+            if (!appleLooked)
+            {
+                appleLooked = true;
+                appleClip = Resources.Load<AudioClip>(AppleCrunchData.ClipResource);
+                if (appleClip == null)
+                    Debug.LogWarning("[ScenarioAudio] 사과 녹음이 없다 ("
+                                     + AppleCrunchData.ClipResource + ")");
+            }
+            return appleClip;
+        }
+    }
+
+    public static bool HasApple { get { return Apple != null; } }
+
+    /// <summary>
+    /// 돌고 있는 사과 소리를 장면 시계에 맞춘다. 매 프레임 불러도 된다.
+    ///
+    /// 소리는 제 시계로 돌고 장면은 프레임 시간으로 돈다. 프레임이 크게 밀리면
+    /// 둘이 벌어지는데, 그러면 턱은 다무는데 소리는 아직 안 난다. 80 ms 넘게
+    /// 벌어졌을 때만 소리 자리를 옮긴다 — 매번 옮기면 그때마다 틱 소리가 난다.
+    /// </summary>
+    /// <param name="sceneSeconds">장면에 들어온 뒤 흐른 시간 (MirrorRig.Seconds)</param>
+    public static void SyncLoop(float sceneSeconds)
+    {
+        if (loopSrc == null || now != Loop.Apple) return;
+        if (loopSrc.clip == null || !loopSrc.isPlaying) return;
+
+        float len = loopSrc.clip.length;
+        if (len < 0.5f) return;
+
+        float want = Mathf.Repeat(sceneSeconds, len);
+        float off = Mathf.Abs(loopSrc.time - want);
+        if (off > len * 0.5f) off = len - off;       // 고리의 이음매를 건너서 잰다
+        if (off <= 0.08f) return;
+
+        // 방금 옮겼는데 또 벌어져 있으면 기다린다. 옮긴 자리가 반영되기까지
+        // 버퍼 한두 개가 걸리는데, 그 사이에 또 옮기면 끝없이 되감긴다.
+        if (Time.unscaledTime - appleSyncedAt < 0.5f) return;
+        appleSyncedAt = Time.unscaledTime;
+        loopSrc.time = Mathf.Min(want, len - 0.02f);
     }
 
     // ───────────────────────── 만들기 ─────────────────────────

@@ -136,7 +136,7 @@ public class ExperimentController : MonoBehaviour
     /// 건지 **옛 앱이 그대로 깔려 있는 건지** 구분할 수가 없었다.
     /// 화면에 적어 두면 한 번에 끝난다.
     /// </summary>
-    public const string BuildStamp = "1116-A";
+    public const string BuildStamp = "1118-A";
 
     [Tooltip("앱을 켜면 **곧장 거울 방으로** 간다 — 설정창을 건너뛴다. " +
              "꺼 두면 설정창(runPatternTest)이 먼저 나오고, 거기서 " +
@@ -605,33 +605,27 @@ public class ExperimentController : MonoBehaviour
         // 실험자가 값을 맞추는 단계라, 느낌이 한 방향으로 움직이는 게 눈에
         // 보여야 "이 조건이 과했다" 를 바로 안다. 참가자를 받을 때는 순서
         // 효과를 지워야 하니 돌려 가며 내야 한다 — 아직 안 했다.
+        //
+        // **11/17 — 음식은 사과만 남겼다.** 사탕·고기·젤리·푸딩 블록을 뺐다.
+        // 사과 씬이 녹음한 씹는 소리에 맞춰 돌게 되면서(AppleSync) 한 입이
+        // 15.7 초, 사과 하나가 47 초가 됐다. 나머지 넷은 맞출 녹음이 없다.
+        // 음식 표(MirrorRig.FoodSpecs)와 모델은 그대로 둔다 — 에디터 미리보기
+        // (ToolPreview·DeviceView·FoodShot)가 다섯을 다 찍는다.
         MirrorRig.Scenario[] order =
         {
-            MirrorRig.Scenario.Food,
-            MirrorRig.Scenario.Food,
-            MirrorRig.Scenario.Food,
-            MirrorRig.Scenario.Food,
             MirrorRig.Scenario.Food,
             MirrorRig.Scenario.Dental,
             MirrorRig.Scenario.Dental
         };
         MirrorRig.FoodKind[] foods =
         {
-            MirrorRig.FoodKind.Candy,    // 유리처럼 쩍
             MirrorRig.FoodKind.Apple,    // 아삭
-            MirrorRig.FoodKind.Meat,     // 질겨서 길게
-            MirrorRig.FoodKind.Jelly,    // 쫀득
-            MirrorRig.FoodKind.Pudding,  // 거의 안 씹힌다
             MirrorRig.FoodKind.Apple,    // 치과에서는 쓰이지 않는다
             MirrorRig.FoodKind.Apple
         };
         MirrorRig.DentalKind[] tools =
         {
             MirrorRig.DentalKind.Drill,  // 음식에서는 쓰이지 않는다
-            MirrorRig.DentalKind.Drill,
-            MirrorRig.DentalKind.Drill,
-            MirrorRig.DentalKind.Drill,
-            MirrorRig.DentalKind.Drill,
             MirrorRig.DentalKind.Drill,
             MirrorRig.DentalKind.Brush
         };
@@ -644,6 +638,9 @@ public class ExperimentController : MonoBehaviour
         SafeCall("HapticPanel", delegate {
             HapticPanel.Create(rig.transform, headCamera); });
 
+        // 사과 씬에 어느 진동이 걸려 있는지 화면 아래에 번호로 띄운다 (1·2·3).
+        SafeCall("OptionBadge", delegate { OptionBadge.Create(headCamera); });
+
         while (true)
         {
             // 탭은 하나뿐이라 **겨눈 쪽이 가져간다.** 설정창을 보고
@@ -652,8 +649,9 @@ public class ExperimentController : MonoBehaviour
             SafeCall("HapticPanel.Step", delegate {
                 onPanel = HapticPanel.Step(
                     triggerPressedThisFrame,
-                    // 주기 — 조각 사이 침묵이라 음식에만 있다
-                    order[idx] == MirrorRig.Scenario.Food,
+                    // 주기 — 조각 사이 침묵이라 음식에만 있다. 사과가 녹음한
+                    // 소리에 맞춰 돌 때는 간격을 소리가 정하므로 이 줄도 흐리다.
+                    order[idx] == MirrorRig.Scenario.Food && !AppleSync.Active,
                     // 부하 깊이 — 지금은 **드릴에만** 있다. 칫솔은
                     // 조원 몫이라 안 건드린다 (ApplyContactHaptics 참고).
                     order[idx] == MirrorRig.Scenario.Dental
@@ -668,6 +666,11 @@ public class ExperimentController : MonoBehaviour
             }
 
             SafeCall("ApplyContactHaptics", delegate { ApplyContactHaptics(rig); });
+
+            // 번호는 사과 블록에서만 뜬다. 치과 블록에는 고를 것이 없다.
+            SafeCall("OptionBadge.Show", delegate {
+                OptionBadge.Show(order[idx] == MirrorRig.Scenario.Food
+                                 ? AppleSync.OptionNumber : 0); });
 
             // 폰이 스스로 상태를 말하게 한다. 에디터에서 폰 화면을
             // 재현하려다 두 번 빗나간 뒤에 둔 것이다 (MirrorRig.NearInfo).
@@ -688,6 +691,7 @@ public class ExperimentController : MonoBehaviour
         HapticManager.StopWaveform();
         ScenarioAudio.Detach();
         HapticPanel.Dispose();
+        OptionBadge.Dispose();
         scenarioBuzzing = false;
         rig.Dispose();
     }
@@ -704,12 +708,28 @@ public class ExperimentController : MonoBehaviour
         prevMouth = 0f;
         chewLevel = 0f;
 
+        // 사과 소리의 시간표를 처음으로 돌린다. 장면 시계(MirrorRig.Seconds)가
+        // 0 에서 다시 시작하고, 소리도 Loop.None 을 거쳤으니 처음부터 튼다.
+        AppleSync.Reset();
+        if (s == MirrorRig.Scenario.Food && food == MirrorRig.FoodKind.Apple)
+        {
+            float cycle = MirrorRig.BiteCycleOf(MirrorRig.FoodKind.Apple);
+            if (Mathf.Abs(cycle - AppleCrunchData.SegmentSeconds) > 0.01f)
+                Debug.LogWarning("[AppleSync] 한 입 주기 " + cycle.ToString("F3")
+                    + " s 가 소리 파일의 주기 "
+                    + AppleCrunchData.SegmentSeconds.ToString("F3")
+                    + " s 와 다르다 — 턱과 소리가 어긋난다. MirrorRig 의 OnPlate/"
+                    + "ApproachTime/AfterBite 를 바꿨으면 소리 파일도 다시 만들어야 한다 "
+                    + "(Tools/apple_sync).");
+        }
+
         // 파일럿에서 맞출 값의 출발점. 치과 드릴은 날카롭고, 전동칫솔은 같은 전동
         // 공구여도 훨씬 둔하다 — 이 차이가 두 수준을 가르는 지점이라 값도 갈라 둔다.
         if (s == MirrorRig.Scenario.Dental)
             HapticManager.Sharpness = tool == MirrorRig.DentalKind.Brush ? 0.45f : 0.95f;
         else
-            HapticManager.Sharpness = 0.35f;
+            // 음식(사과)의 날카로움은 설정 화면의 Apple settings 에서 고친다. 기본 0.35.
+            HapticManager.Sharpness = Mathf.Clamp01(AppleSync.Settings.sharpness);
 
         rig.ShowScenario(s, food, tool);
     }
@@ -725,6 +745,38 @@ public class ExperimentController : MonoBehaviour
 
         if (rig.Current == MirrorRig.Scenario.Food)
         {
+            // 사과는 **녹음한 씹는 소리**에 맞춰 돈다 (AppleSync). 소리 파일의
+            // 0 초가 장면의 0 초라 그냥 돌려 두면 되고, 벌어지면 SyncLoop 가 맞춘다.
+            // 거울 속 턱은 같은 시간표로 이미 움직이고 있다 (MirrorRig.AppleJaw).
+            bool isApple = rig.CurrentFood == MirrorRig.FoodKind.Apple;
+            bool recorded = isApple && AppleSync.Active;
+            if (recorded)
+            {
+                ScenarioAudio.SetLoop(ScenarioAudio.Loop.Apple,
+                                      AppleSync.Settings.volume);
+                ScenarioAudio.SyncLoop(rig.Seconds);
+            }
+
+            // 녹음이 돌고 있으면 진동도 **소리의 시간표**로 쏜다. 접촉값이 아니라
+            // 시각으로 쏘므로 아래의 firstBite/beat 경로를 건너뛴다. 셋 중 하나다
+            // (설정 화면의 "3. APPLY TO SCENE", AppleSync.HapticMode):
+            //   1 탭     — 잔 파열 하나하나에 탭
+            //   2 Crunch — 씹는 덩어리마다, 그 덩어리의 큰 파열 자리에 Crunch
+            //   3 패턴   — 씹는 덩어리마다, 그 소리 길이에 맞춘 패턴 하나
+            // 셋 다 **진동이 나는 시각은 소리가 정한다.** 그래서 설정창의 주기
+            // 손잡이는 여기서 안 먹는다 (MirrorScene 에서 그 줄을 흐리게 한다).
+            // 세기 손잡이(AmpScale)는 셋 다에 곱한다.
+            if (recorded)
+            {
+                int ev;
+                while (AppleSync.NextEvent(rig.Seconds, out ev))
+                    AppleSync.PlayEvent(AppleSync.Settings.haptics, ev,
+                                        HapticPanel.AmpScale, this);
+                scenarioBuzzing = touching;
+                lastChewBeat = rig.ChewBeat;
+                return;
+            }
+
             // 씹기는 지속 진동이 아니라 짧은 탁이 여러 번이다.
             //
             // **닿는 순간 한 번**만 쏘던 것을 고쳤다. 4~11 ms 짜리 탁
@@ -760,16 +812,27 @@ public class ExperimentController : MonoBehaviour
 
                 // 조각 수도 같이 준다. 다 부서진 뒤에 처음처럼 여러
                 // 조각이 깨지면 입 안에 없는 것이 깨지는 셈이다.
-                int frags = firstBite
-                          ? rig.FoodFragments
-                          : Mathf.Max(1, Mathf.RoundToInt(
-                                rig.FoodFragments * (0.35f + 0.65f * rig.FoodLeft)));
+                //
+                // 사과의 조각 수와 seed 는 설정 화면의 Crunch 칸에서 온다
+                // (ScenarioHaptics.Crunch). 기본값은 음식 표의 3 조각,
+                // seed 1 부터 하나씩 — 지금까지와 같은 파형이 같은 순서로 나온다.
+                CrunchSettings cs = ScenarioHaptics.Crunch;
+                int baseFrags = isApple ? Mathf.Clamp(cs.fragments, 1, 12)
+                                        : rig.FoodFragments;
+                int seed = cs.autoIncrementSeed ? cs.seed + crunchSeed - 1 : cs.seed;
 
-                ScenarioHaptics.PlayCrunch(frags, peak, crunchSeed);
+                int frags = firstBite
+                          ? baseFrags
+                          : Mathf.Max(1, Mathf.RoundToInt(
+                                baseFrags * (0.35f + 0.65f * rig.FoodLeft)));
+
+                ScenarioHaptics.PlayCrunch(frags, peak, seed);
                 // **같은 세 값**을 소리 쪽에도 넘긴다. 그래야 조각이 터지는
                 // 시각과 세기가 글자 그대로 같아진다 (ScenarioAudio 주석).
-                ScenarioAudio.PlayCrunch(frags, peak, crunchSeed,
-                                         rig.FoodBrightness);
+                // 녹음한 소리가 돌고 있으면 합성한 터짐은 내지 않는다 — 둘이 겹친다.
+                if (!recorded)
+                    ScenarioAudio.PlayCrunch(frags, peak, seed,
+                                             rig.FoodBrightness);
             }
             scenarioBuzzing = touching;
 
@@ -786,8 +849,10 @@ public class ExperimentController : MonoBehaviour
                                                 Time.deltaTime)
                       : 0f;
             prevMouth = mouth;
-            ScenarioAudio.SetLoop(ScenarioAudio.Loop.Chew, chewLevel,
-                                  rig.FoodBrightness);
+            // 녹음에는 씹는 소리가 이미 들어 있다. 합성한 바탕은 그게 없을 때만.
+            if (!recorded)
+                ScenarioAudio.SetLoop(ScenarioAudio.Loop.Chew, chewLevel,
+                                      rig.FoodBrightness);
             return;
         }
 
