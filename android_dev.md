@@ -149,6 +149,23 @@ Cardboard 화면 탭은 컨트롤러 연결이 끊겼을 때의 종료 수단으
 3. `ADB Forward`로 `tcp:48700`을 휴대폰의 같은 포트에 전달한다.
 4. duration/amplitude 배열을 입력하고 `Play on Phone`을 누른다.
 
+현재 미러 씬에서 사용하는 Crunch 패턴도 같은 Tool에서 재생할 수 있다.
+`Crunch Preset`의 fragments, peak, seed를 조정한 뒤 `Load Crunch`로 실제
+duration/amplitude 배열을 확인하거나 `Load & Play Crunch`로 즉시 휴대폰에서
+재생한다. 미러 씬과 동일하게 `ScenarioHaptics.BuildCrunch()`를 사용하며 iOS
+transient 기준은 12ms로 자동 설정된다.
+
+Waveform 입력값은 재생 전의 baseline으로 취급한다. `Play on Phone`을 누르면
+repetitions 수만큼 baseline을 이어 붙이고, 각 반복의 0이 아닌 amplitude에 설정한
+random offset(`-n~+n`)을 독립적으로 더한 뒤 0~255로 제한해 전송한다. amplitude
+0은 쉼는 구간이므로 랜덤 조정하지 않는다. 같은 baseline, repetitions, random offset,
+seed를 사용하면 항상 같은 최종 파형을 재현한다. 반복 사이에 간격이 필요하면
+baseline 끝에 amplitude 0인 segment를 추가한다.
+
+`Generate Amplitudes`를 누르면 repetition과 random offset을 모두 적용한 최종 amplitude
+배열을 전송 전에 확인할 수 있다. baseline이나 생성 설정을 바꾸면 기존 preview는
+만료되며, `Play on Phone`도 실제 전송하는 배열로 preview를 자동 갱신한다.
+
 모바일 수신기는 해당 설정 페이지가 열려 있을 때만 동작한다. 앱이 Pause되면 포트를
 닫고, Resume되었을 때 페이지가 여전히 활성 상태면 자동으로 다시 연다.
 
@@ -203,3 +220,31 @@ Cardboard 화면 탭은 컨트롤러 연결이 끊겼을 때의 종료 수단으
 - 런타임 C# 컴파일: 경고 0, 오류 0
 - Editor Haptic Designer 컴파일 확인
 - Editor의 기존 `CIBuild.cs`에는 XR Management의 폐기 예정 API 경고가 남아 있다.
+
+## 11. 음성 외곽선 기반 진동 변환
+
+`Tools > Haptic Waveform Designer`에 `Audio -> Haptic Envelope` 영역을 추가했다.
+Unity가 읽은 `AudioClip`을 선택하면 스테레오 채널을 상쇄 없이 에너지로 합치고,
+짧은 창마다 RMS와 peak를 섞어 음량 외곽선을 만든다. noise gate, gamma, 최소 세기,
+양자화 단계, attack/release를 적용한 다음 같은 amplitude가 이어지는 구간을 합쳐 기존
+`durations/amplitudes` baseline에 넣는다. 이후의 ADB 전송과 Android
+`VibrationEffect.createWaveform` 재생 경로는 기존 구현을 그대로 쓴다.
+
+현재 전송 제한에 맞춰 최대 10초, 최대 256개 구간만 허용한다. `Auto-fit`을 켜면 긴
+클립은 분석 창을 자동으로 늘려 256개 이내로 맞춘다. 입력 파일은 Unity `AudioClip`으로
+import되어야 하고 PCM을 읽기 위해 `Load Type = Decompress On Load`여야 한다. 창에서
+해당 설정으로 재import할 수 있다.
+
+변환 결과는 `AudioHapticProfile` ScriptableObject로 저장한다. 프로필에는 원본
+`AudioClip` 참조, source hash, 변환 설정, 압축된 duration/amplitude 배열, 분석 통계와
+수동 `hapticOffsetMs`가 함께 남는다. offset이 양수면 진동이 소리보다 늦고, 음수면
+진동이 먼저 시작한다. `AudioHapticPlayer`를 `AudioSource`와 같은 GameObject에 붙이면
+이 규칙으로 둘을 함께 재생하고 정지한다.
+
+관련 파일:
+
+- `Assets/AudioHapticConverter.cs`
+- `Assets/AudioHapticProfile.cs`
+- `Assets/AudioHapticPlayer.cs`
+- `Assets/Editor/AudioHapticConverterChecks.cs`
+- `Assets/Editor/HapticWaveformDesignerWindow.cs`
