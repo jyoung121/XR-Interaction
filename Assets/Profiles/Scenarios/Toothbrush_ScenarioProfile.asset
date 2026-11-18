@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 11d5e1f9570d54c43b5849c9d68c8c1d, type: 3}
+  m_Name: Toothbrush_ScenarioProfile
+  m_EditorClassIdentifier: Assembly-CSharp::ScenarioProfile
+  profileId: toothbrush-scenario
+  version: 1
+  scenario: 2
+  sound: {fileID: 11400000, guid: 65151fd4ed2b0014cab77dc96651de4f, type: 2}
+  researcherHaptic: {fileID: 0}
+  participantHaptic: {fileID: 0}
+  animationDurationSeconds: 12
+  soundOffsetSeconds: 0
+  hapticOffsetSeconds: 0
+  loop: 0
+  animationBlocks:
+  - blockId: approach
+    kind: 1
+    startSeconds: 0
+    durationSeconds: 1.2
+    note: 
+  - blockId: brushing
+    kind: 2
+    startSeconds: 1.2
+    durationSeconds: 9.7
+    note: 
+  - blockId: retreat
+    kind: 3
+    startSeconds: 10.9
+    durationSeconds: 1.1
+    note: 

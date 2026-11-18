@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 11d5e1f9570d54c43b5849c9d68c8c1d, type: 3}
+  m_Name: Apple_ScenarioProfile
+  m_EditorClassIdentifier: Assembly-CSharp::ScenarioProfile
+  profileId: apple-scenario
+  version: 1
+  scenario: 0
+  sound: {fileID: 11400000, guid: a79119ca6344bbd44af9f5b45700b3d6, type: 2}
+  researcherHaptic: {fileID: 0}
+  participantHaptic: {fileID: 0}
+  animationDurationSeconds: 47.1
+  soundOffsetSeconds: 0
+  hapticOffsetSeconds: 0
+  loop: 0
+  animationBlocks:
+  - blockId: setup
+    kind: 0
+    startSeconds: 0
+    durationSeconds: 1.4
+    note: 
+  - blockId: approach
+    kind: 1
+    startSeconds: 1.4
+    durationSeconds: 1.2
+    note: 
+  - blockId: bite-and-chew
+    kind: 2
+    startSeconds: 2.6
+    durationSeconds: 43.6
+    note: 
+  - blockId: finish
+    kind: 4
+    startSeconds: 46.2
+    durationSeconds: 0.9
+    note: 

@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a95abccb0ca55974f98e77d9ab142097, type: 3}
+  m_Name: AndroidExperimentProtocol
+  m_EditorClassIdentifier: Assembly-CSharp::ExperimentProtocol
+  protocolId: android-final
+  version: 1
+  targetPlatform: 11
+  scenarios:
+  - scenario: {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
+    repetitions: 1
+  - scenario: {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
+    repetitions: 1
+  - scenario: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+    repetitions: 1
+  conditions: 0000000001000000i
+  randomizeOrder: 0
+  randomSeed: 1
+  participantConditionEnabled: 0

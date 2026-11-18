@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d6ca5593ca158b5418892cb37bc047ad, type: 3}
+  m_Name: DentalDrill_SoundProfile
+  m_EditorClassIdentifier: Assembly-CSharp::SoundProfile
+  profileId: dental-drill-sound
+  version: 1
+  clip: {fileID: 8300000, guid: 14ea1cd1c12b2c444850bc115410a1c1, type: 3}
+  volume: 1
+  trimStartSeconds: 0
+  trimEndSeconds: 0
+  fadeInSeconds: 0
+  fadeOutSeconds: 0
+  loop: 0
+  placeholder: 1
+  sourceNote: Existing turbine recording migrated here; replace when final audio is approved.
+  sourceAssetHash: 

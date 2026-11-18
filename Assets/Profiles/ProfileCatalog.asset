@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 73c9bea8f43956641a6287fe081b4cce, type: 3}
+  m_Name: ProfileCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::ProfileCatalog
+  sounds:
+  - {fileID: 11400000, guid: a79119ca6344bbd44af9f5b45700b3d6, type: 2}
+  - {fileID: 11400000, guid: 0104fb39351030940b84aefcec46a77a, type: 2}
+  - {fileID: 11400000, guid: 65151fd4ed2b0014cab77dc96651de4f, type: 2}
+  haptics: []
+  scenarios:
+  - {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
+  - {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
+  - {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+  protocols:
+  - {fileID: 11400000, guid: d879a159abbb3cd49bc6387a5b7cc725, type: 2}
