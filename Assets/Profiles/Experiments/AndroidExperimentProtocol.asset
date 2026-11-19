@@ -15,6 +15,45 @@ MonoBehaviour:
   protocolId: android-final
   version: 1
   targetPlatform: 11
+  conditionPlans:
+  - condition: 0
+    enabled: 1
+    scenarios:
+    - scenario: 1
+      profile: {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
+      repetitions: 1
+    - scenario: 2
+      profile: {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
+      repetitions: 1
+    - scenario: 0
+      profile: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+      repetitions: 1
+  - condition: 1
+    enabled: 1
+    scenarios:
+    - scenario: 1
+      profile: {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
+      repetitions: 1
+    - scenario: 2
+      profile: {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
+      repetitions: 1
+    - scenario: 0
+      profile: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+      repetitions: 1
+  - condition: 2
+    enabled: 0
+    scenarios:
+    - scenario: 1
+      profile: {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
+      repetitions: 1
+    - scenario: 2
+      profile: {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
+      repetitions: 1
+    - scenario: 0
+      profile: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+      repetitions: 1
+  randomizeOrder: 0
+  randomSeed: 1
   scenarios:
   - scenario: {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
     repetitions: 1
@@ -23,6 +62,4 @@ MonoBehaviour:
   - scenario: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
     repetitions: 1
   conditions: 0000000001000000i
-  randomizeOrder: 0
-  randomSeed: 1
   participantConditionEnabled: 0

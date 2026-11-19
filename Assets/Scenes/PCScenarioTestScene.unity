@@ -132,6 +132,7 @@ GameObject:
   - component: {fileID: 282896511}
   - component: {fileID: 282896510}
   - component: {fileID: 282896509}
+  - component: {fileID: 282896514}
   m_Layer: 0
   m_Name: PC Scenario Test Runtime
   m_TagString: Untagged
@@ -154,7 +155,7 @@ MonoBehaviour:
   profile: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
   condition: 0
   animationDriver: {fileID: 282896510}
-  playOnStart: 1
+  playOnStart: 0
   scheduleLeadSeconds: 0.25
   runtimeHapticOffsetSeconds: 0
   runtimeAmplitudeScale: 1
@@ -297,6 +298,23 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &282896514
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 282896508}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 65070a28ede348b7a36d23f47c64c0be, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::PCScenarioPreviewController
+  player: {fileID: 282896509}
+  profile: {fileID: 0}
+  autoStart: 0
+  repeat: 0
+  repeatDelaySeconds: 0
 --- !u!1 &1612239777
 GameObject:
   m_ObjectHideFlags: 0

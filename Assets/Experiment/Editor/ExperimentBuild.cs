@@ -28,7 +28,7 @@ public static class ExperimentBuild
         ValidateSceneReferences(protocol, catalog, errors);
 
         if (errors.Count == 0)
-            ValidateAnimationRuntime(catalog, errors);
+            ValidateAnimationRuntime(catalog, protocol, errors);
 
         ThrowIfInvalid("Final experiment validation failed", errors);
         Debug.Log("[ExperimentBuild] Final experiment validation passed.");
@@ -52,7 +52,9 @@ public static class ExperimentBuild
         ProfileCatalog catalog = LoadCatalog();
         ValidateAnimationTimelines(catalog, errors);
         if (errors.Count == 0)
-            ValidateAnimationRuntime(catalog, errors);
+            ValidateAnimationRuntime(catalog,
+                AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ExperimentProjectSetup.ProtocolPath),
+                errors);
         ThrowIfInvalid("Animation runtime validation failed", errors);
         Debug.Log("[ExperimentBuild] Animation runtime validation passed.");
     }
@@ -181,58 +183,73 @@ public static class ExperimentBuild
 
         if (protocol.targetPlatform != RuntimePlatform.Android)
             errors.Add("Final experiment protocol must target Android.");
-        if (protocol.participantConditionEnabled)
-            errors.Add("Participant haptic condition must remain disabled until its flow is defined.");
-
-        var conditions = new HashSet<ExperimentCondition>();
-        if (protocol.conditions == null || protocol.conditions.Count == 0)
+        if (protocol.conditionPlans == null || protocol.conditionPlans.Count == 0)
         {
-            errors.Add("Experiment protocol has no conditions.");
+            errors.Add("Experiment protocol has not been migrated to condition-specific assignments. Open Experiment Configuration and save it.");
         }
         else
         {
-            foreach (ExperimentCondition condition in protocol.conditions)
-                if (!conditions.Add(condition))
-                    errors.Add($"Experiment condition '{condition}' is duplicated.");
-
-            if (!conditions.Contains(ExperimentCondition.Baseline))
-                errors.Add("Experiment protocol is missing the Baseline condition.");
-            if (!conditions.Contains(ExperimentCondition.ResearcherHaptic))
-                errors.Add("Experiment protocol is missing the ResearcherHaptic condition.");
-        }
-
-        var protocolScenarios = new HashSet<ScenarioId>();
-        if (protocol.scenarios == null || protocol.scenarios.Count == 0)
-        {
-            errors.Add("Experiment protocol has no scenarios.");
-        }
-        else
-        {
-            for (int i = 0; i < protocol.scenarios.Count; i++)
+            var conditions = new HashSet<ExperimentCondition>();
+            foreach (ExperimentConditionPlan plan in protocol.conditionPlans)
             {
-                ProtocolScenario entry = protocol.scenarios[i];
-                if (entry == null || entry.scenario == null)
+                if (plan == null)
                 {
-                    errors.Add($"Experiment protocol scenario {i} is missing.");
+                    errors.Add("Experiment protocol contains an empty condition plan.");
                     continue;
                 }
-
-                if (entry.repetitions < 1)
-                    errors.Add($"{entry.scenario.name}: repetitions must be at least one.");
-                if (!protocolScenarios.Add(entry.scenario.scenario))
-                    errors.Add($"Protocol scenario '{entry.scenario.scenario}' is duplicated.");
-                if (catalog != null && (catalog.scenarios == null ||
-                    !catalog.scenarios.Contains(entry.scenario)))
-                    errors.Add($"{entry.scenario.name}: protocol scenario is not in ProfileCatalog.");
+                if (!conditions.Add(plan.condition))
+                    errors.Add($"Experiment condition '{plan.condition}' is duplicated.");
+                if (!plan.enabled) continue;
+                if (!protocol.TryValidatePlan(plan.condition, out string reason))
+                {
+                    errors.Add(reason);
+                    continue;
+                }
+                foreach (ConditionScenarioAssignment assignment in plan.scenarios)
+                    ValidateScenarioForCondition(assignment.profile, plan.condition, errors);
             }
-        }
 
-        foreach (ScenarioId required in RequiredScenarios)
-            if (!protocolScenarios.Contains(required))
-                errors.Add($"Required scenario '{required}' is missing from the protocol.");
+            foreach (ExperimentCondition required in new[]
+            {
+                ExperimentCondition.Baseline,
+                ExperimentCondition.ResearcherHaptic,
+                ExperimentCondition.ParticipantHaptic
+            })
+                if (!conditions.Contains(required))
+                    errors.Add($"Experiment protocol is missing the {ExperimentProtocol.DisplayName(required)} plan.");
+
+            if (!protocol.TryValidateSharedStimuli(out string consistencyReason))
+                errors.Add(consistencyReason);
+        }
 
         if (catalog != null && (catalog.protocols == null || !catalog.protocols.Contains(protocol)))
             errors.Add("Android experiment protocol is not registered in ProfileCatalog.");
+    }
+
+    private static void ValidateScenarioForCondition(ScenarioProfile scenario,
+        ExperimentCondition condition, List<string> errors)
+    {
+        if (scenario == null) return;
+        if (scenario.sound == null)
+        {
+            errors.Add($"{scenario.name}: SoundProfile is missing.");
+        }
+        else
+        {
+            if (!scenario.sound.IsUsable(out string soundReason))
+                errors.Add($"{scenario.name}: {soundReason}");
+            if (scenario.sound.placeholder)
+                errors.Add($"{scenario.name}: sound is still marked as a placeholder.");
+        }
+
+        if (condition == ExperimentCondition.Baseline) return;
+        HapticProfile haptic = scenario.ResolveHaptic(condition);
+        if (haptic == null) return;
+        if (condition == ExperimentCondition.ResearcherHaptic &&
+            haptic.Origin != HapticProfileOrigin.ResearcherCalibrated)
+            errors.Add($"{scenario.name}: researcher profile is not manually calibrated/locked.");
+        if (!haptic.IsPlayable(out string hapticReason))
+            errors.Add($"{scenario.name}: {ExperimentProtocol.DisplayName(condition)} profile is not playable: {hapticReason}");
     }
 
     private static void ValidateSceneReferences(ExperimentProtocol protocol, ProfileCatalog catalog,
@@ -255,6 +272,10 @@ public static class ExperimentBuild
                 errors.Add("ExperimentScene: final Android protocol is not assigned.");
             if (session != null && session.player != player)
                 errors.Add("ExperimentScene: session player reference is missing or incorrect.");
+            if (session != null && session.playOnStart)
+                errors.Add("ExperimentScene: session must wait for condition selection instead of playing on start.");
+            if (session != null && session.GetComponent<ExperimentConditionSelectionUI>() == null)
+                errors.Add("ExperimentScene: condition selection UI is missing.");
             ValidatePlayer("ExperimentScene", player, errors);
         });
     }
@@ -289,6 +310,8 @@ public static class ExperimentBuild
                     FindInScene<ScenarioPlaybackController>(scene), errors);
                 if (FindInScene<PCScenarioCameraController>(scene) == null)
                     errors.Add("PCScenarioTestScene: PCScenarioCameraController is missing.");
+                if (FindInScene<PCScenarioPreviewController>(scene) == null)
+                    errors.Add("PCScenarioTestScene: PCScenarioPreviewController is missing.");
             });
     }
 
@@ -314,7 +337,8 @@ public static class ExperimentBuild
             errors.Add($"{sceneName}: LongHapticPlayer is missing from the scenario player.");
     }
 
-    private static void ValidateAnimationRuntime(ProfileCatalog catalog, List<string> errors)
+    private static void ValidateAnimationRuntime(ProfileCatalog catalog, ExperimentProtocol protocol,
+        List<string> errors)
     {
         if (catalog == null || catalog.scenarios == null) return;
 
@@ -323,7 +347,18 @@ public static class ExperimentBuild
 
         try
         {
+            var profiles = new List<ScenarioProfile>();
+            var seen = new HashSet<ScenarioProfile>();
             foreach (ScenarioProfile profile in catalog.scenarios)
+                if (profile != null && seen.Add(profile)) profiles.Add(profile);
+            if (protocol?.conditionPlans != null)
+                foreach (ExperimentConditionPlan plan in protocol.conditionPlans)
+                    if (plan?.scenarios != null)
+                        foreach (ConditionScenarioAssignment assignment in plan.scenarios)
+                            if (assignment?.profile != null && seen.Add(assignment.profile))
+                                profiles.Add(assignment.profile);
+
+            foreach (ScenarioProfile profile in profiles)
             {
                 if (profile == null) continue;
                 var samples = new List<(ScenarioAnimationAction, float, float, int)>();
