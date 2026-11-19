@@ -7,8 +7,9 @@ using UnityEngine;
 /// </summary>
 public sealed class HapticWaveformDesignerWindow : EditorWindow
 {
-    [MenuItem("Tools/Haptics/Legacy Waveform Designer")]
-    private static void Open()
+    // Kept as a compatibility window for editor scripts that may still open it
+    // directly. The public Tools menu exposes the two focused generators only.
+    public static void Open()
     {
         GetWindow<HapticWaveformDesignerWindow>("Haptic Generators");
     }

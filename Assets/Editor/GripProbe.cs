@@ -5,7 +5,9 @@ using UnityEngine;
 /// 손가락 고리의 한가운데를 눈대중으로 두 번 틀렸다 — 재고 들어간다.</summary>
 public static class GripProbe
 {
+#if MIRROR_RIG_DEV_TOOLS
     [MenuItem("Tools/쥔 손 뜯어보기")]
+#endif
     public static void Dump()
     {
         GameObject sun = GameObject.Find("Sun");

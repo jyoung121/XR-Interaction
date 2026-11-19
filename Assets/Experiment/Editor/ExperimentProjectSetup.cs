@@ -12,7 +12,19 @@ public static class ExperimentProjectSetup
     public const string CatalogPath = "Assets/Profiles/ProfileCatalog.asset";
     public const string ProtocolPath = "Assets/Profiles/Experiments/AndroidExperimentProtocol.asset";
 
-    [MenuItem("Tools/Experiment/Create Profiles and Scenes")]
+    [MenuItem("Tools/Experiment/Setup/Create Profiles and Scenes", false, 90)]
+    private static void CreateProfilesAndScenesFromMenu()
+    {
+        bool confirmed = EditorUtility.DisplayDialog(
+            "Create Profiles and Scenes",
+            "This regenerates the experiment scenes and resets generated profile settings. " +
+            "Continue only when you intend to rebuild the project setup.",
+            "Regenerate",
+            "Cancel");
+        if (confirmed) CreateProfilesAndScenes();
+    }
+
+    // Kept public for deterministic command-line setup without an editor dialog.
     public static void CreateProfilesAndScenes()
     {
         EnsureFolders(); ProfileCatalog catalog = BuildProfiles(); BuildExperimentScene(catalog); BuildMobileScene(catalog); BuildPcScene(catalog);

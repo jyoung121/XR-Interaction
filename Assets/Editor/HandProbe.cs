@@ -6,7 +6,9 @@ using UnityEngine;
 /// 맞는지 보려는 것이다 — 안 맞으면 Curl 이 아무것도 안 한다.</summary>
 public static class HandProbe
 {
+#if MIRROR_RIG_DEV_TOOLS
     [MenuItem("Tools/손뼈 뜯어보기")]
+#endif
     public static void Dump()
     {
         GameObject prefab = Resources.Load<GameObject>("Models/Person");

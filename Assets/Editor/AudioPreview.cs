@@ -1,5 +1,4 @@
 using System.IO;
-using UnityEditor;
 using UnityEngine;
 
 /// <summary>
@@ -16,7 +15,6 @@ public static class AudioPreview
 {
     private const string OutDir = @"C:\UnityProjects\preview\audio";
 
-    [MenuItem("Tools/소리 미리듣기 뽑기")]
     public static void Dump()
     {
         Directory.CreateDirectory(OutDir);

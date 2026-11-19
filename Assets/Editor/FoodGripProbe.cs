@@ -1,4 +1,3 @@
-using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
@@ -8,7 +7,6 @@ using UnityEngine;
 /// </summary>
 public static class FoodGripProbe
 {
-    [MenuItem("Tools/집게손 뜯어보기")]
     public static void Dump()
     {
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);

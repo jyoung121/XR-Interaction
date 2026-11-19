@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Text;
-using UnityEditor;
 using UnityEngine;
 
 /// <summary>
@@ -17,7 +16,6 @@ using UnityEngine;
 /// </summary>
 public static class FaceProbe
 {
-    [MenuItem("Tools/얼굴 뜯어보기")]
     public static void Dump()
     {
         GameObject prefab = Resources.Load<GameObject>("Models/Person");

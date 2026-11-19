@@ -18,6 +18,16 @@
 - `PCScenarioTestScene`: non-XR scenario, animation-block, and sound-offset preview.
 - Editor windows: Manual Haptic Generator, Sound-based Haptic Generator, and PC Scenario Synchronizer.
 
+## Editor Tools menu
+
+- `Tools/Experiment/PC Scenario Synchronizer`: edits and previews scenario timing without XR.
+- `Tools/Experiment/Validate Final Experiment`: checks final sounds, playable/calibrated researcher haptics, animation blocks, protocol coverage, scene references, and a `MirrorRig` runtime smoke test.
+- `Tools/Experiment/Build`: builds the participant experiment or mobile test Android APK. The participant build always runs the final validation first.
+- `Tools/Experiment/Setup/Create Profiles and Scenes`: initial/regeneration command. It shows a destructive-reset confirmation before changing generated scenes and profiles.
+- `Tools/Haptics`: contains only the Manual and Sound-based Haptic Generators.
+
+Legacy rig probes, synthesized-audio preview, the old waveform launcher, and audio-converter regression checks are intentionally absent from the normal menu. The converter check remains callable in batch mode through `AudioHapticConverterChecks.RunBatch`.
+
 ## Profiles and audio
 
 - `SoundProfile`: clip, trim/fade/volume, hash, and placeholder state.

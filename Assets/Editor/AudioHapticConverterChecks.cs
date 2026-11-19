@@ -1,16 +1,10 @@
 using System;
-using UnityEditor;
 using UnityEngine;
 
 public static class AudioHapticConverterChecks
 {
-    [MenuItem("Tools/Haptics/Run Audio Converter Checks")]
-    public static void RunFromMenu()
-    {
-        RunBatch();
-        EditorUtility.DisplayDialog("Audio Haptic Converter", "All checks passed.", "OK");
-    }
-
+    // Developer regression check. This intentionally has no Tools menu entry;
+    // invoke RunBatch from automated editor checks when the converter changes.
     public static void RunBatch()
     {
         const int rate = 48000;

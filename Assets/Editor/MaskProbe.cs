@@ -11,7 +11,9 @@ using UnityEngine;
 /// </summary>
 public static class MaskProbe
 {
+#if MIRROR_RIG_DEV_TOOLS
     [MenuItem("Tools/머리 서브메시 뜯어보기")]
+#endif
     public static void Dump()
     {
         GameObject prefab = Resources.Load<GameObject>("Models/Person");
