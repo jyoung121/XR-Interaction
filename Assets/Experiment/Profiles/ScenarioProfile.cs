@@ -5,14 +5,42 @@ using UnityEngine;
 public enum ScenarioId { Apple, DentalDrill, Toothbrush }
 public enum ExperimentCondition { Baseline, ResearcherHaptic, ParticipantHaptic }
 public enum AnimationBlockKind { Setup, Approach, Contact, Retreat, Finish, Custom }
+public enum AnimationTrack { Primary, Face, Prop }
+public enum BlockTimeMode { Stretch, Loop, Once, Hold }
+
+public enum ScenarioAnimationAction
+{
+    Auto = 0,
+    ApplePlateWait = 1,
+    AppleApproach = 2,
+    AppleBite = 3,
+    AppleChew = 4,
+    AppleRest = 5,
+    DrillSetup = 10,
+    DrillApproach = 11,
+    DrillContact = 12,
+    DrillRetreat = 13,
+    DrillFinish = 14,
+    BrushSetup = 20,
+    BrushApproach = 21,
+    BrushContact = 22,
+    BrushRetreat = 23,
+    BrushFinish = 24
+}
 
 [Serializable]
 public sealed class ScenarioAnimationBlock
 {
     public string blockId = "block";
     public AnimationBlockKind kind;
+    [Tooltip("Concrete animation evaluated by this block. Use an explicit action in final profiles.")]
+    public ScenarioAnimationAction action;
+    public AnimationTrack track;
     [Min(0f)] public float startSeconds;
     [Min(0f)] public float durationSeconds = 1f;
+    public BlockTimeMode timeMode = BlockTimeMode.Stretch;
+    [Min(0.01f)] public float playbackSpeed = 1f;
+    [Min(0)] public int iteration;
     [TextArea] public string note;
 }
 

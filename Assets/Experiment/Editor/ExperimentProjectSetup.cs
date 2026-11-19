@@ -28,14 +28,18 @@ public static class ExperimentProjectSetup
         SoundProfile drillSound = GetOrCreate<SoundProfile>("Assets/Profiles/Sounds/DentalDrill_SoundProfile.asset"); ConfigureSound(drillSound, "dental-drill-sound", drillClip, "Existing turbine recording migrated here; replace when final audio is approved.");
         SoundProfile brushSound = GetOrCreate<SoundProfile>("Assets/Profiles/Sounds/Toothbrush_SoundProfile.asset"); ConfigureSound(brushSound, "toothbrush-sound", null, "Final toothbrush audio is pending; assign it here without changing ScenarioProfile.");
         ScenarioProfile apple = GetOrCreate<ScenarioProfile>("Assets/Profiles/Scenarios/Apple_ScenarioProfile.asset");
-        ConfigureScenario(apple, "apple-scenario", ScenarioId.Apple, appleSound, 47.1f,
-            Block("setup", AnimationBlockKind.Setup, 0, 1.4f), Block("approach", AnimationBlockKind.Approach, 1.4f, 1.2f), Block("bite-and-chew", AnimationBlockKind.Contact, 2.6f, 43.6f), Block("finish", AnimationBlockKind.Finish, 46.2f, .9f));
+        ConfigureScenario(apple, "apple-scenario", ScenarioId.Apple, appleSound,
+            AppleCrunchData.SegmentSeconds * AppleCrunchData.Segments, AppleBlocks());
         ScenarioProfile drill = GetOrCreate<ScenarioProfile>("Assets/Profiles/Scenarios/DentalDrill_ScenarioProfile.asset");
         ConfigureScenario(drill, "dental-drill-scenario", ScenarioId.DentalDrill, drillSound, 4.4f,
-            Block("approach", AnimationBlockKind.Approach, 0, 1.2f), Block("contact", AnimationBlockKind.Contact, 1.2f, 2.1f), Block("retreat", AnimationBlockKind.Retreat, 3.3f, 1.1f));
+            Block("drill-approach", AnimationBlockKind.Approach, ScenarioAnimationAction.DrillApproach, 0, 1.2f),
+            Block("drill-contact", AnimationBlockKind.Contact, ScenarioAnimationAction.DrillContact, 1.2f, 2.1f),
+            Block("drill-retreat", AnimationBlockKind.Retreat, ScenarioAnimationAction.DrillRetreat, 3.3f, 1.1f));
         ScenarioProfile brush = GetOrCreate<ScenarioProfile>("Assets/Profiles/Scenarios/Toothbrush_ScenarioProfile.asset");
         ConfigureScenario(brush, "toothbrush-scenario", ScenarioId.Toothbrush, brushSound, 12f,
-            Block("approach", AnimationBlockKind.Approach, 0, 1.2f), Block("brushing", AnimationBlockKind.Contact, 1.2f, 9.7f), Block("retreat", AnimationBlockKind.Retreat, 10.9f, 1.1f));
+            Block("brush-approach", AnimationBlockKind.Approach, ScenarioAnimationAction.BrushApproach, 0, 1.2f),
+            Block("brush-contact", AnimationBlockKind.Contact, ScenarioAnimationAction.BrushContact, 1.2f, 9.7f),
+            Block("brush-retreat", AnimationBlockKind.Retreat, ScenarioAnimationAction.BrushRetreat, 10.9f, 1.1f));
         ExperimentProtocol protocol = GetOrCreate<ExperimentProtocol>(ProtocolPath); protocol.targetPlatform = RuntimePlatform.Android;
         protocol.conditions = new List<ExperimentCondition> { ExperimentCondition.Baseline, ExperimentCondition.ResearcherHaptic }; protocol.participantConditionEnabled = false;
         protocol.scenarios = new List<ProtocolScenario> { new ProtocolScenario { scenario = drill }, new ProtocolScenario { scenario = brush }, new ProtocolScenario { scenario = apple } };
@@ -43,7 +47,43 @@ public static class ExperimentProjectSetup
         MarkDirty(appleSound, drillSound, brushSound, apple, drill, brush, protocol, catalog); return catalog;
     }
     private static void ConfigureSound(SoundProfile p, string id, AudioClip clip, string note) { p.SetIdentity(id); p.clip = clip; p.placeholder = true; p.sourceNote = note; }
-    private static ScenarioAnimationBlock Block(string id, AnimationBlockKind kind, float start, float duration) => new ScenarioAnimationBlock { blockId = id, kind = kind, startSeconds = start, durationSeconds = duration };
+    private static ScenarioAnimationBlock Block(string id, AnimationBlockKind kind,
+        ScenarioAnimationAction action, float start, float duration, int iteration = 0) => new ScenarioAnimationBlock
+    {
+        blockId = id,
+        kind = kind,
+        action = action,
+        track = AnimationTrack.Primary,
+        startSeconds = start,
+        durationSeconds = duration,
+        timeMode = BlockTimeMode.Stretch,
+        playbackSpeed = 1f,
+        iteration = iteration
+    };
+
+    private static ScenarioAnimationBlock[] AppleBlocks()
+    {
+        var result = new List<ScenarioAnimationBlock>();
+        for (int i = 0; i < AppleCrunchData.Segments; i++)
+        {
+            float start = i * AppleCrunchData.SegmentSeconds;
+            result.Add(Block($"apple-plate-{i + 1}", AnimationBlockKind.Setup,
+                ScenarioAnimationAction.ApplePlateWait, start, 1.4f, i));
+            start += 1.4f;
+            result.Add(Block($"apple-approach-{i + 1}", AnimationBlockKind.Approach,
+                ScenarioAnimationAction.AppleApproach, start, 1.2f, i));
+            start += 1.2f;
+            result.Add(Block($"apple-bite-{i + 1}", AnimationBlockKind.Contact,
+                ScenarioAnimationAction.AppleBite, start, AppleCrunchData.HoldSeconds, i));
+            start += AppleCrunchData.HoldSeconds;
+            result.Add(Block($"apple-chew-{i + 1}", AnimationBlockKind.Contact,
+                ScenarioAnimationAction.AppleChew, start, AppleCrunchData.ChewSeconds, i));
+            start += AppleCrunchData.ChewSeconds;
+            result.Add(Block($"apple-rest-{i + 1}", AnimationBlockKind.Finish,
+                ScenarioAnimationAction.AppleRest, start, .9f, i));
+        }
+        return result.ToArray();
+    }
     private static void ConfigureScenario(ScenarioProfile p, string id, ScenarioId scenario, SoundProfile sound, float duration, params ScenarioAnimationBlock[] blocks)
     { p.SetIdentity(id); p.scenario = scenario; p.sound = sound; p.animationDurationSeconds = duration; p.soundOffsetSeconds = p.hapticOffsetSeconds = 0; p.loop = false; p.animationBlocks = new List<ScenarioAnimationBlock>(blocks); }
     private static void BuildExperimentScene(ProfileCatalog catalog)
@@ -51,7 +91,7 @@ public static class ExperimentProjectSetup
     private static void BuildMobileScene(ProfileCatalog catalog)
     { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Mobile Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var receiver = runtime.AddComponent<HapticLinkReceiver>(); var controller = runtime.AddComponent<MobileTestController>(); controller.catalog = catalog; controller.player = runtime.GetComponent<ScenarioPlaybackController>(); controller.hapticPlayer = runtime.GetComponent<LongHapticPlayer>(); controller.linkReceiver = receiver; EditorSceneManager.SaveScene(scene, MobileTestScenePath); }
     private static void BuildPcScene(ProfileCatalog catalog)
-    { Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single); var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener)); camera.tag = "MainCamera"; camera.transform.position = new Vector3(0, 1.65f, 0); var light = new GameObject("Directional Light", typeof(Light)); light.GetComponent<Light>().type = LightType.Directional; light.transform.rotation = Quaternion.Euler(45, -30, 0); GameObject runtime = CreateRuntime("PC Scenario Test Runtime", catalog.FindScenario(ScenarioId.Apple)); runtime.GetComponent<ScenarioPlaybackController>().playOnStart = true; EditorSceneManager.SaveScene(scene, PcScenarioTestScenePath); }
+    { Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single); var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(PCScenarioCameraController)); camera.tag = "MainCamera"; camera.transform.position = new Vector3(0, 1.65f, 0); var light = new GameObject("Directional Light", typeof(Light)); light.GetComponent<Light>().type = LightType.Directional; light.transform.rotation = Quaternion.Euler(45, -30, 0); GameObject runtime = CreateRuntime("PC Scenario Test Runtime", catalog.FindScenario(ScenarioId.Apple)); runtime.GetComponent<ScenarioPlaybackController>().playOnStart = true; EditorSceneManager.SaveScene(scene, PcScenarioTestScenePath); }
     private static Scene OpenTemplate() => EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Single);
     private static void StripLegacy() { foreach (ExperimentController c in Object.FindObjectsByType<ExperimentController>(FindObjectsInactive.Include)) Object.DestroyImmediate(c.gameObject); GameObject canvas = GameObject.Find("Canvas"); if (canvas != null) Object.DestroyImmediate(canvas); }
     private static GameObject CreateRuntime(string name, ScenarioProfile defaultScenario)

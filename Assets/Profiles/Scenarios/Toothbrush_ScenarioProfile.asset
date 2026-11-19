@@ -23,18 +23,33 @@ MonoBehaviour:
   hapticOffsetSeconds: 0
   loop: 0
   animationBlocks:
-  - blockId: approach
+  - blockId: brush-approach
     kind: 1
+    action: 21
+    track: 0
     startSeconds: 0
     durationSeconds: 1.2
+    timeMode: 0
+    playbackSpeed: 1
+    iteration: 0
     note: 
-  - blockId: brushing
+  - blockId: brush-contact
     kind: 2
+    action: 22
+    track: 0
     startSeconds: 1.2
     durationSeconds: 9.7
+    timeMode: 0
+    playbackSpeed: 1
+    iteration: 0
     note: 
-  - blockId: retreat
+  - blockId: brush-retreat
     kind: 3
+    action: 23
+    track: 0
     startSeconds: 10.9
     durationSeconds: 1.1
+    timeMode: 0
+    playbackSpeed: 1
+    iteration: 0
     note: 

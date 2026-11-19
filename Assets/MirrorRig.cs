@@ -449,6 +449,7 @@ public class MirrorRig : MonoBehaviour
     private FoodKind foodKind = FoodKind.Apple;
     private DentalKind dentalKind = DentalKind.Drill;
     private float elapsed;
+    private bool externalAnimationTimeline;
 
     /// <summary>거울 속 얼굴을 비추는 치료등. <see cref="AimTreatLamp"/> 이 자리를 잡는다.</summary>
     private Light treatLamp;
@@ -6481,6 +6482,133 @@ public class MirrorRig : MonoBehaviour
 
     }
 
+    /// <summary>
+    /// The separated experiment architecture owns scenario time in ScenarioPlaybackController.
+    /// Legacy scenes can leave this disabled and keep the original self-advancing behaviour.
+    /// </summary>
+    public void UseExternalAnimationTimeline(bool enabled)
+    {
+        externalAnimationTimeline = enabled;
+    }
+
+    public static float AnimationSourceDuration(ScenarioAnimationAction action)
+    {
+        switch (action)
+        {
+            case ScenarioAnimationAction.ApplePlateWait: return OnPlate;
+            case ScenarioAnimationAction.AppleApproach: return ApproachTime;
+            case ScenarioAnimationAction.AppleBite: return AppleCrunchData.HoldSeconds;
+            case ScenarioAnimationAction.AppleChew: return AppleCrunchData.ChewSeconds;
+            case ScenarioAnimationAction.AppleRest: return AfterBite;
+            case ScenarioAnimationAction.DrillSetup:
+            case ScenarioAnimationAction.DrillFinish:
+            case ScenarioAnimationAction.BrushSetup:
+            case ScenarioAnimationAction.BrushFinish:
+                return 0.05f;
+            case ScenarioAnimationAction.DrillApproach:
+            case ScenarioAnimationAction.BrushApproach:
+                return ApproachTime;
+            case ScenarioAnimationAction.DrillContact: return 2.1f;
+            case ScenarioAnimationAction.BrushContact: return 9.7f;
+            case ScenarioAnimationAction.DrillRetreat:
+            case ScenarioAnimationAction.BrushRetreat:
+                return ApproachTime;
+            default: return 1f;
+        }
+    }
+
+    /// <summary>
+    /// Evaluates one explicit timeline block. This method does not advance time; the same
+    /// input always produces the same phase and is therefore safe for PC timeline preview.
+    /// </summary>
+    public void EvaluateAnimationBlock(ScenarioAnimationAction action, float sourceSeconds,
+        float normalizedTime, int iteration = 0)
+    {
+        externalAnimationTimeline = true;
+        normalizedTime = Mathf.Clamp01(normalizedTime);
+        sourceSeconds = Mathf.Max(0f, sourceSeconds);
+
+        switch (action)
+        {
+            case ScenarioAnimationAction.ApplePlateWait:
+                elapsed = AppleCycleStart(iteration) + Mathf.Min(sourceSeconds, OnPlate);
+                break;
+            case ScenarioAnimationAction.AppleApproach:
+                elapsed = AppleCycleStart(iteration) + OnPlate
+                        + Mathf.Min(sourceSeconds, ApproachTime);
+                break;
+            case ScenarioAnimationAction.AppleBite:
+                elapsed = AppleCycleStart(iteration) + OnPlate + ApproachTime
+                        + Mathf.Min(sourceSeconds, AppleCrunchData.HoldSeconds);
+                break;
+            case ScenarioAnimationAction.AppleChew:
+                elapsed = AppleCycleStart(iteration) + OnPlate + ApproachTime
+                        + AppleCrunchData.HoldSeconds
+                        + Mathf.Min(sourceSeconds, AppleCrunchData.ChewSeconds);
+                break;
+            case ScenarioAnimationAction.AppleRest:
+                elapsed = AppleCycleStart(iteration) + OnPlate + ApproachTime
+                        + AppleCrunchData.HoldSeconds + AppleCrunchData.ChewSeconds
+                        + Mathf.Min(sourceSeconds, AfterBite);
+                elapsed = Mathf.Min(elapsed, AppleCycleStart(iteration + 1) - 0.0001f);
+                break;
+
+            case ScenarioAnimationAction.DrillSetup:
+            case ScenarioAnimationAction.DrillFinish:
+            case ScenarioAnimationAction.BrushSetup:
+            case ScenarioAnimationAction.BrushFinish:
+                elapsed = 0f;
+                break;
+            case ScenarioAnimationAction.DrillApproach:
+            case ScenarioAnimationAction.BrushApproach:
+                elapsed = Mathf.Min(sourceSeconds, ApproachTime);
+                break;
+            case ScenarioAnimationAction.DrillContact:
+            case ScenarioAnimationAction.BrushContact:
+                elapsed = ApproachTime + sourceSeconds;
+                break;
+            case ScenarioAnimationAction.DrillRetreat:
+            case ScenarioAnimationAction.BrushRetreat:
+                // Retreat is the approach path evaluated in reverse. Unlike the legacy
+                // animation, the tool now visibly leaves before the scenario is disposed.
+                elapsed = Mathf.Lerp(ApproachTime, 0f, normalizedTime);
+                break;
+            default:
+                return;
+        }
+
+        if (current == Scenario.Food) PrepareFoodTimelineState(elapsed);
+        Animate();
+    }
+
+    private static float AppleCycleStart(int iteration) =>
+        Mathf.Clamp(iteration, 0, AppleCrunchData.Segments) * BiteCycleOf(FoodKind.Apple);
+
+    private void PrepareFoodTimelineState(float timelineSeconds)
+    {
+        if (foodNow == null) foodNow = Item(foodKind);
+        if (foodNow == null) return;
+
+        FoodSpec fs = SpecOf(foodKind);
+        float cycleSeconds = Mathf.Max(0.001f, BiteCycleOf(foodKind));
+        int cycle = Mathf.Max(0, Mathf.FloorToInt(timelineSeconds / cycleSeconds));
+        float cycleTime = Mathf.Repeat(timelineSeconds, cycleSeconds);
+        bool biteCompleted = cycleTime >= OnPlate + ApproachTime + fs.hold;
+        int stage = Mathf.Clamp(cycle + (biteCompleted ? 1 : 0), 0, fs.bites);
+
+        foodNow.stage = stage;
+        SetBiteStage(foodNow, stage);
+        biteCycle = cycle; // Prevent AnimateFood from applying the same bite a second time.
+
+        if (foodKind == FoodKind.Apple)
+        {
+            float chewTime = cycleTime - OnPlate - ApproachTime - fs.hold;
+            int chewsThisCycle = chewTime > 0f ? AppleChewsStarted(chewTime) : 0;
+            ChewBeat = cycle * AppleCrunchData.ChewStart.Length + chewsThisCycle;
+            chewBeatAt = chewsThisCycle;
+        }
+    }
+
     private void LateUpdate()
     {
         TrackViewer();
@@ -6491,6 +6619,13 @@ public class MirrorRig : MonoBehaviour
         UpdateFace();
 
         if (current == Scenario.None) return;
+        if (externalAnimationTimeline)
+        {
+            // TrackViewer moves the character root, so leg constraints still need to be
+            // refreshed after head tracking even though scenario time is externally owned.
+            PoseLegs(current != Scenario.Dental);
+            return;
+        }
         elapsed += Time.deltaTime;
         Animate();
     }
