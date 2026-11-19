@@ -38,6 +38,8 @@ public static class ExperimentProjectSetup
     {
         ProfileCatalog catalog = AssetDatabase.LoadAssetAtPath<ProfileCatalog>(CatalogPath);
         ExperimentProtocol protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath);
+        if (protocol != null && protocol.EnsureConditionPlans())
+            EditorUtility.SetDirty(protocol);
         RepairScene(ExperimentScenePath, catalog, protocol, false, false);
         RepairScene(MobileTestScenePath, catalog, protocol, true, false);
         RepairScene(PcScenarioTestScenePath, catalog, protocol, false, true);
@@ -68,6 +70,12 @@ public static class ExperimentProjectSetup
         ExperimentProtocol protocol = GetOrCreate<ExperimentProtocol>(ProtocolPath); protocol.targetPlatform = RuntimePlatform.Android;
         protocol.conditions = new List<ExperimentCondition> { ExperimentCondition.Baseline, ExperimentCondition.ResearcherHaptic }; protocol.participantConditionEnabled = false;
         protocol.scenarios = new List<ProtocolScenario> { new ProtocolScenario { scenario = drill }, new ProtocolScenario { scenario = brush }, new ProtocolScenario { scenario = apple } };
+        protocol.conditionPlans = new List<ExperimentConditionPlan>
+        {
+            ConditionPlan(ExperimentCondition.Baseline, true, drill, brush, apple),
+            ConditionPlan(ExperimentCondition.ResearcherHaptic, true, drill, brush, apple),
+            ConditionPlan(ExperimentCondition.ParticipantHaptic, false, drill, brush, apple)
+        };
         ProfileCatalog catalog = GetOrCreate<ProfileCatalog>(CatalogPath); catalog.sounds = new List<SoundProfile> { appleSound, drillSound, brushSound }; catalog.haptics = new List<HapticProfile>(); catalog.scenarios = new List<ScenarioProfile> { drill, brush, apple }; catalog.protocols = new List<ExperimentProtocol> { protocol };
         MarkDirty(appleSound, drillSound, brushSound, apple, drill, brush, protocol, catalog); return catalog;
     }
@@ -111,12 +119,21 @@ public static class ExperimentProjectSetup
     }
     private static void ConfigureScenario(ScenarioProfile p, string id, ScenarioId scenario, SoundProfile sound, float duration, params ScenarioAnimationBlock[] blocks)
     { p.SetIdentity(id); p.scenario = scenario; p.sound = sound; p.animationDurationSeconds = duration; p.soundOffsetSeconds = p.hapticOffsetSeconds = 0; p.loop = false; p.animationBlocks = new List<ScenarioAnimationBlock>(blocks); }
+    private static ExperimentConditionPlan ConditionPlan(ExperimentCondition condition, bool enabled,
+        params ScenarioProfile[] profiles)
+    {
+        var plan = new ExperimentConditionPlan { condition = condition, enabled = enabled };
+        foreach (ScenarioProfile profile in profiles)
+            plan.scenarios.Add(new ConditionScenarioAssignment
+            { scenario = profile.scenario, profile = profile, repetitions = 1 });
+        return plan;
+    }
     private static void BuildExperimentScene(ProfileCatalog catalog)
-    { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Experiment Runtime", catalog.FindScenario(ScenarioId.Apple)); var session = runtime.AddComponent<ExperimentSessionController>(); session.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); session.player = runtime.GetComponent<ScenarioPlaybackController>(); EditorSceneManager.SaveScene(scene, ExperimentScenePath); }
+    { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Experiment Runtime", catalog.FindScenario(ScenarioId.Apple)); var session = runtime.AddComponent<ExperimentSessionController>(); session.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); session.player = runtime.GetComponent<ScenarioPlaybackController>(); session.playOnStart = false; var ui = runtime.AddComponent<ExperimentConditionSelectionUI>(); ui.session = session; EditorSceneManager.SaveScene(scene, ExperimentScenePath); }
     private static void BuildMobileScene(ProfileCatalog catalog)
     { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Mobile Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var receiver = runtime.AddComponent<HapticLinkReceiver>(); var controller = runtime.AddComponent<MobileTestController>(); controller.catalog = catalog; controller.player = runtime.GetComponent<ScenarioPlaybackController>(); controller.hapticPlayer = runtime.GetComponent<LongHapticPlayer>(); controller.linkReceiver = receiver; EditorSceneManager.SaveScene(scene, MobileTestScenePath); }
     private static void BuildPcScene(ProfileCatalog catalog)
-    { Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single); var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(PCScenarioCameraController)); camera.tag = "MainCamera"; camera.transform.position = new Vector3(0, 1.65f, 0); var light = new GameObject("Directional Light", typeof(Light)); light.GetComponent<Light>().type = LightType.Directional; light.transform.rotation = Quaternion.Euler(45, -30, 0); GameObject runtime = CreateRuntime("PC Scenario Test Runtime", catalog.FindScenario(ScenarioId.Apple)); runtime.GetComponent<ScenarioPlaybackController>().playOnStart = true; EditorSceneManager.SaveScene(scene, PcScenarioTestScenePath); }
+    { Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single); var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(PCScenarioCameraController)); camera.tag = "MainCamera"; camera.transform.position = new Vector3(0, 1.65f, 0); var light = new GameObject("Directional Light", typeof(Light)); light.GetComponent<Light>().type = LightType.Directional; light.transform.rotation = Quaternion.Euler(45, -30, 0); GameObject runtime = CreateRuntime("PC Scenario Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var player = runtime.GetComponent<ScenarioPlaybackController>(); player.playOnStart = false; var preview = runtime.AddComponent<PCScenarioPreviewController>(); preview.player = player; preview.profile = player.profile; preview.autoStart = false; EditorSceneManager.SaveScene(scene, PcScenarioTestScenePath); }
     private static Scene OpenTemplate() => EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Single);
     private static void StripLegacy() { foreach (ExperimentController c in Object.FindObjectsByType<ExperimentController>(FindObjectsInactive.Include)) Object.DestroyImmediate(c.gameObject); GameObject canvas = GameObject.Find("Canvas"); if (canvas != null) Object.DestroyImmediate(canvas); }
     private static GameObject CreateRuntime(string name, ScenarioProfile defaultScenario)
@@ -174,7 +191,22 @@ public static class ExperimentProjectSetup
                 if (session == null) session = runtime.AddComponent<ExperimentSessionController>();
                 session.protocol = protocol;
                 session.player = player;
+                session.playOnStart = false;
+                ExperimentConditionSelectionUI ui = runtime.GetComponent<ExperimentConditionSelectionUI>();
+                if (ui == null) ui = runtime.AddComponent<ExperimentConditionSelectionUI>();
+                ui.session = session;
                 EditorUtility.SetDirty(session);
+                EditorUtility.SetDirty(ui);
+            }
+
+            if (pcTest)
+            {
+                player.playOnStart = false;
+                PCScenarioPreviewController preview = runtime.GetComponent<PCScenarioPreviewController>();
+                if (preview == null) preview = runtime.AddComponent<PCScenarioPreviewController>();
+                preview.player = player;
+                preview.autoStart = false;
+                EditorUtility.SetDirty(preview);
             }
 
             EditorUtility.SetDirty(driver);
@@ -199,5 +231,5 @@ public static class ExperimentProjectSetup
     }
     private static T GetOrCreate<T>(string path) where T : ScriptableObject { T asset = AssetDatabase.LoadAssetAtPath<T>(path); if (asset != null) return asset; asset = ScriptableObject.CreateInstance<T>(); AssetDatabase.CreateAsset(asset, path); return asset; }
     private static void MarkDirty(params Object[] assets) { foreach (Object asset in assets) if (asset != null) EditorUtility.SetDirty(asset); }
-    private static void EnsureFolders() { string[] folders = { "Assets/Profiles", "Assets/Profiles/Sounds", "Assets/Profiles/Haptics", "Assets/Profiles/Haptics/Manual", "Assets/Profiles/Haptics/SoundBased", "Assets/Profiles/Haptics/Researcher", "Assets/Profiles/Scenarios", "Assets/Profiles/Experiments", "Assets/Audio/ScenarioSources/Toothbrush", "Assets/Audio/Preview", "Assets/Audio/Calibration" }; foreach (string folder in folders) ManualHapticGeneratorWindow.EnsureFolder(folder); }
+    private static void EnsureFolders() { string[] folders = { "Assets/Profiles", "Assets/Profiles/Sounds", "Assets/Profiles/Haptics", "Assets/Profiles/Haptics/Manual", "Assets/Profiles/Haptics/SoundBased", "Assets/Profiles/Haptics/Researcher", "Assets/Profiles/Scenarios", "Assets/Profiles/Scenarios/Variants", "Assets/Profiles/Scenarios/Variants/Apple", "Assets/Profiles/Scenarios/Variants/DentalDrill", "Assets/Profiles/Scenarios/Variants/Toothbrush", "Assets/Profiles/Experiments", "Assets/Audio/ScenarioSources/Toothbrush", "Assets/Audio/Preview", "Assets/Audio/Calibration" }; foreach (string folder in folders) ManualHapticGeneratorWindow.EnsureFolder(folder); }
 }

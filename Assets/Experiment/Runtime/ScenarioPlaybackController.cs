@@ -4,6 +4,8 @@ using UnityEngine;
 [RequireComponent(typeof(AudioSource), typeof(LongHapticPlayer))]
 public sealed class ScenarioPlaybackController : MonoBehaviour
 {
+    public event Action PlaybackCompleted;
+
     public ScenarioProfile profile;
     public ExperimentCondition condition = ExperimentCondition.Baseline;
     public ScenarioAnimationDriver animationDriver;
@@ -39,7 +41,9 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
             runtimeHapticOffsetSeconds + haptic.hapticOffsetMs / 1000d);
         clockStartDsp = AudioSettings.dspTime + scheduleLeadSeconds - earliest;
         SoundProfile sound = profile.sound; audioSource.clip = sound.clip; audioSource.volume = sound.volume;
-        audioSource.loop = sound.loop || profile.loop; audioSource.time = Mathf.Clamp(sound.trimStartSeconds, 0f, Mathf.Max(0f, sound.clip.length - 0.001f));
+        // SoundProfile.loop repeats a short source inside one scenario. ScenarioProfile.loop
+        // repeats the entire synchronized scenario at its configured duration.
+        audioSource.loop = sound.loop; audioSource.time = Mathf.Clamp(sound.trimStartSeconds, 0f, Mathf.Max(0f, sound.clip.length - 0.001f));
         audioSource.PlayScheduled(clockStartDsp + profile.soundOffsetSeconds);
         if (haptic != null) hapticPlayer.PlayProfile(haptic,
             clockStartDsp + profile.hapticOffsetSeconds + runtimeHapticOffsetSeconds,
@@ -64,7 +68,15 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
             if (!blockStarted[i] && seconds >= b.startSeconds) { blockStarted[i] = true; animationDriver?.BeginBlock(b); }
             if (!blockEnded[i] && seconds >= b.startSeconds + b.durationSeconds) { blockEnded[i] = true; animationDriver?.EndBlock(b); }
         }
-        if (!profile.loop && seconds >= profile.animationDurationSeconds) Stop();
+        if (seconds >= profile.animationDurationSeconds)
+        {
+            bool repeat = profile.loop;
+            ScenarioProfile completedProfile = profile;
+            ExperimentCondition completedCondition = condition;
+            Stop();
+            if (repeat) Play(completedProfile, completedCondition);
+            else PlaybackCompleted?.Invoke();
+        }
     }
     private void OnDisable() => Stop();
 }
