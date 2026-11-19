@@ -18,13 +18,22 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
     public bool IsPlaying => scheduled;
     public double ScenarioSeconds => scheduled ? AudioSettings.dspTime - clockStartDsp : 0d;
 
-    private void Awake() { audioSource = GetComponent<AudioSource>(); hapticPlayer = GetComponent<LongHapticPlayer>(); audioSource.playOnAwake = false; }
+    private void Awake()
+    {
+        audioSource = GetComponent<AudioSource>();
+        hapticPlayer = GetComponent<LongHapticPlayer>();
+        if (animationDriver == null) animationDriver = GetComponent<ScenarioAnimationDriver>();
+        audioSource.playOnAwake = false;
+    }
     private void Start() { if (playOnStart && profile != null) Play(profile, condition); }
     public bool Play(ScenarioProfile nextProfile, ExperimentCondition nextCondition)
     {
         Stop(); profile = nextProfile; condition = nextCondition;
         if (profile == null) { Debug.LogError("[ScenarioPlayer] ScenarioProfile is missing."); return false; }
+        if (animationDriver == null) animationDriver = GetComponent<ScenarioAnimationDriver>();
+        if (animationDriver == null) { Debug.LogError("[ScenarioPlayer] ScenarioAnimationDriver is missing."); return false; }
         if (!profile.ValidateForPlayback(condition, out string reason)) { Debug.LogError("[ScenarioPlayer] " + reason); return false; }
+        if (!ScenarioAnimationTimeline.Validate(profile, out reason)) { Debug.LogError("[ScenarioPlayer] " + reason); return false; }
         double earliest = Math.Min(0d, profile.soundOffsetSeconds); HapticProfile haptic = profile.ResolveHaptic(condition);
         if (haptic != null) earliest = Math.Min(earliest, profile.hapticOffsetSeconds +
             runtimeHapticOffsetSeconds + haptic.hapticOffsetMs / 1000d);
@@ -48,6 +57,7 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
         if (!scheduled || profile == null) return; double seconds = ScenarioSeconds;
         if (!animationStarted && seconds >= 0d) { animationStarted = true; if (animationDriver != null) animationDriver.BeginScenario(profile); }
         if (!animationStarted) return;
+        animationDriver?.EvaluateTimeline(profile, (float)seconds);
         for (int i = 0; i < blockStarted.Length; i++)
         {
             var b = profile.animationBlocks[i];

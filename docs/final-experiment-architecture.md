@@ -42,6 +42,18 @@ Existing audio was moved to `Assets/Audio/ScenarioSources`. All current sound pr
 
 Audio conversion reads one analysis window at a time rather than allocating the full PCM clip. Profiles have no ten-second or 256-segment total cap. A long profile is chunked only at the Android transport/playback boundary, and chunk starts use the absolute DSP clock to avoid cumulative coroutine delay.
 
+## Block animation timeline
+
+`ScenarioPlaybackController` owns the DSP-based scenario clock. The separated experiment path disables `MirrorRig`'s legacy self-advancing animation clock and evaluates one explicit primary-track block on every frame. Block duration changes therefore stretch, loop, play once, or hold the selected source action instead of only firing metadata callbacks.
+
+- Apple: three explicit repetitions of plate wait → approach → bite → chew → rest.
+- Dental Drill: independent drill approach → drill contact → drill retreat actions.
+- Toothbrush: independent brush approach → brush contact → brush retreat actions.
+
+Timeline validation rejects missing actions, duplicate IDs, invalid ranges, overlaps, action/scenario mismatches, and blocks that exceed the scenario duration. `Tools/Experiment/Validate Final Experiment` includes both the profile check and a `MirrorRig` runtime evaluation of every block. The individual checks remain available to batch automation through `ExperimentBuild.ValidateAnimationTimelines` and `ExperimentBuild.ValidateAnimationRuntime`, but are intentionally absent from the normal menu.
+
+PC Scenario Synchronizer commits the selected profile before opening the test scene, repairs the animation-driver and camera references, validates the timeline, and then enters Play Mode. In the Game view, hold the right mouse button to look, use WASD/QE to move, 1–6 for view presets, and R to reset the PC camera.
+
 ## Still pending
 
 - Final scenario audio files and licensing/source notes.

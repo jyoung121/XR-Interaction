@@ -19,8 +19,7 @@ public static class ExperimentBuild
     public static void ValidateFinalExperiment()
     {
         var errors = new List<string>();
-        ProfileCatalog catalog = AssetDatabase.LoadAssetAtPath<ProfileCatalog>(
-            ExperimentProjectSetup.CatalogPath);
+        ProfileCatalog catalog = LoadCatalog();
         ExperimentProtocol protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(
             ExperimentProjectSetup.ProtocolPath);
 
@@ -31,15 +30,32 @@ public static class ExperimentBuild
         if (errors.Count == 0)
             ValidateAnimationRuntime(catalog, errors);
 
-        if (errors.Count > 0)
-            throw new BuildFailedException(
-                "Final experiment validation failed:\n- " + string.Join("\n- ", errors));
-
+        ThrowIfInvalid("Final experiment validation failed", errors);
         Debug.Log("[ExperimentBuild] Final experiment validation passed.");
     }
 
     // Compatibility entry point for existing batch commands.
     public static void ValidateExperimentProfiles() => ValidateFinalExperiment();
+
+    // Developer/batch entry points remain callable without adding normal Tools menu items.
+    public static void ValidateAnimationTimelines()
+    {
+        var errors = new List<string>();
+        ValidateAnimationTimelines(LoadCatalog(), errors);
+        ThrowIfInvalid("Animation timeline validation failed", errors);
+        Debug.Log("[ExperimentBuild] Animation timeline validation passed.");
+    }
+
+    public static void ValidateAnimationRuntime()
+    {
+        var errors = new List<string>();
+        ProfileCatalog catalog = LoadCatalog();
+        ValidateAnimationTimelines(catalog, errors);
+        if (errors.Count == 0)
+            ValidateAnimationRuntime(catalog, errors);
+        ThrowIfInvalid("Animation runtime validation failed", errors);
+        Debug.Log("[ExperimentBuild] Animation runtime validation passed.");
+    }
 
     [MenuItem("Tools/Experiment/Build/Experiment Android", false, 50)]
     public static void BuildExperimentAndroid()
@@ -53,13 +69,17 @@ public static class ExperimentBuild
     public static void BuildMobileTestAndroid()
     {
         var errors = new List<string>();
-        ProfileCatalog catalog = AssetDatabase.LoadAssetAtPath<ProfileCatalog>(
-            ExperimentProjectSetup.CatalogPath);
+        ProfileCatalog catalog = LoadCatalog();
+        if (catalog == null)
+            errors.Add("ProfileCatalog is missing. Run Experiment/Setup first.");
         ValidateMobileTestScene(catalog, errors);
         ThrowIfInvalid("Mobile test scene validation failed", errors);
         BuildAndroid(ExperimentProjectSetup.MobileTestScenePath,
             "Builds/MobileTestAndroid/MobileTest.apk");
     }
+
+    private static ProfileCatalog LoadCatalog() =>
+        AssetDatabase.LoadAssetAtPath<ProfileCatalog>(ExperimentProjectSetup.CatalogPath);
 
     private static void ValidateCatalog(ProfileCatalog catalog, List<string> errors)
     {
@@ -97,6 +117,9 @@ public static class ExperimentBuild
 
     private static void ValidateScenario(ScenarioProfile scenario, List<string> errors)
     {
+        if (!ScenarioAnimationTimeline.Validate(scenario, out string timelineReason))
+            errors.Add($"{scenario.name}: {timelineReason}");
+
         if (scenario.sound == null)
         {
             errors.Add($"{scenario.name}: SoundProfile is missing.");
@@ -120,69 +143,31 @@ public static class ExperimentBuild
             if (!scenario.researcherHaptic.IsPlayable(out string hapticReason))
                 errors.Add($"{scenario.name}: researcher profile is not playable: {hapticReason}");
         }
-
-        ValidateAnimationTimeline(scenario, errors);
     }
 
-    private static void ValidateAnimationTimeline(ScenarioProfile scenario, List<string> errors)
+    private static void ValidateAnimationTimelines(ProfileCatalog catalog, List<string> errors)
     {
-        if (scenario.animationDurationSeconds <= 0f)
-            errors.Add($"{scenario.name}: animation duration must be greater than zero.");
-
-        if (scenario.animationBlocks == null || scenario.animationBlocks.Count == 0)
+        if (catalog == null)
         {
-            errors.Add($"{scenario.name}: no animation blocks are configured.");
+            errors.Add("ProfileCatalog is missing. Run Experiment/Setup first.");
+            return;
+        }
+        if (catalog.scenarios == null || catalog.scenarios.Count == 0)
+        {
+            errors.Add("ProfileCatalog has no scenarios.");
             return;
         }
 
-        var ids = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        var blocks = new List<ScenarioAnimationBlock>();
-        var kinds = new HashSet<AnimationBlockKind>();
-        for (int i = 0; i < scenario.animationBlocks.Count; i++)
+        foreach (ScenarioProfile scenario in catalog.scenarios)
         {
-            ScenarioAnimationBlock block = scenario.animationBlocks[i];
-            if (block == null)
+            if (scenario == null)
             {
-                errors.Add($"{scenario.name}: animation block {i} is null.");
+                errors.Add("ProfileCatalog contains a null scenario.");
                 continue;
             }
-
-            if (string.IsNullOrWhiteSpace(block.blockId))
-                errors.Add($"{scenario.name}: animation block {i} has no ID.");
-            else if (!ids.Add(block.blockId))
-                errors.Add($"{scenario.name}: animation block ID '{block.blockId}' is duplicated.");
-
-            if (block.startSeconds < 0f || block.durationSeconds <= 0f)
-                errors.Add($"{scenario.name}/{block.blockId}: time range is invalid.");
-            else if (block.startSeconds + block.durationSeconds >
-                     scenario.animationDurationSeconds + 0.0001f)
-                errors.Add($"{scenario.name}/{block.blockId}: block exceeds the scenario duration.");
-
-            blocks.Add(block);
-            kinds.Add(block.kind);
+            if (!ScenarioAnimationTimeline.Validate(scenario, out string reason))
+                errors.Add($"{scenario.name}: {reason}");
         }
-
-        blocks.Sort((a, b) => a.startSeconds.CompareTo(b.startSeconds));
-        for (int i = 1; i < blocks.Count; i++)
-        {
-            ScenarioAnimationBlock previous = blocks[i - 1];
-            ScenarioAnimationBlock current = blocks[i];
-            if (current.startSeconds < previous.startSeconds + previous.durationSeconds - 0.0001f)
-                errors.Add($"{scenario.name}: animation blocks '{previous.blockId}' and " +
-                           $"'{current.blockId}' overlap.");
-        }
-
-        RequireAnimationKind(scenario, kinds, AnimationBlockKind.Approach, errors);
-        RequireAnimationKind(scenario, kinds, AnimationBlockKind.Contact, errors);
-        if (scenario.scenario != ScenarioId.Apple)
-            RequireAnimationKind(scenario, kinds, AnimationBlockKind.Retreat, errors);
-    }
-
-    private static void RequireAnimationKind(ScenarioProfile scenario,
-        HashSet<AnimationBlockKind> kinds, AnimationBlockKind required, List<string> errors)
-    {
-        if (!kinds.Contains(required))
-            errors.Add($"{scenario.name}: required '{required}' animation block is missing.");
     }
 
     private static void ValidateProtocol(ExperimentProtocol protocol, ProfileCatalog catalog,
@@ -298,8 +283,13 @@ public static class ExperimentBuild
     private static void ValidatePcScenarioScene(List<string> errors)
     {
         WithScene(ExperimentProjectSetup.PcScenarioTestScenePath, "PCScenarioTestScene", errors,
-            scene => ValidatePlayer("PCScenarioTestScene",
-                FindInScene<ScenarioPlaybackController>(scene), errors));
+            scene =>
+            {
+                ValidatePlayer("PCScenarioTestScene",
+                    FindInScene<ScenarioPlaybackController>(scene), errors);
+                if (FindInScene<PCScenarioCameraController>(scene) == null)
+                    errors.Add("PCScenarioTestScene: PCScenarioCameraController is missing.");
+            });
     }
 
     private static void ValidatePlayer(string sceneName, ScenarioPlaybackController player,
@@ -311,8 +301,13 @@ public static class ExperimentBuild
             return;
         }
 
-        if (player.animationDriver == null)
-            errors.Add($"{sceneName}: animation driver is not assigned.");
+        // Runtime resolves a co-located driver in Awake, so an explicit serialized
+        // reference is optional as long as the scene contains the component.
+        ScenarioAnimationDriver driver = player.animationDriver != null
+            ? player.animationDriver
+            : player.GetComponent<ScenarioAnimationDriver>();
+        if (driver == null)
+            errors.Add($"{sceneName}: animation driver component is missing.");
         if (player.GetComponent<AudioSource>() == null)
             errors.Add($"{sceneName}: AudioSource is missing from the scenario player.");
         if (player.GetComponent<LongHapticPlayer>() == null)
@@ -323,34 +318,67 @@ public static class ExperimentBuild
     {
         if (catalog == null || catalog.scenarios == null) return;
 
-        GameObject viewer = new GameObject("Animation Validation Viewer");
-        viewer.transform.position = new Vector3(0f, 1.65f, 0f);
-        MirrorRig rig = null;
+        var scenarios = new List<(string name, ScenarioId scenario,
+            List<(ScenarioAnimationAction action, float source, float normalized, int iteration)> samples)>();
+
         try
         {
-            foreach (ScenarioProfile scenario in catalog.scenarios)
+            foreach (ScenarioProfile profile in catalog.scenarios)
             {
-                if (scenario == null) continue;
-                rig = MirrorRig.Create(viewer.transform);
-                if (rig == null)
+                if (profile == null) continue;
+                var samples = new List<(ScenarioAnimationAction, float, float, int)>();
+                foreach (ScenarioAnimationBlock block in profile.animationBlocks)
                 {
-                    errors.Add($"{scenario.name}: MirrorRig could not be created.");
+                    float sampleTime = block.startSeconds + block.durationSeconds * 0.5f;
+                    if (!ScenarioAnimationTimeline.TrySample(profile, sampleTime,
+                        out ScenarioBlockSample sample))
+                    {
+                        errors.Add($"{profile.name}/{block.blockId}: animation sampling failed.");
+                        continue;
+                    }
+                    samples.Add((sample.action, sample.sourceSeconds,
+                        sample.normalizedTime, sample.block.iteration));
+                }
+                scenarios.Add((profile.name, profile.scenario, samples));
+            }
+        }
+        catch (System.Exception exception)
+        {
+            errors.Add("Animation sampling failed: " + exception.Message);
+            return;
+        }
+
+        GameObject viewer = new GameObject("Animation Validation Viewer");
+        viewer.transform.SetPositionAndRotation(new Vector3(0f, 1.65f, 0f), Quaternion.identity);
+        MirrorRig activeRig = null;
+        try
+        {
+            foreach (var scenario in scenarios)
+            {
+                activeRig = MirrorRig.Create(viewer.transform);
+                if (activeRig == null)
+                {
+                    errors.Add($"{scenario.name}: MirrorRig creation failed.");
                     continue;
                 }
+                activeRig.UseExternalAnimationTimeline(true);
 
                 if (scenario.scenario == ScenarioId.Apple)
-                    rig.ShowScenario(MirrorRig.Scenario.Food, MirrorRig.FoodKind.Apple);
+                    activeRig.ShowScenario(MirrorRig.Scenario.Food,
+                        MirrorRig.FoodKind.Apple, MirrorRig.DentalKind.Drill);
                 else if (scenario.scenario == ScenarioId.DentalDrill)
-                    rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Drill);
+                    activeRig.ShowScenario(MirrorRig.Scenario.Dental,
+                        MirrorRig.FoodKind.Apple, MirrorRig.DentalKind.Drill);
                 else
-                    rig.ShowScenario(MirrorRig.Scenario.Dental, MirrorRig.DentalKind.Brush);
+                    activeRig.ShowScenario(MirrorRig.Scenario.Dental,
+                        MirrorRig.FoodKind.Apple, MirrorRig.DentalKind.Brush);
 
-                foreach (ScenarioAnimationBlock block in scenario.animationBlocks)
-                    if (block != null)
-                        rig.StepForPreview(block.startSeconds + block.durationSeconds * 0.5f);
+                foreach (var sample in scenario.samples)
+                    activeRig.EvaluateAnimationBlock(sample.action, sample.source,
+                        sample.normalized, sample.iteration);
 
-                rig.Dispose();
-                rig = null;
+                activeRig.Dispose();
+                activeRig = null;
             }
         }
         catch (System.Exception exception)
@@ -359,7 +387,7 @@ public static class ExperimentBuild
         }
         finally
         {
-            if (rig != null) rig.Dispose();
+            if (activeRig != null) activeRig.Dispose();
             Object.DestroyImmediate(viewer);
         }
     }
