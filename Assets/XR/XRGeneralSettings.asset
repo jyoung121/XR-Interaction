@@ -253,7 +253,7 @@ MonoBehaviour:
   m_Name: Android Settings
   m_EditorClassIdentifier: 
   m_Manager: {fileID: -4704890133807437140}
-  m_InitManagerOnStart: 1
+  m_InitManagerOnStart: 0
 --- !u!114 &5316289822162818654
 MonoBehaviour:
   m_ObjectHideFlags: 0

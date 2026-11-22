@@ -1,0 +1,55 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 11d5e1f9570d54c43b5849c9d68c8c1d, type: 3}
+  m_Name: DentalDrill_ScenarioProfile_v002
+  m_EditorClassIdentifier: Assembly-CSharp::ScenarioProfile
+  profileId: DentalDrill_ScenarioProfile_v002
+  version: 2
+  scenario: 1
+  sound: {fileID: 11400000, guid: 0104fb39351030940b84aefcec46a77a, type: 2}
+  researcherHaptic: {fileID: 11400000, guid: 95cd81c5c89787b45804f9edab6589ca, type: 2}
+  participantHaptic: {fileID: 0}
+  animationDurationSeconds: 22.4
+  soundOffsetSeconds: 0
+  hapticOffsetSeconds: 0
+  loop: 0
+  animationBlocks:
+  - blockId: drill-approach
+    kind: 1
+    action: 11
+    track: 0
+    startSeconds: 0
+    durationSeconds: 1.2
+    timeMode: 0
+    playbackSpeed: 1
+    iteration: 0
+    note: 
+  - blockId: drill-contact
+    kind: 2
+    action: 12
+    track: 0
+    startSeconds: 1.2
+    durationSeconds: 20.1
+    timeMode: 0
+    playbackSpeed: 1
+    iteration: 0
+    note: 
+  - blockId: drill-retreat
+    kind: 3
+    action: 13
+    track: 0
+    startSeconds: 21.3
+    durationSeconds: 1.1
+    timeMode: 0
+    playbackSpeed: 1
+    iteration: 0
+    note: 

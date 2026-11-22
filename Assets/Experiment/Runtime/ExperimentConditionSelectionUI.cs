@@ -22,6 +22,7 @@ public sealed class ExperimentConditionSelectionUI : MonoBehaviour
     private Button repeatButton;
     private Button returnButton;
     private ExperimentCondition? pendingCondition;
+    private bool suppressed;
 
     private void Awake()
     {
@@ -36,7 +37,22 @@ public sealed class ExperimentConditionSelectionUI : MonoBehaviour
         if (session != null) session.StateChanged += HandleStateChanged;
     }
 
-    private void Start() => ShowConditionSelection();
+    private void Start()
+    {
+        if (MobileAppFlowController.Instance != null &&
+            MobileAppFlowController.Instance.IsExperimentActive)
+        {
+            SetSuppressed(true);
+            return;
+        }
+        ShowConditionSelection();
+    }
+
+    public void SetSuppressed(bool value)
+    {
+        suppressed = value;
+        if (root != null) root.SetActive(!value);
+    }
 
     private void OnDisable()
     {
@@ -119,7 +135,7 @@ public sealed class ExperimentConditionSelectionUI : MonoBehaviour
 
     private void HandleStateChanged(ExperimentSessionState next)
     {
-        if (root == null) return;
+        if (root == null || suppressed) return;
         switch (next)
         {
             case ExperimentSessionState.ConditionSelection:
@@ -142,7 +158,7 @@ public sealed class ExperimentConditionSelectionUI : MonoBehaviour
 
     private void ShowConditionSelection()
     {
-        if (root == null) return;
+        if (root == null || suppressed) return;
         root.SetActive(true);
         title.text = "SELECT EXPERIMENT CONDITION";
         pendingCondition = null;

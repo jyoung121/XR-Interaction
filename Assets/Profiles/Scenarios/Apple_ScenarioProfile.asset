@@ -16,7 +16,7 @@ MonoBehaviour:
   version: 1
   scenario: 0
   sound: {fileID: 11400000, guid: a79119ca6344bbd44af9f5b45700b3d6, type: 2}
-  researcherHaptic: {fileID: 0}
+  researcherHaptic: {fileID: 11400000, guid: b21c1de6eb6d6e246986fe3db122a603, type: 2}
   participantHaptic: {fileID: 0}
   animationDurationSeconds: 47.1
   soundOffsetSeconds: 0
@@ -32,7 +32,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 0
-    note:
+    note: 
   - blockId: apple-approach-1
     kind: 1
     action: 2
@@ -42,7 +42,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 0
-    note:
+    note: 
   - blockId: apple-bite-1
     kind: 2
     action: 3
@@ -52,7 +52,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 0
-    note:
+    note: 
   - blockId: apple-chew-1
     kind: 2
     action: 4
@@ -62,7 +62,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 0
-    note:
+    note: 
   - blockId: apple-rest-1
     kind: 4
     action: 5
@@ -72,7 +72,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 0
-    note:
+    note: 
   - blockId: apple-plate-2
     kind: 0
     action: 1
@@ -82,7 +82,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 1
-    note:
+    note: 
   - blockId: apple-approach-2
     kind: 1
     action: 2
@@ -92,7 +92,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 1
-    note:
+    note: 
   - blockId: apple-bite-2
     kind: 2
     action: 3
@@ -102,7 +102,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 1
-    note:
+    note: 
   - blockId: apple-chew-2
     kind: 2
     action: 4
@@ -112,7 +112,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 1
-    note:
+    note: 
   - blockId: apple-rest-2
     kind: 4
     action: 5
@@ -122,7 +122,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 1
-    note:
+    note: 
   - blockId: apple-plate-3
     kind: 0
     action: 1
@@ -132,7 +132,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 2
-    note:
+    note: 
   - blockId: apple-approach-3
     kind: 1
     action: 2
@@ -142,7 +142,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 2
-    note:
+    note: 
   - blockId: apple-bite-3
     kind: 2
     action: 3
@@ -152,7 +152,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 2
-    note:
+    note: 
   - blockId: apple-chew-3
     kind: 2
     action: 4
@@ -162,7 +162,7 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 2
-    note:
+    note: 
   - blockId: apple-rest-3
     kind: 4
     action: 5
@@ -172,4 +172,4 @@ MonoBehaviour:
     timeMode: 0
     playbackSpeed: 1
     iteration: 2
-    note:
+    note: 

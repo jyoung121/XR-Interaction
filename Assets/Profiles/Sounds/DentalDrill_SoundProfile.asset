@@ -21,6 +21,6 @@ MonoBehaviour:
   fadeInSeconds: 0
   fadeOutSeconds: 0
   loop: 0
-  placeholder: 1
+  placeholder: 0
   sourceNote: Existing turbine recording migrated here; replace when final audio is approved.
-  sourceAssetHash: 61bb2a2bd5ba546dfd12aa005a9c8f9a
+  sourceAssetHash: f589a3c6a3791ff3943c25f0abd9d4a6

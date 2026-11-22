@@ -26,6 +26,7 @@ public sealed class ExperimentSessionController : MonoBehaviour
     private ExperimentCondition selectedCondition = ExperimentCondition.Baseline;
     private ExperimentSessionState state = ExperimentSessionState.ConditionSelection;
     private string lastError = string.Empty;
+    private bool returnToLauncherWhenComplete;
 
     public ExperimentSessionState State => state;
     public ExperimentCondition SelectedCondition => selectedCondition;
@@ -42,6 +43,18 @@ public sealed class ExperimentSessionController : MonoBehaviour
     private void Start()
     {
         player?.Stop();
+        MobileAppFlowController flow = MobileAppFlowController.Instance;
+        if (flow != null && flow.TryGetSelectedTrial(out ScenarioProfile selectedProfile,
+                out ExperimentCondition condition, out _, out float runtimeOffset,
+                out float runtimeAmplitude))
+        {
+            ExperimentConditionSelectionUI existingUi = GetComponent<ExperimentConditionSelectionUI>();
+            if (existingUi != null) existingUi.SetSuppressed(true);
+            player.runtimeHapticOffsetSeconds = runtimeOffset;
+            player.runtimeAmplitudeScale = runtimeAmplitude;
+            StartTrial(selectedProfile, condition, true);
+            return;
+        }
         SetState(ExperimentSessionState.ConditionSelection);
         if (GetComponent<ExperimentConditionSelectionUI>() == null)
             gameObject.AddComponent<ExperimentConditionSelectionUI>();
@@ -85,6 +98,33 @@ public sealed class ExperimentSessionController : MonoBehaviour
     }
 
     public bool RepeatSelectedCondition() => StartCondition(selectedCondition);
+
+    public bool StartTrial(ScenarioProfile scenario, ExperimentCondition condition,
+                           bool returnToLauncher = false)
+    {
+        returnToLauncherWhenComplete = returnToLauncher;
+        selectedCondition = condition;
+        trials.Clear();
+        trialIndex = 0;
+        lastError = string.Empty;
+
+        if (scenario == null)
+        {
+            Fail("Selected Scenario Profile is missing.");
+            return false;
+        }
+        if (player == null || !player.Play(scenario, condition))
+        {
+            Fail($"Could not play {scenario.name}.");
+            return false;
+        }
+
+        SetState(ExperimentSessionState.Running);
+        TrialChanged?.Invoke(1, 1, scenario);
+        Debug.Log($"[Experiment] Manual trial: {scenario.scenario}, {condition}, " +
+                  $"profile={scenario.ProfileId}, version={scenario.Version}");
+        return true;
+    }
 
     public void ReturnToConditionSelection()
     {
@@ -152,8 +192,16 @@ public sealed class ExperimentSessionController : MonoBehaviour
 
     private void HandlePlaybackCompleted()
     {
-        if (state == ExperimentSessionState.Running)
-            SetState(ExperimentSessionState.BetweenTrials);
+        if (state != ExperimentSessionState.Running) return;
+        if (returnToLauncherWhenComplete)
+        {
+            player?.Stop();
+            MobileAppFlowController flow = MobileAppFlowController.Instance;
+            if (flow != null) flow.ReturnToLauncher();
+            else SetState(ExperimentSessionState.Completed);
+            return;
+        }
+        SetState(ExperimentSessionState.BetweenTrials);
     }
 
     private void Update()
@@ -171,6 +219,8 @@ public sealed class ExperimentSessionController : MonoBehaviour
         player?.Stop();
         SetState(ExperimentSessionState.Error);
         Debug.LogError("[Experiment] " + reason);
+        if (returnToLauncherWhenComplete && MobileAppFlowController.Instance != null)
+            MobileAppFlowController.Instance.ReturnToLauncher(reason);
     }
 
     private void SetState(ExperimentSessionState next)

@@ -150,9 +150,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 019feb8678c65bd4f9fd751953d952e4, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScenarioPlaybackController
-  profile: {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+  profile: {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
   condition: 0
   animationDriver: {fileID: 282896510}
   playOnStart: 0
@@ -169,7 +169,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 502f077e41975c843b5d7959ba61b271, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MirrorScenarioAnimationDriver
   viewer: {fileID: 2118953111}
 --- !u!114 &282896511
@@ -182,7 +182,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 60f2e79b18587f14a80f8a5bcfe81e8f, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::LongHapticPlayer
   maxSegmentsPerChunk: 256
   maxChunkDurationMs: 8000
@@ -308,7 +308,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 65070a28ede348b7a36d23f47c64c0be, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PCScenarioPreviewController
   player: {fileID: 282896509}
   profile: {fileID: 0}
@@ -325,6 +325,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1612239779}
   - component: {fileID: 1612239778}
+  - component: {fileID: 1612239780}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -412,6 +413,35 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1612239780
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1612239777}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_CustomShadowLayers: 0
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
+  m_RenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_ShadowRenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_Version: 4
+  m_LightLayerMask: 1
+  m_ShadowLayerMask: 1
+  m_RenderingLayers: 1
+  m_ShadowRenderingLayers: 1
 --- !u!1 &2118953110
 GameObject:
   m_ObjectHideFlags: 0
@@ -515,7 +545,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7d1bc8ea57be4d11bdf1f14914e19d08, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PCScenarioCameraController
   lookSensitivity: 0.12
   moveSpeed: 0.8

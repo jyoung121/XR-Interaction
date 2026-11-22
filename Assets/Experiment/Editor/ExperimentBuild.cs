@@ -3,8 +3,10 @@ using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
+using UnityEditor.XR.Management;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.XR.Management;
 
 public static class ExperimentBuild
 {
@@ -59,7 +61,21 @@ public static class ExperimentBuild
         Debug.Log("[ExperimentBuild] Animation runtime validation passed.");
     }
 
-    [MenuItem("Tools/Experiment/Build/Experiment Android", false, 50)]
+    [MenuItem("Tools/Experiment/Build/Unified Android", false, 50)]
+    public static void BuildUnifiedAndroid()
+    {
+        ValidateFinalExperiment();
+        BuildUnified("Builds/UnifiedAndroid/UnifiedExperiment.apk");
+    }
+
+    [MenuItem("Tools/Experiment/Build/Unified Android (Development)", false, 51)]
+    public static void BuildUnifiedAndroidDevelopment()
+    {
+        ValidateUnifiedRuntime();
+        BuildUnified("Builds/UnifiedAndroid/UnifiedExperiment-Development.apk");
+    }
+
+    [MenuItem("Tools/Experiment/Build/Experiment Android", false, 52)]
     public static void BuildExperimentAndroid()
     {
         ValidateFinalExperiment();
@@ -67,17 +83,40 @@ public static class ExperimentBuild
             "Builds/ExperimentAndroid/Experiment.apk");
     }
 
-    [MenuItem("Tools/Experiment/Build/Mobile Test Android", false, 51)]
     public static void BuildMobileTestAndroid()
+    {
+        ValidateUnifiedRuntime();
+        BuildUnified("Builds/MobileTestAndroid/MobileTest.apk");
+    }
+
+    private static void BuildUnified(string output) => BuildAndroid(new[]
+    {
+        ExperimentProjectSetup.MobileTestScenePath,
+        ExperimentProjectSetup.ExperimentScenePath
+    }, output, false);
+
+    private static void ValidateUnifiedRuntime()
     {
         var errors = new List<string>();
         ProfileCatalog catalog = LoadCatalog();
-        if (catalog == null)
-            errors.Add("ProfileCatalog is missing. Run Experiment/Setup first.");
+        ExperimentProtocol protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(
+            ExperimentProjectSetup.ProtocolPath);
+        if (catalog == null) errors.Add("ProfileCatalog is missing. Run Experiment/Setup first.");
+        if (protocol == null)
+        {
+            errors.Add("Experiment Protocol is missing. Run Experiment/Setup first.");
+        }
+        else
+        {
+            foreach (ExperimentCondition condition in new[]
+                     { ExperimentCondition.Baseline, ExperimentCondition.ResearcherHaptic })
+                if (!protocol.TryValidatePlan(condition, out string reason))
+                    errors.Add(reason);
+        }
+        ValidateExperimentScene(protocol, errors);
         ValidateMobileTestScene(catalog, errors);
-        ThrowIfInvalid("Mobile test scene validation failed", errors);
-        BuildAndroid(ExperimentProjectSetup.MobileTestScenePath,
-            "Builds/MobileTestAndroid/MobileTest.apk");
+        ThrowIfInvalid("Unified Android development validation failed", errors);
+        Debug.Log("[ExperimentBuild] Unified Android development validation passed.");
     }
 
     private static ProfileCatalog LoadCatalog() =>
@@ -473,14 +512,48 @@ public static class ExperimentBuild
 
     private static void BuildAndroid(string scene, string output)
     {
+        BuildAndroid(new[] { scene }, output, true);
+    }
+
+    private static void BuildAndroid(string[] scenes, string output, bool initializeXrOnStartup)
+    {
         var options = new BuildPlayerOptions
         {
-            scenes = new[] { scene },
+            scenes = scenes,
             locationPathName = output,
             target = BuildTarget.Android
         };
-        BuildReport report = BuildPipeline.BuildPlayer(options);
-        if (report.summary.result != BuildResult.Succeeded)
-            throw new BuildFailedException(report.summary.result.ToString());
+
+        XRGeneralSettings settings = null;
+        bool previousInitOnStart = true;
+        XRGeneralSettingsPerBuildTarget perTarget;
+        if (EditorBuildSettings.TryGetConfigObject(XRGeneralSettings.settingsKey, out perTarget) &&
+            perTarget != null)
+        {
+            settings = perTarget.SettingsForBuildTarget(BuildTargetGroup.Android);
+            if (settings != null)
+            {
+                previousInitOnStart = settings.InitManagerOnStart;
+                settings.InitManagerOnStart = initializeXrOnStartup;
+                EditorUtility.SetDirty(settings);
+                AssetDatabase.SaveAssets();
+            }
+        }
+
+        try
+        {
+            BuildReport report = BuildPipeline.BuildPlayer(options);
+            if (report.summary.result != BuildResult.Succeeded)
+                throw new BuildFailedException(report.summary.result.ToString());
+        }
+        finally
+        {
+            if (settings != null)
+            {
+                settings.InitManagerOnStart = previousInitOnStart;
+                EditorUtility.SetDirty(settings);
+                AssetDatabase.SaveAssets();
+            }
+        }
     }
 }

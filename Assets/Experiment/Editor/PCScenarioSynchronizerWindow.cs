@@ -156,7 +156,7 @@ public sealed class PCScenarioSynchronizerWindow : EditorWindow
         if (workingCopy != null)
         {
             workingCopy.name = source.name + " (Working Copy)";
-            workingCopy.hideFlags = HideFlags.HideAndDontSave;
+            workingCopy.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
             serializedWorkingCopy = new SerializedObject(workingCopy);
         }
         else

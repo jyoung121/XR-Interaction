@@ -21,6 +21,6 @@ MonoBehaviour:
   fadeInSeconds: 0
   fadeOutSeconds: 0
   loop: 0
-  placeholder: 1
+  placeholder: 0
   sourceNote: Existing Apple recording migrated here; replace when final audio is approved.
-  sourceAssetHash: 
+  sourceAssetHash: 626a4af8d62cb1080619f297c88ec291

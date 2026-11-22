@@ -28,7 +28,11 @@ public static class ExperimentProjectSetup
     public static void CreateProfilesAndScenes()
     {
         EnsureFolders(); ProfileCatalog catalog = BuildProfiles(); BuildExperimentScene(catalog); BuildMobileScene(catalog); BuildPcScene(catalog);
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ExperimentScenePath, true), new EditorBuildSettingsScene(MobileTestScenePath, false) };
+        EditorBuildSettings.scenes = new[]
+        {
+            new EditorBuildSettingsScene(MobileTestScenePath, true),
+            new EditorBuildSettingsScene(ExperimentScenePath, true)
+        };
         AssetDatabase.SaveAssets(); AssetDatabase.Refresh(); Debug.Log("[ExperimentSetup] Profiles and three separated scenes are ready.");
     }
 
@@ -131,7 +135,7 @@ public static class ExperimentProjectSetup
     private static void BuildExperimentScene(ProfileCatalog catalog)
     { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Experiment Runtime", catalog.FindScenario(ScenarioId.Apple)); var session = runtime.AddComponent<ExperimentSessionController>(); session.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); session.player = runtime.GetComponent<ScenarioPlaybackController>(); session.playOnStart = false; var ui = runtime.AddComponent<ExperimentConditionSelectionUI>(); ui.session = session; EditorSceneManager.SaveScene(scene, ExperimentScenePath); }
     private static void BuildMobileScene(ProfileCatalog catalog)
-    { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Mobile Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var receiver = runtime.AddComponent<HapticLinkReceiver>(); var controller = runtime.AddComponent<MobileTestController>(); controller.catalog = catalog; controller.player = runtime.GetComponent<ScenarioPlaybackController>(); controller.hapticPlayer = runtime.GetComponent<LongHapticPlayer>(); controller.linkReceiver = receiver; EditorSceneManager.SaveScene(scene, MobileTestScenePath); }
+    { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Mobile Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var receiver = runtime.AddComponent<HapticLinkReceiver>(); var controller = runtime.AddComponent<MobileTestController>(); controller.catalog = catalog; controller.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); controller.player = runtime.GetComponent<ScenarioPlaybackController>(); controller.hapticPlayer = runtime.GetComponent<LongHapticPlayer>(); controller.linkReceiver = receiver; EditorSceneManager.SaveScene(scene, MobileTestScenePath); }
     private static void BuildPcScene(ProfileCatalog catalog)
     { Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single); var camera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(PCScenarioCameraController)); camera.tag = "MainCamera"; camera.transform.position = new Vector3(0, 1.65f, 0); var light = new GameObject("Directional Light", typeof(Light)); light.GetComponent<Light>().type = LightType.Directional; light.transform.rotation = Quaternion.Euler(45, -30, 0); GameObject runtime = CreateRuntime("PC Scenario Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var player = runtime.GetComponent<ScenarioPlaybackController>(); player.playOnStart = false; var preview = runtime.AddComponent<PCScenarioPreviewController>(); preview.player = player; preview.profile = player.profile; preview.autoStart = false; EditorSceneManager.SaveScene(scene, PcScenarioTestScenePath); }
     private static Scene OpenTemplate() => EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Single);
@@ -175,6 +179,7 @@ public static class ExperimentProjectSetup
                 MobileTestController controller = runtime.GetComponent<MobileTestController>();
                 if (controller == null) controller = runtime.AddComponent<MobileTestController>();
                 controller.catalog = catalog;
+                controller.protocol = protocol;
                 controller.player = player;
                 controller.hapticPlayer = haptic;
                 controller.linkReceiver = receiver;

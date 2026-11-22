@@ -73,6 +73,49 @@ public sealed class ExperimentProtocol : ScriptableObject
         return conditionPlans.Find(plan => plan != null && plan.condition == condition);
     }
 
+    public bool TryResolveTrial(ExperimentCondition condition, ScenarioId scenario,
+                                out ScenarioProfile profile, out string reason)
+    {
+        profile = null;
+        ExperimentConditionPlan plan = GetPlan(condition);
+        if (plan == null)
+        {
+            reason = $"{DisplayName(condition)} is not configured.";
+            return false;
+        }
+        if (!plan.enabled)
+        {
+            reason = $"{DisplayName(condition)} is not ready.";
+            return false;
+        }
+
+        ConditionScenarioAssignment assignment = plan.Find(scenario);
+        if (assignment?.profile == null)
+        {
+            reason = $"{DisplayName(condition)} / {DisplayName(scenario)} has no Scenario Profile.";
+            return false;
+        }
+        if (assignment.profile.scenario != scenario)
+        {
+            reason = $"{assignment.profile.name} is assigned to the wrong scenario slot ({scenario}).";
+            return false;
+        }
+        if (!assignment.profile.ValidateForPlayback(condition, out reason))
+        {
+            reason = $"{DisplayName(condition)} / {assignment.profile.name}: {reason}";
+            return false;
+        }
+        if (!ScenarioAnimationTimeline.Validate(assignment.profile, out reason))
+        {
+            reason = $"{DisplayName(condition)} / {assignment.profile.name}: {reason}";
+            return false;
+        }
+
+        profile = assignment.profile;
+        reason = string.Empty;
+        return true;
+    }
+
     public IEnumerable<ExperimentConditionPlan> EnabledPlans()
     {
         if (conditionPlans == null) yield break;

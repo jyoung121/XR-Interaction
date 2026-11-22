@@ -16,7 +16,7 @@ MonoBehaviour:
   version: 1
   scenario: 1
   sound: {fileID: 11400000, guid: 0104fb39351030940b84aefcec46a77a, type: 2}
-  researcherHaptic: {fileID: 0}
+  researcherHaptic: {fileID: 11400000, guid: 95cd81c5c89787b45804f9edab6589ca, type: 2}
   participantHaptic: {fileID: 0}
   animationDurationSeconds: 4.4
   soundOffsetSeconds: 0

@@ -14,13 +14,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SoundProfile
   profileId: toothbrush-sound
   version: 1
-  clip: {fileID: 0}
+  clip: {fileID: 8300000, guid: de20e5f393f5fea4d8033a8274a9162f, type: 3}
   volume: 1
   trimStartSeconds: 0
   trimEndSeconds: 0
   fadeInSeconds: 0
   fadeOutSeconds: 0
   loop: 0
-  placeholder: 1
+  placeholder: 0
   sourceNote: Final toothbrush audio is pending; assign it here without changing ScenarioProfile.
-  sourceAssetHash: 
+  sourceAssetHash: 4dc20350219f19f22855766c05d5c9b4
