@@ -8,16 +8,26 @@ public readonly struct ScenarioBlockSample
     public readonly ScenarioAnimationAction action;
     public readonly float localSeconds;
     public readonly float normalizedTime;
+    public readonly float blockProgress01;
     public readonly float sourceSeconds;
+    public readonly float contactLoad;
+    public readonly float minimumContactDepth;
+    public readonly float maximumContactDepth;
 
     public ScenarioBlockSample(ScenarioAnimationBlock block, ScenarioAnimationAction action,
-        float localSeconds, float normalizedTime, float sourceSeconds)
+        float localSeconds, float normalizedTime, float blockProgress01, float sourceSeconds,
+        float contactLoad)
     {
         this.block = block;
         this.action = action;
         this.localSeconds = localSeconds;
         this.normalizedTime = normalizedTime;
+        this.blockProgress01 = blockProgress01;
         this.sourceSeconds = sourceSeconds;
+        this.contactLoad = Mathf.Clamp01(contactLoad);
+        minimumContactDepth = block != null ? Mathf.Clamp01(block.minimumContactDepth) : 0f;
+        maximumContactDepth = block != null
+            ? Mathf.Max(minimumContactDepth, Mathf.Clamp01(block.maximumContactDepth)) : 1f;
     }
 }
 
@@ -63,7 +73,8 @@ public static class ScenarioAnimationTimeline
 
         float duration = Mathf.Max(Epsilon, active.durationSeconds);
         float local = holdingPrevious ? duration : Mathf.Clamp(time - active.startSeconds, 0f, duration);
-        float normalized = Mathf.Clamp01(local / duration);
+        float blockProgress = Mathf.Clamp01(local / duration);
+        float normalized = blockProgress;
         ScenarioAnimationAction action = ResolveAction(profile.scenario, active);
         float nativeDuration = Mathf.Max(Epsilon, MirrorRig.AnimationSourceDuration(action));
         float speed = Mathf.Max(0.01f, active.playbackSpeed);
@@ -88,7 +99,8 @@ public static class ScenarioAnimationTimeline
                 break;
         }
 
-        sample = new ScenarioBlockSample(active, action, local, normalized, source);
+        sample = new ScenarioBlockSample(active, action, local, normalized, blockProgress,
+            source, active.EvaluateContactLoad(blockProgress));
         return true;
     }
 
@@ -143,6 +155,8 @@ public static class ScenarioAnimationTimeline
             { reason = $"Animation track '{block.track}' is reserved but not implemented yet."; return false; }
             if (block.action == ScenarioAnimationAction.Auto)
             { reason = $"Animation block '{block.blockId}' must use an explicit action."; return false; }
+            if (block.minimumContactDepth > block.maximumContactDepth)
+            { reason = $"Animation block '{block.blockId}' has an inverted contact depth range."; return false; }
 
             ScenarioAnimationAction action = ResolveAction(profile.scenario, block);
             if (!IsCompatible(profile.scenario, action))

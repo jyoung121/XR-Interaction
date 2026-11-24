@@ -14,7 +14,32 @@ public sealed class ConditionScenarioAssignment
 {
     public ScenarioId scenario;
     public ScenarioProfile profile;
+    [Tooltip("Fixed profile used by Researcher Haptics. Baseline must leave this empty.")]
+    public HapticProfile hapticProfile;
+    [Header("User Haptics (mobile labels A / B / C)")]
+    public HapticProfile profileA;
+    public HapticProfile profileB;
+    public HapticProfile profileC;
     [Min(1)] public int repetitions = 1;
+
+    public HapticProfile ResolveParticipantProfile(ParticipantHapticSlot slot)
+    {
+        switch (slot)
+        {
+            case ParticipantHapticSlot.ProfileA: return profileA;
+            case ParticipantHapticSlot.ProfileB: return profileB;
+            case ParticipantHapticSlot.ProfileC: return profileC;
+            default: return null;
+        }
+    }
+}
+
+public enum ParticipantHapticSlot
+{
+    None,
+    ProfileA,
+    ProfileB,
+    ProfileC
 }
 
 [Serializable]
@@ -34,6 +59,7 @@ public sealed class ExperimentConditionPlan
 [CreateAssetMenu(fileName = "ExperimentProtocol", menuName = "Experiment/Protocol")]
 public sealed class ExperimentProtocol : ScriptableObject
 {
+    public const int CurrentVersion = 2;
     private static readonly ScenarioId[] RequiredScenarios =
     {
         ScenarioId.DentalDrill,
@@ -100,19 +126,37 @@ public sealed class ExperimentProtocol : ScriptableObject
             reason = $"{assignment.profile.name} is assigned to the wrong scenario slot ({scenario}).";
             return false;
         }
-        if (!assignment.profile.ValidateForPlayback(condition, out reason))
-        {
-            reason = $"{DisplayName(condition)} / {assignment.profile.name}: {reason}";
-            return false;
-        }
-        if (!ScenarioAnimationTimeline.Validate(assignment.profile, out reason))
-        {
-            reason = $"{DisplayName(condition)} / {assignment.profile.name}: {reason}";
-            return false;
-        }
+        if (!ValidateAssignment(condition, assignment, false, ParticipantHapticSlot.None,
+                out _, out reason)) return false;
 
         profile = assignment.profile;
         reason = string.Empty;
+        return true;
+    }
+
+    public bool TryResolveTrial(ExperimentCondition condition, ScenarioId scenario,
+                                ParticipantHapticSlot participantSlot,
+                                out ScenarioProfile profile, out HapticProfile haptic,
+                                out string reason)
+    {
+        profile = null;
+        haptic = null;
+        ExperimentConditionPlan plan = GetPlan(condition);
+        if (plan == null || !plan.enabled)
+        {
+            reason = plan == null ? $"{DisplayName(condition)} is not configured." :
+                $"{DisplayName(condition)} is not ready.";
+            return false;
+        }
+        ConditionScenarioAssignment assignment = plan.Find(scenario);
+        if (assignment?.profile == null)
+        {
+            reason = $"{DisplayName(condition)} / {DisplayName(scenario)} has no Scenario Profile.";
+            return false;
+        }
+        if (!ValidateAssignment(condition, assignment, true, participantSlot,
+                out haptic, out reason)) return false;
+        profile = assignment.profile;
         return true;
     }
 
@@ -129,6 +173,11 @@ public sealed class ExperimentProtocol : ScriptableObject
     public bool EnsureConditionPlans()
     {
         bool changed = false;
+        if (version < CurrentVersion)
+        {
+            version = CurrentVersion;
+            changed = true;
+        }
         if (conditionPlans == null)
         {
             conditionPlans = new List<ExperimentConditionPlan>();
@@ -166,6 +215,9 @@ public sealed class ExperimentProtocol : ScriptableObject
                 });
                 changed = true;
             }
+
+            foreach (ConditionScenarioAssignment assignment in plan.scenarios)
+                if (ApplyHapticDefaults(plan.condition, assignment)) changed = true;
         }
 
         return changed;
@@ -219,16 +271,8 @@ public sealed class ExperimentProtocol : ScriptableObject
                 reason = $"{assignment.profile.name} repetitions must be at least one.";
                 return false;
             }
-            if (!assignment.profile.ValidateForPlayback(condition, out reason))
-            {
-                reason = $"{DisplayName(condition)} / {assignment.profile.name}: {reason}";
-                return false;
-            }
-            if (!ScenarioAnimationTimeline.Validate(assignment.profile, out reason))
-            {
-                reason = $"{DisplayName(condition)} / {assignment.profile.name}: {reason}";
-                return false;
-            }
+            if (!ValidateAssignment(condition, assignment, false,
+                    ParticipantHapticSlot.None, out _, out reason)) return false;
         }
 
         foreach (ScenarioId required in RequiredScenarios)
@@ -290,6 +334,108 @@ public sealed class ExperimentProtocol : ScriptableObject
         }
     }
 
+    public static string DisplayName(ParticipantHapticSlot slot)
+    {
+        switch (slot)
+        {
+            case ParticipantHapticSlot.ProfileA: return "Profile A";
+            case ParticipantHapticSlot.ProfileB: return "Profile B";
+            case ParticipantHapticSlot.ProfileC: return "Profile C";
+            default: return "None";
+        }
+    }
+
+    private static bool ApplyHapticDefaults(ExperimentCondition condition,
+        ConditionScenarioAssignment assignment)
+    {
+        if (assignment?.profile == null) return false;
+        bool changed = false;
+        if (condition == ExperimentCondition.ResearcherHaptic && assignment.hapticProfile == null &&
+            assignment.profile.researcherHaptic != null)
+        {
+            assignment.hapticProfile = assignment.profile.researcherHaptic;
+            changed = true;
+        }
+        if (condition == ExperimentCondition.ParticipantHaptic &&
+            assignment.profile.participantStyleSet != null)
+        {
+            ScenarioHapticStyleSet set = assignment.profile.participantStyleSet;
+            if (assignment.profileA == null && set.smooth != null)
+            { assignment.profileA = set.smooth; changed = true; }
+            if (assignment.profileB == null && set.balanced != null)
+            { assignment.profileB = set.balanced; changed = true; }
+            if (assignment.profileC == null && set.textured != null)
+            { assignment.profileC = set.textured; changed = true; }
+        }
+        return changed;
+    }
+
+    private static bool ValidateAssignment(ExperimentCondition condition,
+        ConditionScenarioAssignment assignment, bool requireParticipantSelection,
+        ParticipantHapticSlot participantSlot, out HapticProfile resolvedHaptic,
+        out string reason)
+    {
+        resolvedHaptic = null;
+        ScenarioProfile scenario = assignment.profile;
+        string prefix = $"{DisplayName(condition)} / {DisplayName(assignment.scenario)}";
+        if (scenario == null)
+        { reason = prefix + " has no Scenario Profile."; return false; }
+        if (scenario.scenario != assignment.scenario)
+        { reason = $"{scenario.name} is assigned to the wrong scenario slot."; return false; }
+        if (!scenario.ValidateForPlayback(ExperimentCondition.Baseline, out reason))
+        { reason = $"{prefix} / {scenario.name}: {reason}"; return false; }
+        if (!ScenarioAnimationTimeline.Validate(scenario, out reason))
+        { reason = $"{prefix} / {scenario.name}: {reason}"; return false; }
+
+        if (condition == ExperimentCondition.Baseline)
+        {
+            if (assignment.hapticProfile != null)
+            { reason = prefix + " must not assign a HapticProfile."; return false; }
+            reason = string.Empty;
+            return true;
+        }
+
+        if (condition == ExperimentCondition.ResearcherHaptic)
+        {
+            resolvedHaptic = assignment.hapticProfile;
+            if (resolvedHaptic == null)
+            { reason = prefix + " has no researcher HapticProfile."; return false; }
+            if (!resolvedHaptic.IsPlayable(out reason))
+            { reason = prefix + ": " + reason; return false; }
+            reason = string.Empty;
+            return true;
+        }
+
+        HapticProfile[] options = { assignment.profileA, assignment.profileB, assignment.profileC };
+        var unique = new HashSet<HapticProfile>();
+        for (int i = 0; i < options.Length; i++)
+        {
+            HapticProfile option = options[i];
+            if (option == null)
+            { reason = $"{prefix} is missing Profile {(char)('A' + i)}."; return false; }
+            if (!unique.Add(option))
+            { reason = prefix + " must use three different HapticProfile assets."; return false; }
+            if (!option.IsPlayable(out reason))
+            { reason = $"{prefix} / Profile {(char)('A' + i)}: {reason}"; return false; }
+            if (Mathf.Abs(option.defaultAmplitudeScale - 1f) > 0.0001f)
+            { reason = $"{prefix} / Profile {(char)('A' + i)} must use intensity scale 1.0."; return false; }
+            if (option.sourceScenario != null && option.sourceScenario.scenario != assignment.scenario)
+            { reason = $"{prefix} / Profile {(char)('A' + i)} was generated for another scenario."; return false; }
+            HapticStyle expectedStyle = i == 0 ? HapticStyle.Smooth :
+                i == 1 ? HapticStyle.Balanced : HapticStyle.Textured;
+            if (option.isStyleGenerated && option.generatedStyle != expectedStyle)
+            { reason = $"{prefix} / Profile {(char)('A' + i)} has the wrong generated style."; return false; }
+        }
+        if (requireParticipantSelection)
+        {
+            resolvedHaptic = assignment.ResolveParticipantProfile(participantSlot);
+            if (resolvedHaptic == null)
+            { reason = "Select Profile A, B, or C before continuing."; return false; }
+        }
+        reason = string.Empty;
+        return true;
+    }
+
     private ScenarioProfile FindLegacyScenario(ScenarioId id)
     {
         if (scenarios == null) return null;
@@ -338,7 +484,11 @@ public sealed class ExperimentProtocol : ScriptableObject
                 Mathf.Abs(left.durationSeconds - right.durationSeconds) > tolerance ||
                 left.timeMode != right.timeMode ||
                 Mathf.Abs(left.playbackSpeed - right.playbackSpeed) > tolerance ||
-                left.iteration != right.iteration)
+                left.iteration != right.iteration ||
+                left.useContactLoadCurve != right.useContactLoadCurve ||
+                Mathf.Abs(left.minimumContactDepth - right.minimumContactDepth) > tolerance ||
+                Mathf.Abs(left.maximumContactDepth - right.maximumContactDepth) > tolerance ||
+                !HaveSameCurve(left.contactLoadCurve, right.contactLoadCurve, tolerance))
             {
                 difference = $"animation block '{left.blockId}' differs ({a.name} vs {b.name}).";
                 return false;
@@ -346,6 +496,25 @@ public sealed class ExperimentProtocol : ScriptableObject
         }
 
         difference = string.Empty;
+        return true;
+    }
+
+    private static bool HaveSameCurve(AnimationCurve a, AnimationCurve b, float tolerance)
+    {
+        int aCount = a?.length ?? 0;
+        int bCount = b?.length ?? 0;
+        if (aCount != bCount) return false;
+        if (aCount == 0) return true;
+        for (int i = 0; i < aCount; i++)
+        {
+            Keyframe left = a.keys[i];
+            Keyframe right = b.keys[i];
+            if (Mathf.Abs(left.time - right.time) > tolerance ||
+                Mathf.Abs(left.value - right.value) > tolerance ||
+                Mathf.Abs(left.inTangent - right.inTangent) > tolerance ||
+                Mathf.Abs(left.outTangent - right.outTangent) > tolerance)
+                return false;
+        }
         return true;
     }
 }

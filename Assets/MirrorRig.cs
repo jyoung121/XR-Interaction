@@ -450,6 +450,10 @@ public class MirrorRig : MonoBehaviour
     private DentalKind dentalKind = DentalKind.Drill;
     private float elapsed;
     private bool externalAnimationTimeline;
+    private bool externalContactCurveActive;
+    private float externalContactLoad = 1f;
+    private float externalMinimumContactDepth = 0.82f;
+    private float externalMaximumContactDepth = 1f;
 
     /// <summary>거울 속 얼굴을 비추는 치료등. <see cref="AimTreatLamp"/> 이 자리를 잡는다.</summary>
     private Light treatLamp;
@@ -6489,6 +6493,7 @@ public class MirrorRig : MonoBehaviour
     public void UseExternalAnimationTimeline(bool enabled)
     {
         externalAnimationTimeline = enabled;
+        if (!enabled) externalContactCurveActive = false;
     }
 
     public static float AnimationSourceDuration(ScenarioAnimationAction action)
@@ -6522,11 +6527,20 @@ public class MirrorRig : MonoBehaviour
     /// input always produces the same phase and is therefore safe for PC timeline preview.
     /// </summary>
     public void EvaluateAnimationBlock(ScenarioAnimationAction action, float sourceSeconds,
-        float normalizedTime, int iteration = 0)
+        float normalizedTime, int iteration = 0, float contactLoad = 1f,
+        float minimumContactDepth = 0.82f, float maximumContactDepth = 1f,
+        bool useContactCurve = false)
     {
         externalAnimationTimeline = true;
         normalizedTime = Mathf.Clamp01(normalizedTime);
         sourceSeconds = Mathf.Max(0f, sourceSeconds);
+        externalContactLoad = Mathf.Clamp01(contactLoad);
+        externalMinimumContactDepth = Mathf.Clamp01(minimumContactDepth);
+        externalMaximumContactDepth = Mathf.Max(externalMinimumContactDepth,
+            Mathf.Clamp01(maximumContactDepth));
+        externalContactCurveActive = useContactCurve &&
+            (action == ScenarioAnimationAction.DrillContact ||
+             action == ScenarioAnimationAction.BrushContact);
 
         switch (action)
         {
@@ -6808,6 +6822,13 @@ public class MirrorRig : MonoBehaviour
         Vector3 pos = Vector3.Lerp(mouthLocal + away, mouthLocal, Ease(k));
         bool touching = k >= 1f;
 
+        if (externalContactCurveActive && touching)
+        {
+            float depth = Mathf.Lerp(externalMinimumContactDepth,
+                externalMaximumContactDepth, externalContactLoad);
+            pos = Vector3.Lerp(mouthLocal + away, mouthLocal, Ease(depth));
+        }
+
         if (touching)
         {
             float s = elapsed - ApproachTime;
@@ -6820,7 +6841,7 @@ public class MirrorRig : MonoBehaviour
                 pos += Vector3.right * (Mathf.Sin(s * 2.2f) * 0.018f)
                      + Vector3.up    * (Mathf.Sin(s * 13f)  * 0.0035f);
             }
-            else
+            else if (!externalContactCurveActive)
             {
                 // 치과의는 계속 대고 있지 않고 댔다 뗐다 한다. 뗀 동안은 진동도 꺼진다.
                 float cycle = Mathf.Repeat(s, 3.2f);
@@ -6915,7 +6936,7 @@ public class MirrorRig : MonoBehaviour
             }
         }
 
-        Contact = touching ? 1f : 0f;
+        Contact = touching ? (externalContactCurveActive ? externalContactLoad : 1f) : 0f;
     }
 
     /// <summary>

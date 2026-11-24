@@ -109,7 +109,8 @@ public static class ExperimentBuild
         else
         {
             foreach (ExperimentCondition condition in new[]
-                     { ExperimentCondition.Baseline, ExperimentCondition.ResearcherHaptic })
+                     { ExperimentCondition.Baseline, ExperimentCondition.ResearcherHaptic,
+                       ExperimentCondition.ParticipantHaptic })
                 if (!protocol.TryValidatePlan(condition, out string reason))
                     errors.Add(reason);
         }
@@ -160,6 +161,13 @@ public static class ExperimentBuild
     {
         if (!ScenarioAnimationTimeline.Validate(scenario, out string timelineReason))
             errors.Add($"{scenario.name}: {timelineReason}");
+        if (!scenario.ValidateInteraction(out string interactionReason))
+            errors.Add($"{scenario.name}: {interactionReason}");
+        bool shouldBeInteractive = scenario.scenario == ScenarioId.Toothbrush ||
+                                   scenario.scenario == ScenarioId.Apple;
+        if (scenario.RequiresUserStart != shouldBeInteractive)
+            errors.Add($"{scenario.name}: final interaction mode must be " +
+                       (shouldBeInteractive ? "UserStartStop." : "Automatic."));
 
         if (scenario.sound == null)
         {
@@ -245,7 +253,7 @@ public static class ExperimentBuild
                     continue;
                 }
                 foreach (ConditionScenarioAssignment assignment in plan.scenarios)
-                    ValidateScenarioForCondition(assignment.profile, plan.condition, errors);
+                    ValidateScenarioForCondition(assignment, plan.condition, errors);
             }
 
             foreach (ExperimentCondition required in new[]
@@ -265,9 +273,10 @@ public static class ExperimentBuild
             errors.Add("Android experiment protocol is not registered in ProfileCatalog.");
     }
 
-    private static void ValidateScenarioForCondition(ScenarioProfile scenario,
+    private static void ValidateScenarioForCondition(ConditionScenarioAssignment assignment,
         ExperimentCondition condition, List<string> errors)
     {
+        ScenarioProfile scenario = assignment != null ? assignment.profile : null;
         if (scenario == null) return;
         if (scenario.sound == null)
         {
@@ -282,7 +291,17 @@ public static class ExperimentBuild
         }
 
         if (condition == ExperimentCondition.Baseline) return;
-        HapticProfile haptic = scenario.ResolveHaptic(condition);
+        if (condition == ExperimentCondition.ParticipantHaptic)
+        {
+            foreach (HapticProfile option in new[]
+            {
+                assignment.profileA, assignment.profileB, assignment.profileC
+            })
+                if (option != null && !option.IsPlayable(out string optionReason))
+                    errors.Add($"{scenario.name}: User Haptics option is not playable: {optionReason}");
+            return;
+        }
+        HapticProfile haptic = assignment.hapticProfile;
         if (haptic == null) return;
         if (condition == ExperimentCondition.ResearcherHaptic &&
             haptic.Origin != HapticProfileOrigin.ResearcherCalibrated)
@@ -315,6 +334,8 @@ public static class ExperimentBuild
                 errors.Add("ExperimentScene: session must wait for condition selection instead of playing on start.");
             if (session != null && session.GetComponent<ExperimentConditionSelectionUI>() == null)
                 errors.Add("ExperimentScene: condition selection UI is missing.");
+            if (session != null && session.GetComponent<ExperimentControllerInput>() == null)
+                errors.Add("ExperimentScene: Bluetooth/controller input is missing.");
             ValidatePlayer("ExperimentScene", player, errors);
         });
     }

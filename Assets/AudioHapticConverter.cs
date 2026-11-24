@@ -55,6 +55,9 @@ public sealed class AudioHapticConversionResult
     public float SourceRms { get; internal set; }
     public float NormalizationLevel { get; internal set; }
     public long DurationMs { get; internal set; }
+    public long[] WindowDurationsMs { get; internal set; } = Array.Empty<long>();
+    public float[] RawEnvelope { get; internal set; } = Array.Empty<float>();
+    public float[] NormalizedEnvelope { get; internal set; } = Array.Empty<float>();
 }
 
 /// <summary>
@@ -63,7 +66,7 @@ public sealed class AudioHapticConversionResult
 /// </summary>
 public static class AudioHapticConverter
 {
-    public const int ConverterVersion = 2;
+    public const int ConverterVersion = 3;
     public const int MaxSegmentDurationMs = 2000;
 
     public static AudioHapticConversionResult Convert(
@@ -158,6 +161,65 @@ public static class AudioHapticConverter
         return BuildResult(energies, durations, settings, sourcePeak, allSquares, allValues);
     }
 
+    public static AudioHapticConversionResult BuildFromNormalizedEnvelope(
+        AudioHapticConversionResult source, float[] normalizedEnvelope,
+        AudioHapticConversionSettings settings)
+    {
+        if (source == null) throw new ArgumentNullException(nameof(source));
+        if (normalizedEnvelope == null) throw new ArgumentNullException(nameof(normalizedEnvelope));
+        if (source.WindowDurationsMs == null ||
+            source.WindowDurationsMs.Length != normalizedEnvelope.Length)
+            throw new ArgumentException("Envelope and source window durations must have equal lengths.");
+
+        settings = settings.Sanitized();
+        BuildQuantized(normalizedEnvelope, source.WindowDurationsMs, settings,
+            out long[] timings, out int[] amplitudes, out long total);
+        int silent = 0;
+        for (int i = 0; i < normalizedEnvelope.Length; i++)
+            if (normalizedEnvelope[i] <= 0f) silent++;
+
+        return new AudioHapticConversionResult
+        {
+            TimingsMs = timings,
+            Amplitudes = amplitudes,
+            EffectiveWindowMs = source.EffectiveWindowMs,
+            SourceWindowCount = normalizedEnvelope.Length,
+            SilenceRatio = normalizedEnvelope.Length > 0
+                ? silent / (float)normalizedEnvelope.Length : 0f,
+            SourcePeak = source.SourcePeak,
+            SourceRms = source.SourceRms,
+            NormalizationLevel = source.NormalizationLevel,
+            DurationMs = total,
+            WindowDurationsMs = (long[])source.WindowDurationsMs.Clone(),
+            RawEnvelope = (float[])source.RawEnvelope.Clone(),
+            NormalizedEnvelope = (float[])normalizedEnvelope.Clone()
+        };
+    }
+
+    public static AudioHapticConversionResult CreateAnalysisSlice(
+        AudioHapticConversionResult source, long[] durations, float[] raw,
+        float[] normalized)
+    {
+        if (source == null) throw new ArgumentNullException(nameof(source));
+        if (durations == null || raw == null || normalized == null ||
+            durations.Length != raw.Length || durations.Length != normalized.Length)
+            throw new ArgumentException("Slice durations and envelopes must have equal lengths.");
+        long total = 0;
+        for (int i = 0; i < durations.Length; i++) total += Math.Max(1L, durations[i]);
+        return new AudioHapticConversionResult
+        {
+            EffectiveWindowMs = source.EffectiveWindowMs,
+            SourceWindowCount = durations.Length,
+            SourcePeak = source.SourcePeak,
+            SourceRms = source.SourceRms,
+            NormalizationLevel = source.NormalizationLevel,
+            DurationMs = total,
+            WindowDurationsMs = (long[])durations.Clone(),
+            RawEnvelope = (float[])raw.Clone(),
+            NormalizedEnvelope = (float[])normalized.Clone()
+        };
+    }
+
     private static void MeasureWindow(float[] buffer, AudioHapticConversionSettings settings,
         out float energy, out float peak, out double squares)
     {
@@ -194,37 +256,56 @@ public static class AudioHapticConverter
         if (normalization <= gateLinear + 1e-7f)
             throw new InvalidOperationException("The audio has insufficient dynamic range.");
 
-        List<long> timings = new List<long>();
-        List<int> amplitudes = new List<int>();
-        float smoothed = 0f;
+        float[] normalized = new float[energies.Length];
         for (int i = 0; i < energies.Length; i++)
         {
             float target = energies[i] <= gateLinear
                 ? 0f
                 : Mathf.Clamp01((energies[i] - gateLinear) / (normalization - gateLinear));
-            target = Mathf.Pow(target, settings.gamma);
-            float tauMs = target > smoothed ? settings.attackMs : settings.releaseMs;
-            float alpha = tauMs <= 0f ? 1f : 1f - Mathf.Exp(-windowDurations[i] / tauMs);
-            smoothed += (target - smoothed) * alpha;
-            if (target <= 0f && smoothed < 0.005f) smoothed = 0f;
-            AppendSegment(timings, amplitudes, windowDurations[i],
-                Quantize(smoothed, settings.minimumAmplitude, settings.quantizationLevels));
+            normalized[i] = Mathf.Pow(target, settings.gamma);
         }
 
-        long total = 0;
-        for (int i = 0; i < timings.Count; i++) total += timings[i];
+        BuildQuantized(normalized, windowDurations, settings,
+            out long[] timings, out int[] amplitudes, out long total);
         return new AudioHapticConversionResult
         {
-            TimingsMs = timings.ToArray(),
-            Amplitudes = amplitudes.ToArray(),
+            TimingsMs = timings,
+            Amplitudes = amplitudes,
             EffectiveWindowMs = settings.windowMs,
             SourceWindowCount = energies.Length,
             SilenceRatio = energies.Length > 0 ? silent / (float)energies.Length : 0f,
             SourcePeak = sourcePeak,
             SourceRms = allValues > 0 ? Mathf.Sqrt((float)(allSquares / allValues)) : 0f,
             NormalizationLevel = normalization,
-            DurationMs = total
+            DurationMs = total,
+            WindowDurationsMs = (long[])windowDurations.Clone(),
+            RawEnvelope = (float[])energies.Clone(),
+            NormalizedEnvelope = normalized
         };
+    }
+
+    private static void BuildQuantized(float[] normalized, long[] windowDurations,
+        AudioHapticConversionSettings settings, out long[] timings, out int[] amplitudes,
+        out long total)
+    {
+        var timingList = new List<long>();
+        var amplitudeList = new List<int>();
+        float smoothed = 0f;
+        for (int i = 0; i < normalized.Length; i++)
+        {
+            float target = Mathf.Clamp01(normalized[i]);
+            float tauMs = target > smoothed ? settings.attackMs : settings.releaseMs;
+            float alpha = tauMs <= 0f ? 1f : 1f - Mathf.Exp(-windowDurations[i] / tauMs);
+            smoothed += (target - smoothed) * alpha;
+            if (target <= 0f && smoothed < 0.005f) smoothed = 0f;
+            AppendSegment(timingList, amplitudeList, windowDurations[i],
+                Quantize(smoothed, settings.minimumAmplitude, settings.quantizationLevels));
+        }
+
+        total = 0;
+        for (int i = 0; i < timingList.Count; i++) total += timingList[i];
+        timings = timingList.ToArray();
+        amplitudes = amplitudeList.ToArray();
     }
 
     private static int Quantize(float normalized, int minimumAmplitude, int levels)

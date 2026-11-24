@@ -16,10 +16,19 @@ MonoBehaviour:
   - {fileID: 11400000, guid: a79119ca6344bbd44af9f5b45700b3d6, type: 2}
   - {fileID: 11400000, guid: 0104fb39351030940b84aefcec46a77a, type: 2}
   - {fileID: 11400000, guid: 65151fd4ed2b0014cab77dc96651de4f, type: 2}
-  haptics: []
+  haptics:
+  - {fileID: 11400000, guid: ebfbd77df8ddced449eacf60245b3690, type: 2}
+  - {fileID: 11400000, guid: c50a6dd4e38252043824637fc3f629ae, type: 2}
+  - {fileID: 11400000, guid: 539045d18409d8149b52a263c0208856, type: 2}
+  - {fileID: 11400000, guid: 08281b92d1c9cee4f86f3ab1cf21ec9f, type: 2}
+  - {fileID: 11400000, guid: eb164ad6b7bcf0f4cb9c297307849c6b, type: 2}
+  - {fileID: 11400000, guid: 7869009eb52401242b51e088f01bf31e, type: 2}
+  - {fileID: 11400000, guid: e88f8a52f0873914e99d0d370c6695f5, type: 2}
+  - {fileID: 11400000, guid: de05fdc18d64bf14fb2354607c5507cb, type: 2}
+  - {fileID: 11400000, guid: 4c6b9ae0394822b4ca4c7b3436e71bd1, type: 2}
   scenarios:
-  - {fileID: 11400000, guid: 39f16452f95c70940be74e17f8e4d8ef, type: 2}
-  - {fileID: 11400000, guid: 62d50fe859f86564e82d12a2361ec25a, type: 2}
-  - {fileID: 11400000, guid: e675fc7fe7f7c5b40a113d1e8a117a8f, type: 2}
+  - {fileID: 11400000, guid: 3241dbc97710aea479c93171db613a5c, type: 2}
+  - {fileID: 11400000, guid: ccf7bc006fadaa34bb63d0c3b34f722d, type: 2}
+  - {fileID: 11400000, guid: 19979057c76217745ba13eea0d018f53, type: 2}
   protocols:
   - {fileID: 11400000, guid: d879a159abbb3cd49bc6387a5b7cc725, type: 2}

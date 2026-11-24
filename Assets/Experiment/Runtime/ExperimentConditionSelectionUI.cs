@@ -141,7 +141,9 @@ public sealed class ExperimentConditionSelectionUI : MonoBehaviour
             case ExperimentSessionState.ConditionSelection:
                 ShowConditionSelection();
                 break;
+            case ExperimentSessionState.ReadyToStart:
             case ExperimentSessionState.Running:
+            case ExperimentSessionState.Finishing:
                 root.SetActive(false);
                 break;
             case ExperimentSessionState.BetweenTrials:
@@ -151,6 +153,7 @@ public sealed class ExperimentConditionSelectionUI : MonoBehaviour
                 ShowCompleted();
                 break;
             case ExperimentSessionState.Error:
+            case ExperimentSessionState.Aborted:
                 ShowError();
                 break;
         }

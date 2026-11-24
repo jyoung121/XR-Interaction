@@ -9,7 +9,7 @@ using UnityEngine.InputSystem;
 /// </summary>
 public sealed class MobileTestController : MonoBehaviour
 {
-    private enum Page { Home, HapticTest, ExperimentSetup, Confirmation, Loading }
+    private enum Page { Home, HapticTest, ExperimentSetup, ParticipantProfile, Confirmation, Loading }
 
     public ProfileCatalog catalog;
     public ExperimentProtocol protocol;
@@ -24,6 +24,7 @@ public sealed class MobileTestController : MonoBehaviour
     private Vector2 scroll;
     private ExperimentCondition? selectedCondition;
     private ScenarioId? selectedScenario;
+    private ParticipantHapticSlot selectedParticipantSlot;
     private string status = string.Empty;
     private float controlHeight;
     private float contentWidth;
@@ -133,6 +134,7 @@ public sealed class MobileTestController : MonoBehaviour
             case Page.Home: DrawHome(); break;
             case Page.HapticTest: DrawHapticTest(); break;
             case Page.ExperimentSetup: DrawExperimentSetup(); break;
+            case Page.ParticipantProfile: DrawParticipantProfile(); break;
             case Page.Confirmation: DrawConfirmation(); break;
             case Page.Loading: DrawLoading(); break;
         }
@@ -155,6 +157,7 @@ public sealed class MobileTestController : MonoBehaviour
     {
         selectedCondition = null;
         selectedScenario = null;
+        selectedParticipantSlot = ParticipantHapticSlot.None;
         scroll = Vector2.zero;
         switch (destination)
         {
@@ -309,7 +312,7 @@ public sealed class MobileTestController : MonoBehaviour
         player?.Stop();
         float offset = player != null ? player.runtimeHapticOffsetSeconds : 0f;
         float amplitude = player != null ? player.runtimeAmplitudeScale : 1f;
-        if (!flow.LaunchExperiment(protocol, condition, scenario,
+        if (!flow.LaunchExperiment(protocol, condition, scenario, ParticipantHapticSlot.None,
                 MobileLauncherDestination.HapticTest, offset, amplitude, out string reason))
         {
             status = reason;
@@ -327,6 +330,7 @@ public sealed class MobileTestController : MonoBehaviour
         player?.Stop();
         selectedCondition = null;
         selectedScenario = null;
+        selectedParticipantSlot = ParticipantHapticSlot.None;
         status = protocol == null ? "Experiment Protocol is missing." : string.Empty;
         scroll = Vector2.zero;
         page = Page.ExperimentSetup;
@@ -341,10 +345,7 @@ public sealed class MobileTestController : MonoBehaviour
         BodyLabel("1. CONDITION");
         DrawConditionButton(ExperimentCondition.Baseline);
         DrawConditionButton(ExperimentCondition.ResearcherHaptic);
-        bool previousEnabled = GUI.enabled;
-        GUI.enabled = false;
-        GUILayout.Button("USER HAPTICS\nNOT READY", GUILayout.MinHeight(controlHeight));
-        GUI.enabled = previousEnabled;
+        DrawConditionButton(ExperimentCondition.ParticipantHaptic);
         GUILayout.EndVertical();
 
         GUILayout.Space(14f);
@@ -357,7 +358,7 @@ public sealed class MobileTestController : MonoBehaviour
 
         GUILayout.EndHorizontal();
         GUILayout.Space(10f);
-        bool valid = TryResolveSelection(out _, out string reason);
+        bool valid = TryResolveConfiguredSelection(out _, out string reason);
         BodyLabel(valid ? "Selected trial is ready." : reason, 1.25f);
         GUILayout.BeginHorizontal();
         if (GUILayout.Button("BACK TO LAUNCHER", GUILayout.MinHeight(controlHeight)))
@@ -366,7 +367,12 @@ public sealed class MobileTestController : MonoBehaviour
             page = Page.Home;
         }
         GUI.enabled = valid;
-        if (GUILayout.Button("CONTINUE", GUILayout.MinHeight(controlHeight))) page = Page.Confirmation;
+        if (GUILayout.Button("CONTINUE", GUILayout.MinHeight(controlHeight)))
+        {
+            hapticPlayer?.Stop();
+            page = selectedCondition == ExperimentCondition.ParticipantHaptic
+                ? Page.ParticipantProfile : Page.Confirmation;
+        }
         GUI.enabled = true;
         GUILayout.EndHorizontal();
     }
@@ -381,7 +387,11 @@ public sealed class MobileTestController : MonoBehaviour
         string readiness = available ? string.Empty : "  ·  NOT READY";
         if (GUILayout.Button(ExperimentProtocol.DisplayName(condition).ToUpperInvariant() +
                 readiness + selected, GUILayout.MinHeight(controlHeight)))
+        {
+            if (selectedCondition != condition)
+                selectedParticipantSlot = ParticipantHapticSlot.None;
             selectedCondition = condition;
+        }
         GUI.enabled = previousEnabled;
     }
 
@@ -390,13 +400,80 @@ public sealed class MobileTestController : MonoBehaviour
         string selected = selectedScenario == scenario ? "  ✓" : string.Empty;
         if (GUILayout.Button(ExperimentProtocol.DisplayName(scenario).ToUpperInvariant() + selected,
                 GUILayout.MinHeight(controlHeight)))
+        {
+            if (selectedScenario != scenario)
+                selectedParticipantSlot = ParticipantHapticSlot.None;
             selectedScenario = scenario;
+        }
+    }
+
+    private void DrawParticipantProfile()
+    {
+        Header("SELECT HAPTIC PROFILE",
+            "Preview the three vibrations and select one profile for this trial.");
+        if (!TryGetParticipantAssignment(out ConditionScenarioAssignment assignment,
+                out string reason))
+        {
+            BodyLabel(reason, 1.4f);
+            if (GUILayout.Button("BACK", GUILayout.MinHeight(controlHeight)))
+                page = Page.ExperimentSetup;
+            return;
+        }
+
+        DrawParticipantOption(ParticipantHapticSlot.ProfileA, assignment.profileA);
+        DrawParticipantOption(ParticipantHapticSlot.ProfileB, assignment.profileB);
+        DrawParticipantOption(ParticipantHapticSlot.ProfileC, assignment.profileC);
+
+        GUILayout.Space(10f);
+        if (GUILayout.Button("STOP PREVIEW", GUILayout.MinHeight(controlHeight * .75f)))
+            hapticPlayer?.Stop();
+        BodyLabel(selectedParticipantSlot == ParticipantHapticSlot.None
+            ? "Select Profile A, B, or C."
+            : ExperimentProtocol.DisplayName(selectedParticipantSlot) + " selected.", 1.2f);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("BACK", GUILayout.MinHeight(controlHeight)))
+        {
+            hapticPlayer?.Stop();
+            page = Page.ExperimentSetup;
+        }
+        bool previousEnabled = GUI.enabled;
+        GUI.enabled = selectedParticipantSlot != ParticipantHapticSlot.None;
+        if (GUILayout.Button("CONTINUE", GUILayout.MinHeight(controlHeight)))
+        {
+            hapticPlayer?.Stop();
+            page = Page.Confirmation;
+        }
+        GUI.enabled = previousEnabled;
+        GUILayout.EndHorizontal();
+    }
+
+    private void DrawParticipantOption(ParticipantHapticSlot slot, HapticProfile profile)
+    {
+        GUILayout.BeginHorizontal(panelStyle, GUILayout.MinHeight(controlHeight));
+        string label = ExperimentProtocol.DisplayName(slot);
+        string selected = selectedParticipantSlot == slot ? "  ✓" : string.Empty;
+        GUILayout.Label(label + selected,
+            GUILayout.Width(Mathf.Clamp(contentWidth * .24f, 170f, 320f)),
+            GUILayout.MinHeight(controlHeight * .72f));
+        bool previousEnabled = GUI.enabled;
+        GUI.enabled = profile != null && profile.IsPlayable(out _);
+        if (GUILayout.Button("PREVIEW", GUILayout.MinHeight(controlHeight * .72f)))
+        {
+            hapticPlayer?.Stop();
+            hapticPlayer?.PlayProfile(profile, AudioSettings.dspTime + .1d, 1f);
+        }
+        if (GUILayout.Button("SELECT", GUILayout.MinHeight(controlHeight * .72f)))
+            selectedParticipantSlot = slot;
+        GUI.enabled = previousEnabled;
+        GUILayout.EndHorizontal();
+        GUILayout.Space(6f);
     }
 
     private void DrawConfirmation()
     {
         Header("CONFIRM EXPERIMENT SCENARIO", "Check the selection before placing the phone in Cardboard.");
-        if (!TryResolveSelection(out ScenarioProfile profile, out string reason))
+        if (!TryResolveSelection(out ScenarioProfile profile, out HapticProfile haptic,
+                out string reason))
         {
             BodyLabel(reason, 1.25f);
             if (GUILayout.Button("BACK", GUILayout.MinHeight(controlHeight))) page = Page.ExperimentSetup;
@@ -418,9 +495,10 @@ public sealed class MobileTestController : MonoBehaviour
         BodyLabel($"{profile.name}  ({profile.ProfileId} v{profile.Version})", 1.35f);
         GUILayout.Space(8f);
         BodyLabel("HAPTIC PROFILE");
-        HapticProfile haptic = profile.ResolveHaptic(selectedCondition.Value);
         BodyLabel(haptic == null ? "None — Baseline" :
-            $"{haptic.name}  ({haptic.ProfileId} v{haptic.Version})", 1.35f);
+            selectedCondition == ExperimentCondition.ParticipantHaptic
+                ? ExperimentProtocol.DisplayName(selectedParticipantSlot)
+                : $"{haptic.name}  ({haptic.ProfileId} v{haptic.Version})", 1.35f);
         GUILayout.EndVertical();
         GUILayout.EndHorizontal();
 
@@ -437,6 +515,7 @@ public sealed class MobileTestController : MonoBehaviour
         hapticPlayer?.Stop();
         player?.Stop();
         if (!flow.LaunchExperiment(protocol, selectedCondition.Value, selectedScenario.Value,
+                selectedParticipantSlot,
                 MobileLauncherDestination.ExperimentSetup, 0f, 1f, out string reason))
         {
             status = reason;
@@ -464,7 +543,7 @@ public sealed class MobileTestController : MonoBehaviour
         }
     }
 
-    private bool TryResolveSelection(out ScenarioProfile profile, out string reason)
+    private bool TryResolveConfiguredSelection(out ScenarioProfile profile, out string reason)
     {
         profile = null;
         if (protocol == null)
@@ -479,5 +558,47 @@ public sealed class MobileTestController : MonoBehaviour
         }
         return protocol.TryResolveTrial(selectedCondition.Value, selectedScenario.Value,
             out profile, out reason);
+    }
+
+    private bool TryResolveSelection(out ScenarioProfile profile, out HapticProfile haptic,
+                                     out string reason)
+    {
+        profile = null;
+        haptic = null;
+        if (protocol == null)
+        {
+            reason = "Experiment Protocol is missing.";
+            return false;
+        }
+        if (!selectedCondition.HasValue || !selectedScenario.HasValue)
+        {
+            reason = "Select both a condition and a scenario.";
+            return false;
+        }
+        ParticipantHapticSlot slot = selectedCondition == ExperimentCondition.ParticipantHaptic
+            ? selectedParticipantSlot : ParticipantHapticSlot.None;
+        return protocol.TryResolveTrial(selectedCondition.Value, selectedScenario.Value, slot,
+            out profile, out haptic, out reason);
+    }
+
+    private bool TryGetParticipantAssignment(out ConditionScenarioAssignment assignment,
+                                             out string reason)
+    {
+        assignment = null;
+        if (protocol == null || !selectedScenario.HasValue)
+        {
+            reason = "Select a scenario first.";
+            return false;
+        }
+        ExperimentConditionPlan plan = protocol.GetPlan(ExperimentCondition.ParticipantHaptic);
+        assignment = plan != null ? plan.Find(selectedScenario.Value) : null;
+        if (plan == null || !plan.enabled || assignment == null)
+        {
+            reason = "User Haptics is not configured for this scenario.";
+            return false;
+        }
+        if (!protocol.TryResolveTrial(ExperimentCondition.ParticipantHaptic,
+                selectedScenario.Value, out _, out reason)) return false;
+        return true;
     }
 }

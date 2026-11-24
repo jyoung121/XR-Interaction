@@ -128,6 +128,31 @@ public sealed class ExperimentConfigurationWindow : EditorWindow
                         EditorGUILayout.HelpBox(
                             $"{assignment.profile.name} is a {assignment.profile.scenario} profile.",
                             MessageType.Error);
+
+                    if (condition == ExperimentCondition.Baseline)
+                    {
+                        EditorGUILayout.LabelField("Haptic Profile", "None — Baseline");
+                    }
+                    else if (condition == ExperimentCondition.ResearcherHaptic)
+                    {
+                        HapticProfile nextHaptic = (HapticProfile)EditorGUILayout.ObjectField(
+                            "Haptic Profile", assignment.hapticProfile,
+                            typeof(HapticProfile), false);
+                        if (nextHaptic != assignment.hapticProfile)
+                        {
+                            Undo.RecordObject(protocol, "Assign Researcher Haptic Profile");
+                            assignment.hapticProfile = nextHaptic;
+                            EditorUtility.SetDirty(protocol);
+                        }
+                        DrawAssetPath(assignment.hapticProfile);
+                    }
+                    else
+                    {
+                        DrawParticipantProfileField("Profile A (Smooth)", ref assignment.profileA);
+                        DrawParticipantProfileField("Profile B (Balanced)", ref assignment.profileB);
+                        DrawParticipantProfileField("Profile C (Textured)", ref assignment.profileC);
+                    }
+                    EditorGUILayout.Space(5f);
                 }
             }
             EditorGUILayout.EndVertical();
@@ -149,14 +174,33 @@ public sealed class ExperimentConfigurationWindow : EditorWindow
         {
             ExperimentConditionPlan plan = protocol.GetPlan(condition);
             if (plan == null) continue;
+            plan.enabled = true;
             foreach (ScenarioId scenario in Scenarios)
             {
                 ConditionScenarioAssignment assignment = plan.Find(scenario);
-                if (assignment != null) assignment.profile = catalog.FindScenario(scenario);
+                if (assignment == null) continue;
+                assignment.profile = catalog.FindScenario(scenario);
+                if (condition == ExperimentCondition.Baseline)
+                {
+                    assignment.hapticProfile = null;
+                }
+                else if (condition == ExperimentCondition.ResearcherHaptic)
+                {
+                    assignment.hapticProfile = assignment.profile != null
+                        ? assignment.profile.researcherHaptic : null;
+                }
+                else
+                {
+                    ScenarioHapticStyleSet set = assignment.profile != null
+                        ? assignment.profile.participantStyleSet : null;
+                    assignment.profileA = set != null ? set.smooth : null;
+                    assignment.profileB = set != null ? set.balanced : null;
+                    assignment.profileC = set != null ? set.textured : null;
+                }
             }
         }
         EditorUtility.SetDirty(protocol);
-        SetStatus("Catalog defaults assigned. User Haptics remains unavailable until participant haptics are assigned.",
+        SetStatus("Catalog defaults assigned. User Profiles A/B/C map to Smooth/Balanced/Textured.",
             MessageType.Info);
     }
 
@@ -227,5 +271,34 @@ public sealed class ExperimentConfigurationWindow : EditorWindow
         status = value;
         statusType = type;
         Repaint();
+    }
+
+    private void DrawParticipantProfileField(string label, ref HapticProfile profile)
+    {
+        HapticProfile next = (HapticProfile)EditorGUILayout.ObjectField(
+            label, profile, typeof(HapticProfile), false);
+        if (next != profile)
+        {
+            Undo.RecordObject(protocol, "Assign User Haptic Profile");
+            profile = next;
+            EditorUtility.SetDirty(protocol);
+        }
+        DrawAssetPath(profile);
+    }
+
+    private static void DrawAssetPath(Object asset)
+    {
+        if (asset == null) return;
+        string path = AssetDatabase.GetAssetPath(asset);
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            GUILayout.Space(EditorGUIUtility.labelWidth);
+            EditorGUILayout.SelectableLabel(path, EditorStyles.miniLabel,
+                GUILayout.Height(EditorGUIUtility.singleLineHeight));
+            if (GUILayout.Button("Ping", GUILayout.Width(44f)))
+                EditorGUIUtility.PingObject(asset);
+            if (GUILayout.Button("Copy", GUILayout.Width(44f)))
+                EditorGUIUtility.systemCopyBuffer = path;
+        }
     }
 }

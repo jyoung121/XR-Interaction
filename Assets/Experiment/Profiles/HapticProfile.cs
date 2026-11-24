@@ -19,6 +19,12 @@ public class HapticProfile : ScriptableObject
     public SoundProfile sourceSound;
     public string sourceAssetHash = string.Empty;
     public int converterVersion;
+    public ScenarioProfile sourceScenario;
+    public bool isStyleGenerated;
+    public HapticStyle generatedStyle;
+    public int styleGeneratorVersion;
+    public string scenarioHash = string.Empty;
+    public string contactCurveHash = string.Empty;
     [TextArea] public string calibrationNote;
     public AudioHapticConversionSettings conversionSettings;
     [Header("Source Summary")]
@@ -95,4 +101,39 @@ public class HapticProfile : ScriptableObject
         effectiveWindowMs = result.EffectiveWindowMs; sourceWindowCount = result.SourceWindowCount;
         silenceRatio = result.SilenceRatio; sourcePeak = result.SourcePeak; sourceRms = result.SourceRms;
     }
+
+    public void ApplyStyledGenerated(ScenarioProfile scenario, HapticStyle style,
+        SoundProfile sound, AudioHapticConversionSettings settings,
+        AudioHapticConversionResult result, string assetHash, string nextScenarioHash,
+        string nextContactCurveHash)
+    {
+        ApplyGenerated(sound, settings, result, 0, assetHash);
+        defaultAmplitudeScale = 1f;
+        sourceScenario = scenario;
+        isStyleGenerated = true;
+        generatedStyle = style;
+        styleGeneratorVersion = ScenarioHapticStyleSet.CurrentGeneratorVersion;
+        scenarioHash = nextScenarioHash ?? string.Empty;
+        contactCurveHash = nextContactCurveHash ?? string.Empty;
+        calibrationNote = "Automatically generated style seed. Do not use as a locked researcher profile without manual review.";
+    }
+
+#if UNITY_EDITOR
+    public void SetIdentity(string id, int nextVersion = 1)
+    {
+        profileId = string.IsNullOrWhiteSpace(id) ? name : id.Trim();
+        version = Mathf.Max(1, nextVersion);
+    }
+
+    public void MarkAsManualVariant(string id)
+    {
+        SetIdentity(id, version);
+        origin = HapticProfileOrigin.Manual;
+        isStyleGenerated = false;
+        styleGeneratorVersion = 0;
+        scenarioHash = string.Empty;
+        contactCurveHash = string.Empty;
+        calibrationNote = "Manual tuned copy. Style regeneration does not overwrite this asset.";
+    }
+#endif
 }

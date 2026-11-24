@@ -24,6 +24,8 @@ public sealed class MobileAppFlowController : MonoBehaviour
     private ExperimentCondition selectedCondition;
     private ScenarioId selectedScenario;
     private ScenarioProfile selectedProfile;
+    private HapticProfile selectedHapticProfile;
+    private ParticipantHapticSlot selectedParticipantSlot;
     private float selectedRuntimeHapticOffset;
     private float selectedRuntimeAmplitudeScale = 1f;
     private bool experimentActive;
@@ -63,7 +65,8 @@ public sealed class MobileAppFlowController : MonoBehaviour
     }
 
     public bool LaunchExperiment(ExperimentProtocol protocol, ExperimentCondition condition,
-                                 ScenarioId scenario, MobileLauncherDestination returnDestination,
+                                 ScenarioId scenario, ParticipantHapticSlot participantSlot,
+                                 MobileLauncherDestination returnDestination,
                                  float runtimeHapticOffset, float runtimeAmplitudeScale,
                                  out string reason)
     {
@@ -77,12 +80,15 @@ public sealed class MobileAppFlowController : MonoBehaviour
             reason = "Experiment Protocol is missing.";
             return false;
         }
-        if (!protocol.TryResolveTrial(condition, scenario, out ScenarioProfile profile, out reason))
+        if (!protocol.TryResolveTrial(condition, scenario, participantSlot,
+                out ScenarioProfile profile, out HapticProfile haptic, out reason))
             return false;
 
         selectedCondition = condition;
         selectedScenario = scenario;
         selectedProfile = profile;
+        selectedHapticProfile = haptic;
+        selectedParticipantSlot = participantSlot;
         selectedRuntimeHapticOffset = runtimeHapticOffset;
         selectedRuntimeAmplitudeScale = Mathf.Clamp(runtimeAmplitudeScale, 0f, 2f);
         launcherDestination = returnDestination;
@@ -95,12 +101,16 @@ public sealed class MobileAppFlowController : MonoBehaviour
     public bool TryGetSelectedTrial(out ScenarioProfile profile,
                                     out ExperimentCondition condition,
                                     out ScenarioId scenario,
+                                    out HapticProfile hapticProfile,
+                                    out ParticipantHapticSlot participantSlot,
                                     out float runtimeHapticOffset,
                                     out float runtimeAmplitudeScale)
     {
         profile = selectedProfile;
         condition = selectedCondition;
         scenario = selectedScenario;
+        hapticProfile = selectedHapticProfile;
+        participantSlot = selectedParticipantSlot;
         runtimeHapticOffset = selectedRuntimeHapticOffset;
         runtimeAmplitudeScale = selectedRuntimeAmplitudeScale;
         return experimentActive && profile != null;
@@ -179,6 +189,8 @@ public sealed class MobileAppFlowController : MonoBehaviour
         StopXR();
         experimentActive = false;
         selectedProfile = null;
+        selectedHapticProfile = null;
+        selectedParticipantSlot = ParticipantHapticSlot.None;
         selectedRuntimeHapticOffset = 0f;
         selectedRuntimeAmplitudeScale = 1f;
         AsyncOperation load = SceneManager.LoadSceneAsync(LauncherScenePath,
@@ -202,6 +214,8 @@ public sealed class MobileAppFlowController : MonoBehaviour
     {
         experimentActive = false;
         selectedProfile = null;
+        selectedHapticProfile = null;
+        selectedParticipantSlot = ParticipantHapticSlot.None;
         selectedRuntimeHapticOffset = 0f;
         selectedRuntimeAmplitudeScale = 1f;
     }

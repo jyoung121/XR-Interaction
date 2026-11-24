@@ -133,7 +133,7 @@ public static class ExperimentProjectSetup
         return plan;
     }
     private static void BuildExperimentScene(ProfileCatalog catalog)
-    { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Experiment Runtime", catalog.FindScenario(ScenarioId.Apple)); var session = runtime.AddComponent<ExperimentSessionController>(); session.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); session.player = runtime.GetComponent<ScenarioPlaybackController>(); session.playOnStart = false; var ui = runtime.AddComponent<ExperimentConditionSelectionUI>(); ui.session = session; EditorSceneManager.SaveScene(scene, ExperimentScenePath); }
+    { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Experiment Runtime", catalog.FindScenario(ScenarioId.Apple)); var session = runtime.AddComponent<ExperimentSessionController>(); session.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); session.player = runtime.GetComponent<ScenarioPlaybackController>(); session.playOnStart = false; var input = runtime.AddComponent<ExperimentControllerInput>(); input.session = session; var ui = runtime.AddComponent<ExperimentConditionSelectionUI>(); ui.session = session; EditorSceneManager.SaveScene(scene, ExperimentScenePath); }
     private static void BuildMobileScene(ProfileCatalog catalog)
     { Scene scene = OpenTemplate(); StripLegacy(); GameObject runtime = CreateRuntime("Mobile Test Runtime", catalog.FindScenario(ScenarioId.Apple)); var receiver = runtime.AddComponent<HapticLinkReceiver>(); var controller = runtime.AddComponent<MobileTestController>(); controller.catalog = catalog; controller.protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(ProtocolPath); controller.player = runtime.GetComponent<ScenarioPlaybackController>(); controller.hapticPlayer = runtime.GetComponent<LongHapticPlayer>(); controller.linkReceiver = receiver; EditorSceneManager.SaveScene(scene, MobileTestScenePath); }
     private static void BuildPcScene(ProfileCatalog catalog)
@@ -200,8 +200,12 @@ public static class ExperimentProjectSetup
                 ExperimentConditionSelectionUI ui = runtime.GetComponent<ExperimentConditionSelectionUI>();
                 if (ui == null) ui = runtime.AddComponent<ExperimentConditionSelectionUI>();
                 ui.session = session;
+                ExperimentControllerInput input = runtime.GetComponent<ExperimentControllerInput>();
+                if (input == null) input = runtime.AddComponent<ExperimentControllerInput>();
+                input.session = session;
                 EditorUtility.SetDirty(session);
                 EditorUtility.SetDirty(ui);
+                EditorUtility.SetDirty(input);
             }
 
             if (pcTest)

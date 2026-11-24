@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8d71a7ad83d64b4ca956ce141ae86127, type: 3}
+  m_Name: Apple_v002_StyleSet
+  m_EditorClassIdentifier: Assembly-CSharp::ScenarioHapticStyleSet
+  scenario: 0
+  sourceScenario: {fileID: 11400000, guid: 19979057c76217745ba13eea0d018f53, type: 2}
+  smooth: {fileID: 11400000, guid: e88f8a52f0873914e99d0d370c6695f5, type: 2}
+  balanced: {fileID: 11400000, guid: de05fdc18d64bf14fb2354607c5507cb, type: 2}
+  textured: {fileID: 11400000, guid: 4c6b9ae0394822b4ca4c7b3436e71bd1, type: 2}
+  generatorVersion: 1
+  sourceSoundHash: 626a4af8d62cb1080619f297c88ec291
+  scenarioHash: 786069bf7c9d1a2077cf21ee114120e0
+  contactCurveHash: 77fed7ebb6c6f845d2d0be570e87993a

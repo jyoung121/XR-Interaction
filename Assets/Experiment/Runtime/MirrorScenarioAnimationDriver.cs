@@ -54,7 +54,9 @@ public sealed class MirrorScenarioAnimationDriver : ScenarioAnimationDriver
         if (ScenarioAnimationTimeline.TrySample(profile, scenarioSeconds,
             out ScenarioBlockSample sample))
             rig.EvaluateAnimationBlock(sample.action, sample.sourceSeconds,
-                sample.normalizedTime, sample.block.iteration);
+                sample.normalizedTime, sample.block.iteration, sample.contactLoad,
+                sample.minimumContactDepth, sample.maximumContactDepth,
+                sample.block.useContactLoadCurve);
     }
 
     public override void StopScenario()

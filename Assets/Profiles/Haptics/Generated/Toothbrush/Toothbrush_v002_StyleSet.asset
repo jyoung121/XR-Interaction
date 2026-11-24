@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8d71a7ad83d64b4ca956ce141ae86127, type: 3}
+  m_Name: Toothbrush_v002_StyleSet
+  m_EditorClassIdentifier: Assembly-CSharp::ScenarioHapticStyleSet
+  scenario: 2
+  sourceScenario: {fileID: 11400000, guid: ccf7bc006fadaa34bb63d0c3b34f722d, type: 2}
+  smooth: {fileID: 11400000, guid: 08281b92d1c9cee4f86f3ab1cf21ec9f, type: 2}
+  balanced: {fileID: 11400000, guid: eb164ad6b7bcf0f4cb9c297307849c6b, type: 2}
+  textured: {fileID: 11400000, guid: 7869009eb52401242b51e088f01bf31e, type: 2}
+  generatorVersion: 1
+  sourceSoundHash: 1f326c92fc4f798acb609d8aec35747d
+  scenarioHash: b2ed1fdd074ed5ff913b1b2011fd616e
+  contactCurveHash: 3d147707cedcee73c72c6576b5b59f8e
