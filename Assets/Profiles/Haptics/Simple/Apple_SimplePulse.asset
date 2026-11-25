@@ -1,0 +1,50 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a34e2c0b815bafe4f8591b0492096d43, type: 3}
+  m_Name: Apple_SimplePulse
+  m_EditorClassIdentifier: Assembly-CSharp::HapticProfile
+  profileId: Apple-simple-pulse
+  version: 1
+  origin: 0
+  durationsMs: d0070000ee0200003200000096000000c8000000d0070000fb04000064000000d0070000d0070000d0070000d0070000d00700009e070000c80000006400000096000000d0070000b004000064000000d0070000d0070000d0070000d0070000d0070000d007000019000000320000004b000000c8000000d0070000e204000064000000d0070000d0070000d0070000d007000097040000i
+  amplitudes: 0000000000000000640000000000000064000000000000000000000064000000000000000000000000000000000000000000000000000000640000000000000064000000000000000000000064000000000000000000000000000000000000000000000000000000000000006400000000000000640000000000000000000000640000000000000000000000000000000000000000000000i
+  hapticOffsetMs: 0
+  defaultAmplitudeScale: 1
+  loop: 0
+  sourceSound: {fileID: 11400000, guid: a79119ca6344bbd44af9f5b45700b3d6, type: 2}
+  sourceAssetHash: 626a4af8d62cb1080619f297c88ec291
+  converterVersion: 3
+  sourceScenario: {fileID: 11400000, guid: 19979057c76217745ba13eea0d018f53, type: 2}
+  isStyleGenerated: 0
+  generatedStyle: 0
+  styleGeneratorVersion: 0
+  scenarioHash: 6e6c262050f45936b498b72094308f27f88ed4e8e0a4f5c794282569e7babe6f
+  contactCurveHash: a0dbffee279020a894bbdd231d6fd8aaa1a8cb88bc175d5d02f5878f44bf5b94
+  calibrationNote: Research Simple generator v1. All nonzero amplitudes equal. threshold=0.15;minPulseMs=50;mergeGapMs=60;maxPulseMs=200;interPulseMs=80;amplitude=100;pulseCount=9;windowMs=25. PILOT settings require physical review; timing resolution is one analysis window.
+  conversionSettings:
+    windowMs: 25
+    autoFitWindow: 0
+    rmsWeight: 0.8
+    gateDb: -45
+    gamma: 0.65
+    minimumAmplitude: 40
+    quantizationLevels: 12
+    attackMs: 15
+    releaseMs: 60
+  sourceDurationSeconds: 0
+  sourceSampleRate: 0
+  sourceChannels: 0
+  effectiveWindowMs: 0
+  sourceWindowCount: 0
+  silenceRatio: 0
+  sourcePeak: 0
+  sourceRms: 0

@@ -11,7 +11,7 @@ public sealed class HapticLinkReceiver : MonoBehaviour
 {
     public const int Port = 48700, MaxSegmentsPerChunk = 256, MaxChunkDurationMs = 10000, MaxProfileChunks = 4096;
     [Serializable] private sealed class Command
-    { public string command = "", profileId = ""; public int chunkIndex, chunkCount; public long[] durations = Array.Empty<long>(); public int[] amplitudes = Array.Empty<int>(); public bool loop; }
+    { public string command = "", profileId = "", profileName = "", profileHash = ""; public int chunkIndex, chunkCount, profileVersion, offsetMs; public long[] durations = Array.Empty<long>(); public int[] amplitudes = Array.Empty<int>(); public bool loop; }
     [Serializable] private sealed class Response { public bool ok; public string status = ""; }
     private sealed class Pending
     { public readonly string json; public readonly ManualResetEventSlim done = new ManualResetEventSlim(false); public string response; public Pending(string value) { json = value; } }
@@ -27,6 +27,9 @@ public sealed class HapticLinkReceiver : MonoBehaviour
     private volatile bool running, connected; private volatile string status = "Stopped";
     private bool requested, paused; private LongHapticPlayer player;
     public bool Running => running; public bool Connected => connected; public string Status => status;
+    public string LastProfile { get; private set; } = "No profile played";
+    public bool Playing => player != null && player.IsPlaying;
+    public event Action<string, string> PreviewEvent;
     private void Awake() => player = GetComponent<LongHapticPlayer>() ?? gameObject.AddComponent<LongHapticPlayer>();
     public void StartListening() { requested = true; if (!paused) Open(); }
     public void StopListening() { requested = false; Close("Stopped"); }
@@ -38,6 +41,7 @@ public sealed class HapticLinkReceiver : MonoBehaviour
     }
     private void Close(string next)
     {
+        PreviewEvent?.Invoke("receiver_closed", next);
         running = connected = false; lock (connectionLock) { try { activeClient?.Close(); } catch { } activeClient = null; }
         try { listener?.Stop(); } catch { } listener = null;
         while (commands.TryDequeue(out Pending p)) { p.response = Make(false, next); p.done.Set(); }
@@ -73,11 +77,12 @@ public sealed class HapticLinkReceiver : MonoBehaviour
         if (m == null || string.IsNullOrWhiteSpace(m.command)) return Fail("Invalid command");
         switch (m.command.ToLowerInvariant())
         {
-            case "stop": player.Stop(); return Success("Playback stopped");
+            case "ping": return Make(true, "Receiver ready; protocol=2; playing=" + Playing + "; " + LastProfile);
+            case "stop": player.Stop(); PreviewEvent?.Invoke("pc_stop", ""); return Success("Playback stopped");
             case "clear": profiles.Clear(); player.Stop(); return Success("Uploaded profiles cleared");
-            case "play": if (!Validate(m, out string e)) return Fail(e); player.PlayWaveform(m.durations, m.amplitudes, AudioSettings.dspTime + .05d, m.loop); return Success($"Playing {m.durations.Length} segments");
+            case "play": if (!Validate(m, out string e)) return Fail(e); LastProfile = "Legacy draft / " + m.profileId; PreviewEvent?.Invoke("pc_legacy_play", json); player.PlayWaveform(m.durations, m.amplitudes, AudioSettings.dspTime + .05d, m.loop); return Success($"Playing {m.durations.Length} segments");
             case "load-chunk": return Load(m);
-            case "play-profile": return PlayUploaded(m.profileId);
+            case "play-profile": return PlayUploaded(m);
             default: return Fail("Unknown command: " + m.command);
         }
     }
@@ -86,17 +91,28 @@ public sealed class HapticLinkReceiver : MonoBehaviour
         if (string.IsNullOrWhiteSpace(m.profileId)) return Fail("profileId is required");
         if (m.chunkCount < 1 || m.chunkCount > MaxProfileChunks || m.chunkIndex < 0 || m.chunkIndex >= m.chunkCount) return Fail("Invalid chunk index/count");
         if (!Validate(m, out string error)) return Fail(error);
+        // Only the current upload is retained; playback owns its own waveform copy.
+        if (m.chunkIndex == 0) profiles.Clear();
         if (!profiles.TryGetValue(m.profileId, out Uploaded p) || p.chunks.Length != m.chunkCount) { p = new Uploaded(m.chunkCount); profiles[m.profileId] = p; }
         long total = 0; for (int i = 0; i < m.durations.Length; i++) total += m.durations[i];
         p.chunks[m.chunkIndex] = new HapticChunk((long[])m.durations.Clone(), (int[])m.amplitudes.Clone(), total); p.loop = m.loop;
+        PreviewEvent?.Invoke("pc_chunk_loaded", JsonUtility.ToJson(m));
         return Success($"Loaded chunk {m.chunkIndex + 1}/{m.chunkCount}");
     }
-    private string PlayUploaded(string id)
+    private string PlayUploaded(Command command)
     {
+        string id = command.profileId;
         if (string.IsNullOrWhiteSpace(id) || !profiles.TryGetValue(id, out Uploaded p)) return Fail("Profile not uploaded: " + id);
         if (!p.Complete) return Fail("Profile upload is incomplete");
         var d = new List<long>(); var a = new List<int>(); for (int i = 0; i < p.chunks.Length; i++) { d.AddRange(p.chunks[i].durations); a.AddRange(p.chunks[i].amplitudes); }
-        player.PlayWaveform(d.ToArray(), a.ToArray(), AudioSettings.dspTime + .05d, p.loop); return Success($"Playing profile {id}: {d.Count} segments");
+        double at = HapticPreviewTiming.StartDsp(AudioSettings.dspTime, command.offsetMs);
+        LastProfile = (string.IsNullOrEmpty(command.profileName) ? id + " [draft]" :
+            command.profileName + " / v" + command.profileVersion + " / SHA256 " + command.profileHash) +
+            " / offset " + command.offsetMs + " ms / loop " + p.loop;
+        PreviewEvent?.Invoke("pc_profile", JsonUtility.ToJson(command));
+        PreviewEvent?.Invoke("pc_profile_scheduled", "start_dsp=" + at.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        player.PlayWaveform(d.ToArray(), a.ToArray(), at, p.loop);
+        return Success($"Playing profile {id}: {d.Count} segments");
     }
     private static bool Validate(Command m, out string error)
     {

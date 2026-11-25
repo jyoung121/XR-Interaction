@@ -77,6 +77,7 @@ public sealed class ExperimentProtocol : ScriptableObject
     [SerializeField] private string protocolId = "android-final";
     [SerializeField] private int version = 1;
     public RuntimePlatform targetPlatform = RuntimePlatform.Android;
+    public ResearchExperimentSettings research = new ResearchExperimentSettings();
 
     [Header("Condition-specific scenario assignments")]
     public List<ExperimentConditionPlan> conditionPlans = new List<ExperimentConditionPlan>();

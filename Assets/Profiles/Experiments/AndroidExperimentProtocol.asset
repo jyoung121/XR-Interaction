@@ -15,6 +15,34 @@ MonoBehaviour:
   protocolId: android-final
   version: 2
   targetPlatform: 11
+  research:
+    schemaVersion: 2
+    enabled: 1
+    requireController: 1
+    requestedImuHz: 100
+    scenarios:
+    - scenario: {fileID: 11400000, guid: ccf7bc006fadaa34bb63d0c3b34f722d, type: 2}
+      soundBased: {fileID: 11400000, guid: 66eac962209c8044c8a03367f88770e8, type: 2}
+      simple: {fileID: 11400000, guid: 16f47f9fdc8aa784c89053adde0a18d3, type: 2}
+      observationSeconds: 60
+      simpleAmplitude: 100
+      pulseThreshold: 0.15
+      minimumPulseMs: 50
+      mergeGapMs: 60
+      maximumPulseMs: 200
+      interPulseMs: 80
+      frozenSoundBasedHash: 8d03488f304867bd4e975c2d7740a9df211c8eb9b484d8ae73560448e56d7185
+    - scenario: {fileID: 11400000, guid: 19979057c76217745ba13eea0d018f53, type: 2}
+      soundBased: {fileID: 11400000, guid: b21c1de6eb6d6e246986fe3db122a603, type: 2}
+      simple: {fileID: 11400000, guid: 7f92e0562d3b25043857589c21088052, type: 2}
+      observationSeconds: 60
+      simpleAmplitude: 100
+      pulseThreshold: 0.15
+      minimumPulseMs: 50
+      mergeGapMs: 60
+      maximumPulseMs: 200
+      interPulseMs: 80
+      frozenSoundBasedHash: 789c5b68080c281d529653765474570ef47f08fdf756086d801c8f74c273f18f
   conditionPlans:
   - condition: 0
     enabled: 1

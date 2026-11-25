@@ -54,6 +54,13 @@ public sealed class MobileTestController : MonoBehaviour
 
     private void Start()
     {
+        if (protocol != null && protocol.research.enabled)
+        {
+            var research = gameObject.AddComponent<ResearchLauncherUI>();
+            research.protocol = protocol;
+            enabled = false;
+            return;
+        }
         flow.PrepareLauncher();
         status = flow.ConsumeLauncherMessage();
         ApplyLauncherDestination(flow.ConsumeLauncherDestination());

@@ -56,6 +56,18 @@ public sealed class ExperimentSessionController : MonoBehaviour
     {
         player?.Stop();
         MobileAppFlowController flow = MobileAppFlowController.Instance;
+        if (flow != null && flow.IsResearchTrial)
+        {
+            var oldUi = GetComponent<ExperimentConditionSelectionUI>();
+            if (oldUi != null) oldUi.SetSuppressed(true);
+            var oldInput = GetComponent<ExperimentControllerInput>();
+            if (oldInput != null) oldInput.enabled = false;
+            var research = gameObject.AddComponent<ResearchTrialController>();
+            research.Initialize(flow.ResearchSettings, flow.ResearchMode, flow.ResearchHaptic,
+                protocol.research, player, flow.ResearchPurpose, flow.RecordResearchPreview);
+            enabled = false;
+            return;
+        }
         if (flow != null && flow.TryGetSelectedTrial(out ScenarioProfile selectedProfile,
                 out ExperimentCondition condition, out _, out HapticProfile selectedHaptic,
                 out _, out float runtimeOffset, out float runtimeAmplitude))

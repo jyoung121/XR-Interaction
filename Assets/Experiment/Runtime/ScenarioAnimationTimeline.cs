@@ -53,11 +53,10 @@ public static class ScenarioAnimationTimeline
 
             float start = Mathf.Max(0f, candidate.startSeconds);
             float end = start + Mathf.Max(0f, candidate.durationSeconds);
-            if (time >= start && time < end)
-            {
+            // Decimal block boundaries can overlap by a few float ULPs. Prefer the
+            // block which starts here over the preceding block's rounded-up end.
+            if (time >= start && time < end && (active == null || start >= active.startSeconds))
                 active = candidate;
-                break;
-            }
 
             if (end <= time && (previous == null || start >= previous.startSeconds))
                 previous = candidate;

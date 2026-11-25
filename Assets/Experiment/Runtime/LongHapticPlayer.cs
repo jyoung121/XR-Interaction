@@ -40,6 +40,7 @@ public static class HapticWaveformChunker
 
 public sealed class LongHapticPlayer : MonoBehaviour
 {
+    public static event Action<string, string> Command;
     [Min(16)] public int maxSegmentsPerChunk = HapticWaveformChunker.DefaultMaxSegments;
     [Range(500, 10000)] public int maxChunkDurationMs = HapticWaveformChunker.DefaultMaxDurationMs;
     private Coroutine playback;
@@ -51,6 +52,7 @@ public sealed class LongHapticPlayer : MonoBehaviour
         if (!profile.IsPlayable(out string reason)) { Debug.LogWarning("[LongHaptic] " + reason); return; }
         PlayWaveform(profile.CreateTimings(), profile.CreateScaledAmplitudes(amplitudeScale),
             startDspTime + profile.hapticOffsetMs / 1000d, profile.loop);
+        Command?.Invoke("haptic_scheduled", profile.ProfileId + ";dsp=" + (startDspTime + profile.hapticOffsetMs / 1000d).ToString("R", System.Globalization.CultureInfo.InvariantCulture));
     }
     public void PlayWaveform(long[] durations, int[] amplitudes, double startDspTime, bool loop = false)
     {
@@ -58,14 +60,15 @@ public sealed class LongHapticPlayer : MonoBehaviour
         if (chunks.Count > 0) playback = StartCoroutine(PlayRoutine(chunks, startDspTime, loop));
     }
     public void Stop()
-    { if (playback != null) { StopCoroutine(playback); playback = null; } HapticManager.StopWaveform(); HapticManager.StopContinuous(); }
+    { if (playback != null) { StopCoroutine(playback); playback = null; } Command?.Invoke("haptic_stop_command", ""); HapticManager.StopWaveform(); HapticManager.StopContinuous(); }
     private IEnumerator PlayRoutine(List<HapticChunk> chunks, double start, bool loop)
     {
         do
         {
             double at = start;
             for (int i = 0; i < chunks.Count; i++)
-            { while (AudioSettings.dspTime < at) yield return null; var c = chunks[i]; HapticManager.PlayWaveform(c.durations, c.amplitudes); at += c.durationMs / 1000d; }
+            { while (AudioSettings.dspTime < at) yield return null; var c = chunks[i]; Command?.Invoke("haptic_chunk_command", "chunk=" + i + ";scheduled_dsp=" + at.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ";durations_ms=" + string.Join("|", c.durations) + ";amplitudes=" + string.Join("|", c.amplitudes)); HapticManager.PlayWaveform(c.durations, c.amplitudes); at += c.durationMs / 1000d; }
+            while (AudioSettings.dspTime < at) yield return null;
             start = at;
         } while (loop);
         playback = null;

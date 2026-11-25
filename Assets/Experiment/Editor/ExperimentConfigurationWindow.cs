@@ -26,10 +26,15 @@ public sealed class ExperimentConfigurationWindow : EditorWindow
     [MenuItem("Tools/Experiment/Experiment Configuration", false, 10)]
     private static void Open() => GetWindow<ExperimentConfigurationWindow>("Experiment Config");
 
-    private void OnEnable() => LoadProtocol();
+    private void OnEnable() { minSize = new Vector2(560, 500); LoadProtocol(); }
 
     private void OnGUI()
     {
+        if (protocol != null && protocol.research.enabled)
+        {
+            ResearchConfigurationGUI.Draw(protocol);
+            return;
+        }
         EditorGUILayout.LabelField("Android Experiment Configuration", EditorStyles.boldLabel);
         EditorGUILayout.Space();
         ExperimentProtocol selected = (ExperimentProtocol)EditorGUILayout.ObjectField(

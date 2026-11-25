@@ -36,7 +36,9 @@ public sealed class ManualHapticGeneratorWindow : EditorWindow
         durations = EditorGUILayout.TextField("Durations (ms)", durations); amplitudes = EditorGUILayout.TextField("Amplitudes", amplitudes);
         if (TryParse(out int[] d, out int[] a, out string error)) { long total = d.Aggregate<int, long>(0, (s, v) => s + v); int chunks = HapticWaveformChunker.Create(d.Select(v => (long)v).ToArray(), a).Count; EditorGUILayout.HelpBox($"{d.Length} segments / {total / 1000f:0.###} s / {chunks} chunk(s)", MessageType.None); } else EditorGUILayout.HelpBox(error, MessageType.Warning);
         using (new EditorGUILayout.HorizontalScope()) { if (GUILayout.Button("Create / Save Profile")) SaveProfile(); if (GUILayout.Button("ADB Forward")) Run(HapticTransportClient.ForwardAdb); }
-        using (new EditorGUILayout.HorizontalScope()) { if (GUILayout.Button("Play on Android")) Play(); if (GUILayout.Button("Stop")) Run(HapticTransportClient.Stop); }
+        using (new EditorGUILayout.HorizontalScope()) { if (GUILayout.Button("Play on Android (Draft Arrays)")) Play(); if (GUILayout.Button("Stop")) Run(HapticTransportClient.Stop); }
+        using (new EditorGUI.DisabledScope(profile == null))
+            if (GUILayout.Button("Open Saved Profile Player")) HapticProfilePlayerWindow.OpenProfile(profile);
         EditorGUILayout.HelpBox(status, MessageType.None); EditorGUILayout.EndScrollView();
     }
     private void LoadProfile() { if (profile == null) return; durations = string.Join(", ", profile.DurationsMs); amplitudes = string.Join(", ", profile.Amplitudes); researcherCalibrated = profile.Origin == HapticProfileOrigin.ResearcherCalibrated; }

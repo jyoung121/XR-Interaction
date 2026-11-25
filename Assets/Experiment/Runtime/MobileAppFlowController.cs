@@ -7,7 +7,8 @@ public enum MobileLauncherDestination
 {
     Home,
     HapticTest,
-    ExperimentSetup
+    ExperimentSetup,
+    ScenarioPreview
 }
 
 /// <summary>
@@ -38,6 +39,47 @@ public sealed class MobileAppFlowController : MonoBehaviour
     public bool IsExperimentActive => experimentActive;
     public bool IsBusy => busy;
     public string Status => status;
+    public bool IsResearchTrial { get; private set; }
+    public ResearchScenarioSettings ResearchSettings { get; private set; }
+    public ResearchMode ResearchMode { get; private set; }
+    public ResearchHaptic ResearchHaptic { get; private set; }
+    public ResearchRecordingPurpose ResearchPurpose { get; private set; }
+    public bool RecordResearchPreview { get; private set; }
+    public ResearchScenarioSettings LastPreviewSettings { get; private set; }
+    public ResearchMode LastPreviewMode { get; private set; }
+    public ResearchHaptic LastPreviewHaptic { get; private set; }
+    public bool LastPreviewRecord { get; private set; }
+
+    public bool LaunchResearch(ResearchScenarioSettings settings, ResearchMode mode,
+        ResearchHaptic haptic, out string reason)
+        => LaunchResearch(settings, mode, haptic, ResearchRecordingPurpose.Experiment, true, out reason);
+
+    public bool LaunchResearch(ResearchScenarioSettings settings, ResearchMode mode,
+        ResearchHaptic haptic, ResearchRecordingPurpose purpose, bool recordPreview, out string reason)
+    {
+        reason = "";
+        if (busy || experimentActive) { reason = "Already changing scenes."; return false; }
+        if (settings == null) { reason = "Missing research settings."; return false; }
+        if (!settings.Validate(out reason)) return false;
+        ResearchSettings = settings;
+        ResearchMode = mode;
+        ResearchHaptic = haptic;
+        ResearchPurpose = purpose;
+        RecordResearchPreview = purpose == ResearchRecordingPurpose.Experiment || recordPreview;
+        if (purpose == ResearchRecordingPurpose.ScenarioPreview)
+        {
+            LastPreviewSettings = settings; LastPreviewMode = mode; LastPreviewHaptic = haptic;
+            LastPreviewRecord = recordPreview;
+        }
+        IsResearchTrial = true;
+        selectedProfile = settings.scenario;
+        experimentActive = true;
+        launcherDestination = purpose == ResearchRecordingPurpose.ScenarioPreview
+            ? MobileLauncherDestination.ScenarioPreview : MobileLauncherDestination.ExperimentSetup;
+        launcherMessage = "";
+        StartCoroutine(LaunchExperimentRoutine());
+        return true;
+    }
 
     public static MobileAppFlowController GetOrCreate()
     {
@@ -212,6 +254,8 @@ public sealed class MobileAppFlowController : MonoBehaviour
 
     private void ClearTrial()
     {
+        IsResearchTrial = false;
+        ResearchSettings = null;
         experimentActive = false;
         selectedProfile = null;
         selectedHapticProfile = null;

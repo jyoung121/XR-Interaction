@@ -19,6 +19,8 @@
 # 에디터 부산물
 *.csproj
 *.sln
+*.slnx
+.vsconfig
 *.user
 *.pidb
 *.booproj
@@ -32,6 +34,7 @@ Thumbs.db
 
 # IL2CPP 빌드 부산물
 /iOSBuild_BackUpThisFolder_ButDontShipItWithYourGame/
+/*_BackUpThisFolder_ButDontShipItWithYourGame/
 
 # 빌드 산출물 / 도구 로그
 build_ios.log

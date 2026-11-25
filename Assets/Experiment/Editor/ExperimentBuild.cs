@@ -25,6 +25,15 @@ public static class ExperimentBuild
         ExperimentProtocol protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(
             ExperimentProjectSetup.ProtocolPath);
 
+        if (protocol != null && protocol.research.enabled)
+        {
+            ResearchExperimentSetup.ValidateResearch();
+            ValidateExperimentScene(protocol, errors);
+            ValidateMobileTestScene(catalog, errors);
+            ThrowIfInvalid("Research scene validation failed", errors);
+            return;
+        }
+
         ValidateCatalog(catalog, errors);
         ValidateProtocol(protocol, catalog, errors);
         ValidateSceneReferences(protocol, catalog, errors);
@@ -79,6 +88,11 @@ public static class ExperimentBuild
     public static void BuildExperimentAndroid()
     {
         ValidateFinalExperiment();
+        if (ResearchExperimentSetup.Protocol?.research.enabled == true)
+        {
+            BuildUnified("Builds/ExperimentAndroid/Experiment.apk");
+            return;
+        }
         BuildAndroid(ExperimentProjectSetup.ExperimentScenePath,
             "Builds/ExperimentAndroid/Experiment.apk");
     }
@@ -97,6 +111,11 @@ public static class ExperimentBuild
 
     private static void ValidateUnifiedRuntime()
     {
+        if (ResearchExperimentSetup.Protocol?.research.enabled == true)
+        {
+            ValidateFinalExperiment();
+            return;
+        }
         var errors = new List<string>();
         ProfileCatalog catalog = LoadCatalog();
         ExperimentProtocol protocol = AssetDatabase.LoadAssetAtPath<ExperimentProtocol>(

@@ -469,8 +469,13 @@ public class MirrorRig : MonoBehaviour
 
     private UnityEngine.Rendering.AmbientMode prevAmbientMode;
     private Color prevAmbientLight;
+    private Color prevAmbientSky, prevAmbientEquator, prevAmbientGround;
     private Material prevSkybox;
     private bool envSaved;
+    private bool dentalRetreat;
+    private float dentalRetreatProgress, retreatMouthOpen;
+    private Vector3 retreatToolPosition, retreatNearPosition;
+    private Quaternion retreatToolRotation, retreatNearRotation;
 
     private Vector3 templeLocal;      // headPivot 로컬 — 관자놀이
     private Vector3 mouthLocal;       // headPivot 로컬 — 입
@@ -759,6 +764,7 @@ public class MirrorRig : MonoBehaviour
 
     public void Dispose()
     {
+        gameObject.SetActive(false);
         RestoreEnvironment();
         Kill(gameObject);
     }
@@ -777,6 +783,9 @@ public class MirrorRig : MonoBehaviour
         if (envSaved) return;
         prevAmbientMode = RenderSettings.ambientMode;
         prevAmbientLight = RenderSettings.ambientLight;
+        prevAmbientSky = RenderSettings.ambientSkyColor;
+        prevAmbientEquator = RenderSettings.ambientEquatorColor;
+        prevAmbientGround = RenderSettings.ambientGroundColor;
         prevSkybox = RenderSettings.skybox;
         prevReflMode = RenderSettings.defaultReflectionMode;
         prevReflTex = RenderSettings.customReflectionTexture;
@@ -813,6 +822,9 @@ public class MirrorRig : MonoBehaviour
         if (!envSaved) return;
         RenderSettings.ambientMode = prevAmbientMode;
         RenderSettings.ambientLight = prevAmbientLight;
+        RenderSettings.ambientSkyColor = prevAmbientSky;
+        RenderSettings.ambientEquatorColor = prevAmbientEquator;
+        RenderSettings.ambientGroundColor = prevAmbientGround;
         RenderSettings.skybox = prevSkybox;
         RenderSettings.defaultReflectionMode = prevReflMode;
         RenderSettings.customReflectionTexture = prevReflTex;
@@ -6386,6 +6398,8 @@ public class MirrorRig : MonoBehaviour
 
     public void ShowScenario(Scenario s, FoodKind kind, DentalKind dental)
     {
+        dentalRetreat = false;
+        externalContactCurveActive = false;
         current = s;
         foodKind = kind;
         dentalKind = dental;
@@ -6541,6 +6555,9 @@ public class MirrorRig : MonoBehaviour
         externalContactCurveActive = useContactCurve &&
             (action == ScenarioAnimationAction.DrillContact ||
              action == ScenarioAnimationAction.BrushContact);
+        bool retreat = action == ScenarioAnimationAction.DrillRetreat || action == ScenarioAnimationAction.BrushRetreat;
+        if (retreat) dentalRetreatProgress = normalizedTime;
+        else dentalRetreat = false;
 
         switch (action)
         {
@@ -6626,6 +6643,7 @@ public class MirrorRig : MonoBehaviour
     private void LateUpdate()
     {
         TrackViewer();
+        if (current == Scenario.Dental) AimTreatLamp();
 
         // 상황을 안 켠 거울 앞에서도 사람은 눈을 깜빡인다. elapsed 는
         // 상황이 켜진 동안만 흐르므로 얼굴은 제 시계로 돈다.
@@ -6800,6 +6818,24 @@ public class MirrorRig : MonoBehaviour
 
 
 
+    // Continuous playback explicitly captures a transition. Direct PC timeline sampling stays deterministic.
+    public void CaptureDentalRetreat()
+    {
+        if (current != Scenario.Dental) return;
+        GameObject tool = dentalKind == DentalKind.Brush ? toothbrush : handpiece;
+        GameObject near = dentalKind == DentalKind.Brush ? nearBrush : nearDrill;
+        if (tool == null) return;
+        retreatToolPosition = tool.transform.localPosition;
+        retreatToolRotation = tool.transform.localRotation;
+        retreatMouthOpen = mouthOpen;
+        if (near != null)
+        {
+            retreatNearPosition = near.transform.localPosition;
+            retreatNearRotation = near.transform.localRotation;
+        }
+        dentalRetreat = true;
+    }
+
     private void AnimateDental()
     {
         bool brush = dentalKind == DentalKind.Brush;
@@ -6860,14 +6896,23 @@ public class MirrorRig : MonoBehaviour
         // 솔 끝이 윗니에 닿도록 조금 올리고 안으로 민다.
         if (brush) pos += new Vector3(0f, 0.005f, -0.006f);
 
+        float retreatWeight = Ease(dentalRetreatProgress);
+        Quaternion toolRotation = Quaternion.LookRotation(-away.normalized, Vector3.up);
+        if (dentalRetreat)
+        {
+            Vector3 idle = mouthLocal + away + (brush ? new Vector3(0f, 0.005f, -0.006f) : Vector3.zero);
+            pos = Vector3.Lerp(retreatToolPosition, idle, retreatWeight);
+            toolRotation = Quaternion.Slerp(retreatToolRotation, toolRotation, retreatWeight);
+            touching = false;
+        }
         tool.transform.localPosition = pos;
-        tool.transform.localRotation = Quaternion.LookRotation(-away.normalized, Vector3.up);
+        tool.transform.localRotation = toolRotation;
 
         // 치과는 처음부터 끝까지 벌리고 있는다. 도구가 들어오기 전에 미리 벌린다.
         // 칫솔은 드릴만큼 크게 벌릴 일이 없다 — 반쯤 벌리고 문지른다.
         float open = Mathf.Max(Ease(elapsed / (ApproachTime * 0.6f)),
                                0.95f * Mathf.Clamp01(k));
-        SetMouth(brush ? open * 0.62f : open);
+        SetMouth(dentalRetreat ? Mathf.Lerp(retreatMouthOpen, 0f, retreatWeight) : brush ? open * 0.62f : open);
 
         if (dentist != null)
         {
@@ -6914,9 +6959,9 @@ public class MirrorRig : MonoBehaviour
                 // 도구의 +Z 가 **끝 방향**이고 원점이 끝이다 (위 거울 쪽
                 // 코드의 LookRotation(-away) 와 같은 규칙). 자루는 -Z 로
                 // 뻗으므로 치과의 쪽인 fromDoc 의 반대를 봐야 한다.
-                near.transform.localPosition = at;
-                near.transform.localRotation =
-                    Quaternion.LookRotation(-fromDoc, Vector3.up);
+                Quaternion nearRotation = Quaternion.LookRotation(-fromDoc, Vector3.up);
+                near.transform.localPosition = dentalRetreat ? Vector3.Lerp(retreatNearPosition, at, retreatWeight) : at;
+                near.transform.localRotation = dentalRetreat ? Quaternion.Slerp(retreatNearRotation, nearRotation, retreatWeight) : nearRotation;
 
                 // 드릴의 자루 한가운데는 BuildHandpiece 를 따라가면
                 // (0, 0.024, -0.091) 이다. 거울 쪽과 같은 y = 0.008 을

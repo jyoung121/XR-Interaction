@@ -8,7 +8,8 @@ public sealed class MirrorScenarioAnimationDriver : ScenarioAnimationDriver
 
     public override void BeginScenario(ScenarioProfile profile)
     {
-        StopScenario();
+        bool reuse = rig != null && activeProfile == profile;
+        if (!reuse) StopScenario();
         if (viewer == null && Camera.main != null) viewer = Camera.main.transform;
         if (viewer == null)
         {
@@ -16,7 +17,7 @@ public sealed class MirrorScenarioAnimationDriver : ScenarioAnimationDriver
             return;
         }
 
-        rig = MirrorRig.Create(viewer);
+        if (!reuse) rig = MirrorRig.Create(viewer);
         if (rig == null) return;
         activeProfile = profile;
         rig.UseExternalAnimationTimeline(true);
@@ -57,6 +58,11 @@ public sealed class MirrorScenarioAnimationDriver : ScenarioAnimationDriver
                 sample.normalizedTime, sample.block.iteration, sample.contactLoad,
                 sample.minimumContactDepth, sample.maximumContactDepth,
                 sample.block.useContactLoadCurve);
+    }
+
+    public override void BeginRetreatTransition(ScenarioProfile profile)
+    {
+        if (rig != null && activeProfile == profile) rig.CaptureDentalRetreat();
     }
 
     public override void StopScenario()

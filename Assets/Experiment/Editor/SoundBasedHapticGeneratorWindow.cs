@@ -76,7 +76,9 @@ public sealed class SoundBasedHapticGeneratorWindow : EditorWindow
             DrawGeneratedAsset("Profile C / Textured", generatedStyleSet.textured);
         }
         using (new EditorGUILayout.HorizontalScope()) { if (GUILayout.Button("Save Profiles")) SaveProfiles(); if (GUILayout.Button("ADB Forward")) Run(HapticTransportClient.ForwardAdb); }
-        using (new EditorGUILayout.HorizontalScope()) { if (GUILayout.Button("Play on Android")) Play(); using (new EditorGUI.DisabledScope(hapticProfile == null)) if (GUILayout.Button("Open in Manual Correction")) ManualHapticGeneratorWindow.EditProfile(hapticProfile); }
+        using (new EditorGUILayout.HorizontalScope()) { if (GUILayout.Button("Play on Android (Analysis Draft)")) Play(); using (new EditorGUI.DisabledScope(hapticProfile == null)) if (GUILayout.Button("Open in Manual Correction")) ManualHapticGeneratorWindow.EditProfile(hapticProfile); }
+        using (new EditorGUI.DisabledScope(hapticProfile == null))
+            if (GUILayout.Button("Open Saved Profile Player")) HapticProfilePlayerWindow.OpenProfile(hapticProfile);
         EditorGUILayout.HelpBox(status, MessageType.None); EditorGUILayout.EndScrollView();
     }
     private void Analyze() { try { result = AudioHapticConverter.Convert(sourceAudio, settings); status = $"Analyzed {result.DurationMs / 1000f:0.###} seconds."; } catch (Exception ex) { result = null; status = ex.Message; } }

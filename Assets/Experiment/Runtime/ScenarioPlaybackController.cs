@@ -15,6 +15,61 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
 {
     public event Action PlaybackCompleted;
     public event Action<ScenarioPlaybackState> PlaybackStateChanged;
+    public event Action<string, string> ResearchEvent;
+    private bool researchPlayback;
+    private bool researchScenePrepared;
+    private double researchEndSeconds = double.PositiveInfinity;
+    public double ClockStartDsp => clockStartDsp;
+    public bool ResearchFinishing { get; private set; }
+
+    public bool BeginResearch(ScenarioProfile next, HapticProfile haptic)
+    {
+        var nextCondition = haptic == null ? ExperimentCondition.Baseline : ExperimentCondition.ResearcherHaptic;
+        if (!researchScenePrepared || !IsPrepared || profile != next)
+        {
+            if (!PrepareResearch(next, nextCondition, haptic)) return false;
+        }
+        else if (!Configure(next, nextCondition, haptic)) return false;
+        researchPlayback = true;
+        researchEndSeconds = double.PositiveInfinity;
+        ResearchFinishing = false;
+        return StartPrepared();
+    }
+
+    // Apple continues the original synchronized timeline through the current iteration's rest.
+    // Brush uses the original retreat animation and stops contact media immediately.
+    public bool FinishResearch()
+    {
+        if (!researchPlayback || !IsPlaying || ResearchFinishing) return false;
+        ResearchFinishing = true;
+        ResearchEvent?.Invoke("finish_requested", ScenarioSeconds.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+        if (scheduled && ScenarioSeconds < 0d)
+        {
+            ResearchEvent?.Invoke("start_cancelled", "before_animation_start");
+            CompletePlayback();
+            return true;
+        }
+        if (profile.scenario == ScenarioId.Apple)
+        {
+            researchEndSeconds = ResearchTimelineRules.AppleFinishSeconds(profile, Mathf.Max(0f, (float)ScenarioSeconds));
+            return true;
+        }
+        StopMediaOnly();
+        lastScenarioSeconds = Math.Max(0d, ScenarioSeconds);
+        scheduled = false;
+        finishBlock = profile.animationBlocks.Find(b => b.kind == AnimationBlockKind.Retreat);
+        if (finishBlock == null) { CompletePlayback(); return true; }
+        finishBlockOffsetSeconds = ScenarioAnimationTimeline.TrySample(profile, (float)lastScenarioSeconds, out var sample) &&
+            ReferenceEquals(sample.block, finishBlock) ? sample.localSeconds : 0f;
+        finishTransitionSeconds = Mathf.Max(profile.finishBlendSeconds, finishBlock.durationSeconds - finishBlockOffsetSeconds);
+        finishStartDsp = AudioSettings.dspTime;
+        finishBlockStarted = false;
+        // Capture the currently displayed tool/mouth pose before advancing the retreat.
+        if (!ReferenceEquals(sample.block, finishBlock)) animationDriver?.BeginRetreatTransition(profile);
+        animationDriver?.EvaluateTimeline(profile, finishBlock.startSeconds + finishBlockOffsetSeconds);
+        SetState(ScenarioPlaybackState.Finishing);
+        return true;
+    }
 
     public ScenarioProfile profile;
     public ExperimentCondition condition = ExperimentCondition.Baseline;
@@ -35,6 +90,7 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
     private bool animationStarted;
     private bool finishBlockStarted;
     private float finishBlockOffsetSeconds;
+    private float finishTransitionSeconds;
     private ScenarioAnimationBlock finishBlock;
     private bool[] blockStarted = Array.Empty<bool>();
     private bool[] blockEnded = Array.Empty<bool>();
@@ -88,6 +144,33 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
         return true;
     }
 
+    // A research trial owns one world anchor and lighting setup across all ON/OFF episodes.
+    public bool PrepareResearch(ScenarioProfile nextProfile, ExperimentCondition nextCondition,
+                                HapticProfile hapticOverride = null)
+    {
+        bool reuse = researchScenePrepared && profile == nextProfile && animationStarted;
+        if (!reuse) Stop();
+        else
+        {
+            StopMediaOnly();
+            researchPlayback = false;
+            ResearchFinishing = false;
+            researchEndSeconds = double.PositiveInfinity;
+            scheduled = false;
+            finishBlock = null;
+            finishBlockStarted = false;
+        }
+        if (!Configure(nextProfile, nextCondition, hapticOverride)) return false;
+        InitializeBlockState();
+        animationDriver.BeginScenario(profile);
+        animationDriver.EvaluateTimeline(profile, 0f);
+        animationStarted = true;
+        researchScenePrepared = true;
+        lastScenarioSeconds = 0d;
+        SetState(ScenarioPlaybackState.Prepared);
+        return true;
+    }
+
     public bool StartPrepared()
     {
         if (playbackState != ScenarioPlaybackState.Prepared || profile == null)
@@ -117,8 +200,12 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
         finishBlockOffsetSeconds = ReferenceEquals(sample.block, finishBlock)
             ? Mathf.Clamp(sample.localSeconds, 0f, finishBlock.durationSeconds)
             : 0f;
+        finishTransitionSeconds = Mathf.Max(profile.finishBlendSeconds, finishBlock.durationSeconds - finishBlockOffsetSeconds);
         finishStartDsp = AudioSettings.dspTime;
         finishBlockStarted = false;
+        if (finishBlock.kind == AnimationBlockKind.Retreat && !ReferenceEquals(sample.block, finishBlock))
+            animationDriver?.BeginRetreatTransition(profile);
+        animationDriver?.EvaluateTimeline(profile, finishBlock.startSeconds + finishBlockOffsetSeconds);
         SetState(ScenarioPlaybackState.Finishing);
         Debug.Log($"[ScenarioPlayer] Finish requested at {lastScenarioSeconds:F3}s; " +
                   $"transition={finishBlock.blockId}.");
@@ -127,6 +214,10 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
 
     public void Stop()
     {
+        researchScenePrepared = false;
+        researchPlayback = false;
+        ResearchFinishing = false;
+        researchEndSeconds = double.PositiveInfinity;
         scheduled = false;
         animationStarted = false;
         finishBlock = null;
@@ -192,6 +283,7 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
         audioSource.time = Mathf.Clamp(sound.trimStartSeconds, 0f,
             Mathf.Max(0f, sound.clip.length - 0.001f));
         audioSource.PlayScheduled(clockStartDsp + profile.soundOffsetSeconds);
+        ResearchEvent?.Invoke("audio_scheduled", (clockStartDsp + profile.soundOffsetSeconds).ToString("R", System.Globalization.CultureInfo.InvariantCulture));
         if (haptic != null)
         {
             hapticPlayer.PlayProfile(haptic,
@@ -224,6 +316,7 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
 
         double seconds = ScenarioSeconds;
         lastScenarioSeconds = seconds;
+        if (seconds < 0d) return; // Keep the prepared world visible during DSP scheduling.
         if (!animationStarted && seconds >= 0d)
         {
             animationStarted = true;
@@ -234,6 +327,13 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
         if (seconds >= 0d && playbackState == ScenarioPlaybackState.Scheduled)
             SetState(ScenarioPlaybackState.Playing);
 
+        for (int i = 0; i < blockStarted.Length; i++)
+        {
+            var block = profile.animationBlocks[i];
+            if (!blockStarted[i] && block.kind == AnimationBlockKind.Retreat && seconds >= block.startSeconds &&
+                seconds < block.startSeconds + block.durationSeconds)
+                animationDriver?.BeginRetreatTransition(profile);
+        }
         animationDriver?.EvaluateTimeline(profile, (float)seconds);
         for (int i = 0; i < blockStarted.Length; i++)
         {
@@ -241,18 +341,26 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
             if (!blockStarted[i] && seconds >= block.startSeconds)
             {
                 blockStarted[i] = true;
+                ResearchEvent?.Invoke("block_begin", block.blockId);
                 animationDriver?.BeginBlock(block);
             }
             if (!blockEnded[i] && seconds >= block.startSeconds + block.durationSeconds)
             {
                 blockEnded[i] = true;
+                ResearchEvent?.Invoke("block_end", block.blockId);
                 animationDriver?.EndBlock(block);
             }
         }
 
+        if (researchPlayback && seconds >= researchEndSeconds)
+        {
+            CompletePlayback();
+            return;
+        }
         if (seconds >= profile.animationDurationSeconds)
         {
-            bool repeat = profile.loop;
+            if (researchPlayback) { CompletePlayback(); return; }
+            bool repeat = profile.loop && !researchPlayback;
             ScenarioProfile completedProfile = profile;
             ExperimentCondition completedCondition = condition;
             HapticProfile completedHapticOverride = activeHapticOverride;
@@ -277,10 +385,12 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
 
         float elapsed = (float)(AudioSettings.dspTime - finishStartDsp);
         float remaining = Mathf.Max(0f, finishBlock.durationSeconds - finishBlockOffsetSeconds);
-        float local = Mathf.Min(finishBlockOffsetSeconds + elapsed,
+        float local = Mathf.Min(finishBlockOffsetSeconds +
+            remaining * Mathf.Clamp01(elapsed / Mathf.Max(.0001f, finishTransitionSeconds)),
             Mathf.Max(0f, finishBlock.durationSeconds - 0.0001f));
         animationDriver?.EvaluateTimeline(profile, finishBlock.startSeconds + local);
-        if (elapsed < remaining) return;
+        if (researchPlayback) lastScenarioSeconds = finishBlock.startSeconds + local;
+        if (elapsed < finishTransitionSeconds) return;
 
         animationDriver?.EndBlock(finishBlock);
         CompletePlayback();
@@ -344,12 +454,15 @@ public sealed class ScenarioPlaybackController : MonoBehaviour
 
     private void CompletePlayback()
     {
+        ResearchEvent?.Invoke("episode_completed", "");
+        researchPlayback = false;
+        ResearchFinishing = false;
         scheduled = false;
-        animationStarted = false;
+        animationStarted = researchScenePrepared;
         finishBlock = null;
         finishBlockStarted = false;
         StopMediaOnly();
-        animationDriver?.StopScenario();
+        if (!researchScenePrepared) animationDriver?.StopScenario();
         SetState(ScenarioPlaybackState.Idle);
         PlaybackCompleted?.Invoke();
     }
